@@ -21,8 +21,8 @@ targets:
       - path: App
         excludes:
           - Resources
-    resources:
       - path: App/Resources
+        buildPhase: resources
     dependencies:
       - package: SwiftSoup
     info:

@@ -23,6 +23,13 @@ if [[ -z "$APP_PATH" ]]; then
   exit 1
 fi
 
+for resource in community-sources.json demo-source.json Assets.car; do
+  if [[ ! -e "$APP_PATH/$resource" ]]; then
+    echo "应用包缺少资源：$resource" >&2
+    exit 1
+  fi
+done
+
 rm -rf build/package build/QuietReader-unsigned.ipa
 mkdir -p build/package/Payload
 cp -R "$APP_PATH" build/package/Payload/
