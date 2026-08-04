@@ -1,0 +1,23 @@
+[
+  {
+    "sourceId": "org.gutendex.public-domain",
+    "bookSourceUrl": "https://gutendex.com",
+    "bookSourceName": "古登堡公版书",
+    "bookSourceGroup": "内置测试",
+    "enabled": true,
+    "lastUpdateTime": 1785772800000,
+    "searchUrl": "https://gutendex.com/books/?search={{key}}&page={{page}}",
+    "ruleSearch": {
+      "bookList": "$.results[*]",
+      "name": "$.title",
+      "author": "$.authors[0].name",
+      "intro": "$.summaries[0]",
+      "kind": "$.languages[*]",
+      "bookUrl": "$[\"formats\"][\"text/plain; charset=utf-8\"]",
+      "coverUrl": "$[\"formats\"][\"image/jpeg\"]"
+    },
+    "ruleContent": {
+      "content": "@text"
+    }
+  }
+]

@@ -1,0 +1,189 @@
+import Foundation
+import SwiftSoup
+
+struct SourceEngine {
+    private let client = SourceHTTPClient.shared
+    private let extractor = RuleExtractor()
+
+    func search(
+        keyword: String,
+        page: Int = 1,
+        source: BookSourceDefinition
+    ) async throws -> [SearchBook] {
+        guard let template = source.searchUrl?.nilIfBlank,
+              let rules = source.ruleSearch,
+              let listRule = rules.bookList?.nilIfBlank else {
+            return []
+        }
+
+        let url = try URLTemplateRenderer.render(template, keyword: keyword, page: page)
+        let resource = try await client.fetch(url, source: source)
+        let root = try extractor.root(from: resource)
+        let nodes = try extractor.list(listRule, in: root)
+
+        return try nodes.compactMap { node in
+            let name = try extractor.string(rules.name, in: node)
+            let bookURL = try extractor.string(rules.bookUrl, in: node, asURL: true)
+            guard !name.isEmpty, !bookURL.isEmpty else { return nil }
+            return SearchBook(
+                sourceID: source.id,
+                sourceName: source.bookSourceName,
+                name: name,
+                author: try extractor.string(rules.author, in: node),
+                intro: try extractor.string(rules.intro, in: node),
+                kind: try extractor.string(rules.kind, in: node),
+                lastChapter: try extractor.string(rules.lastChapter, in: node),
+                updateTime: try extractor.string(rules.updateTime, in: node),
+                bookURL: bookURL,
+                coverURL: try extractor.string(rules.coverUrl, in: node, asURL: true),
+                tocURL: ""
+            )
+        }
+    }
+
+    func loadDetails(
+        book: SearchBook,
+        source: BookSourceDefinition
+    ) async throws -> SearchBook {
+        guard let rules = source.ruleBookInfo else { return book }
+        let url = try URLTemplateRenderer.render(book.bookURL)
+        let resource = try await client.fetch(url, source: source)
+        let root = try extractor.root(from: resource)
+        var result = book
+
+        result.name = try extractor.string(rules.name, in: root).nilIfBlank ?? result.name
+        result.author = try extractor.string(rules.author, in: root).nilIfBlank ?? result.author
+        result.intro = try extractor.string(rules.intro, in: root).nilIfBlank ?? result.intro
+        result.kind = try extractor.string(rules.kind, in: root).nilIfBlank ?? result.kind
+        result.lastChapter = try extractor.string(rules.lastChapter, in: root).nilIfBlank
+            ?? result.lastChapter
+        result.updateTime = try extractor.string(rules.updateTime, in: root).nilIfBlank
+            ?? result.updateTime
+        result.coverURL = try extractor.string(rules.coverUrl, in: root, asURL: true).nilIfBlank
+            ?? result.coverURL
+        result.tocURL = try extractor.string(rules.tocUrl, in: root, asURL: true).nilIfBlank
+            ?? result.tocURL
+        return result
+    }
+
+    func loadChapters(
+        book: SearchBook,
+        source: BookSourceDefinition
+    ) async throws -> [BookChapter] {
+        guard let rules = source.ruleToc,
+              let chapterListRule = rules.chapterList?.nilIfBlank else {
+            return [BookChapter(title: "全文", url: book.bookURL, index: 0)]
+        }
+
+        let tocAddress = book.tocURL.nilIfBlank ?? book.bookURL
+        let url = try URLTemplateRenderer.render(tocAddress)
+        let resource = try await client.fetch(url, source: source)
+        let root = try extractor.root(from: resource)
+        let nodes = try extractor.list(chapterListRule, in: root)
+        var seen = Set<String>()
+        var chapters: [BookChapter] = []
+
+        for node in nodes {
+            let title = try extractor.string(rules.chapterName, in: node)
+            let chapterURL = try extractor.string(rules.chapterUrl, in: node, asURL: true)
+            guard !title.isEmpty, !chapterURL.isEmpty, seen.insert(chapterURL).inserted else {
+                continue
+            }
+            chapters.append(BookChapter(title: title, url: chapterURL, index: chapters.count))
+        }
+        if chapters.isEmpty {
+            throw SourceEngineError.emptyChapterList
+        }
+        return chapters
+    }
+
+    func loadContent(
+        chapter: BookChapter,
+        source: BookSourceDefinition
+    ) async throws -> String {
+        let rules = source.ruleContent
+        var currentURL = try URLTemplateRenderer.render(chapter.url)
+        var visited = Set<String>()
+        var pages: [String] = []
+
+        for _ in 0..<3 {
+            guard visited.insert(currentURL.absoluteString).inserted else { break }
+            let resource = try await client.fetch(currentURL, source: source)
+            var rawText = resource.text
+            if let sourceRegex = rules?.sourceRegex?.nilIfBlank {
+                rawText = replace(rawText, pattern: sourceRegex, with: "")
+            }
+            let adjustedResource = FetchedResource(
+                data: rawText.data(using: .utf8) ?? resource.data,
+                finalURL: resource.finalURL,
+                contentType: "text/html; charset=utf-8"
+            )
+            let root = try extractor.root(from: adjustedResource)
+            let contentRule = rules?.content?.nilIfBlank ?? "@text"
+            var content = try extractor.string(contentRule, in: root)
+            if let replaceRule = rules?.replaceRegex?.nilIfBlank {
+                content = replace(content, pattern: replaceRule, with: "")
+            }
+            let cleaned = cleanReadableText(content)
+            if !cleaned.isEmpty { pages.append(cleaned) }
+
+            guard let nextRule = rules?.nextContentUrl?.nilIfBlank else { break }
+            let next = try extractor.string(nextRule, in: root, asURL: true)
+            guard let nextURL = URL(string: next), !next.isEmpty else { break }
+            currentURL = nextURL
+        }
+
+        let result = pages.joined(separator: "\n\n")
+        guard !result.isEmpty else { throw SourceEngineError.emptyContent }
+        return result
+    }
+
+    private func cleanReadableText(_ value: String) -> String {
+        var text = value
+        if value.contains("<") && value.contains(">"),
+           let document = try? SwiftSoup.parseBodyFragment(value),
+           let body = document.body(),
+           let bodyText = try? body.text() {
+            text = bodyText
+        }
+        return text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .reduce(into: [String]()) { lines, line in
+                if !line.isEmpty || lines.last?.isEmpty == false { lines.append(line) }
+            }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func replace(_ value: String, pattern: String, with replacement: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return value }
+        return regex.stringByReplacingMatches(
+            in: value,
+            range: NSRange(value.startIndex..., in: value),
+            withTemplate: replacement
+        )
+    }
+}
+
+enum SourceEngineError: LocalizedError {
+    case invalidURL(String)
+    case invalidResponse
+    case httpStatus(Int)
+    case responseTooLarge
+    case emptyChapterList
+    case emptyContent
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL(let value): "地址无效：\(value)"
+        case .invalidResponse: "书源没有返回有效的网络响应"
+        case .httpStatus(let code): "书源请求失败，状态码 \(code)"
+        case .responseTooLarge: "书源响应超过 25 MB 限制"
+        case .emptyChapterList: "没有解析到章节目录"
+        case .emptyContent: "没有解析到正文内容"
+        }
+    }
+}
