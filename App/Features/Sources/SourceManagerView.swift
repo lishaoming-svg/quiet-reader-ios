@@ -13,7 +13,7 @@ struct SourceManagerView: View {
                 EmptyStateView(
                     icon: "point.3.connected.trianglepath.dotted",
                     title: "还没有书源",
-                    message: "可以粘贴 JSON、输入远程地址，或导入内置的公版书测试源。"
+                    message: "可以粘贴 JSON、输入远程地址，或导入内置的精选书源。"
                 )
             } else {
                 List {

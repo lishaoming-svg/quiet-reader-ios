@@ -16,7 +16,12 @@ struct SourceEngine {
             return []
         }
 
-        let url = try URLTemplateRenderer.render(template, keyword: keyword, page: page)
+        let url = try URLTemplateRenderer.render(
+            template,
+            keyword: keyword,
+            page: page,
+            relativeTo: source.bookSourceUrl
+        )
         let resource = try await client.fetch(url, source: source)
         let root = try extractor.root(from: resource)
         let nodes = try extractor.list(listRule, in: root)
@@ -76,20 +81,31 @@ struct SourceEngine {
         }
 
         let tocAddress = book.tocURL.nilIfBlank ?? book.bookURL
-        let url = try URLTemplateRenderer.render(tocAddress)
-        let resource = try await client.fetch(url, source: source)
-        let root = try extractor.root(from: resource)
-        let nodes = try extractor.list(chapterListRule, in: root)
+        var currentURL = try URLTemplateRenderer.render(tocAddress)
+        var visitedPages = Set<String>()
         var seen = Set<String>()
         var chapters: [BookChapter] = []
 
-        for node in nodes {
-            let title = try extractor.string(rules.chapterName, in: node)
-            let chapterURL = try extractor.string(rules.chapterUrl, in: node, asURL: true)
-            guard !title.isEmpty, !chapterURL.isEmpty, seen.insert(chapterURL).inserted else {
-                continue
+        for _ in 0..<50 {
+            guard visitedPages.insert(currentURL.absoluteString).inserted else { break }
+            let resource = try await client.fetch(currentURL, source: source)
+            let root = try extractor.root(from: resource)
+            let nodes = try extractor.list(chapterListRule, in: root)
+
+            for node in nodes {
+                let title = try extractor.string(rules.chapterName, in: node)
+                let chapterURL = try extractor.string(rules.chapterUrl, in: node, asURL: true)
+                guard !title.isEmpty, !chapterURL.isEmpty,
+                      seen.insert(chapterURL).inserted else {
+                    continue
+                }
+                chapters.append(BookChapter(title: title, url: chapterURL, index: chapters.count))
             }
-            chapters.append(BookChapter(title: title, url: chapterURL, index: chapters.count))
+
+            guard let nextRule = rules.nextTocUrl?.nilIfBlank else { break }
+            let next = try extractor.string(nextRule, in: root, asURL: true)
+            guard let nextURL = URL(string: next), !next.isEmpty else { break }
+            currentURL = nextURL
         }
         if chapters.isEmpty {
             throw SourceEngineError.emptyChapterList

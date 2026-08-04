@@ -4,7 +4,8 @@ enum URLTemplateRenderer {
     static func render(
         _ template: String,
         keyword: String = "",
-        page: Int = 1
+        page: Int = 1,
+        relativeTo baseURLString: String? = nil
     ) throws -> URL {
         let allowed = CharacterSet.urlQueryAllowed
             .subtracting(CharacterSet(charactersIn: "&+=?#"))
@@ -15,7 +16,8 @@ enum URLTemplateRenderer {
             .replacingOccurrences(of: "{{page}}", with: String(page))
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let url = URL(string: rendered),
+        let baseURL = baseURLString.flatMap(URL.init(string:))
+        guard let url = URL(string: rendered, relativeTo: baseURL)?.absoluteURL,
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
             throw SourceEngineError.invalidURL(rendered)

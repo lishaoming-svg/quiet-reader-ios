@@ -70,7 +70,7 @@ struct SourceImportView: View {
             Text("粘贴 JSON 或书源地址")
                 .font(AppTheme.sectionFont)
                 .foregroundStyle(AppTheme.ink)
-            Text("导入只保存规则，不会立即下载书籍。当前版本不会执行书源中的 JavaScript。")
+            Text("支持部分 Legado CSS、JSONPath 与正则规则；不会执行书源中的 JavaScript。")
                 .font(.callout)
                 .foregroundStyle(AppTheme.inkSoft)
         }
@@ -80,7 +80,7 @@ struct SourceImportView: View {
         HStack {
             Button("选取文件") { showingFileImporter = true }
                 .buttonStyle(.bordered)
-            Button("载入测试源", action: loadDemoSource)
+            Button("载入精选源", action: loadCuratedSources)
                 .buttonStyle(.bordered)
             Spacer()
             Button {
@@ -194,10 +194,10 @@ struct SourceImportView: View {
         }
     }
 
-    private func loadDemoSource() {
-        guard let url = Bundle.main.url(forResource: "demo-source", withExtension: "json"),
+    private func loadCuratedSources() {
+        guard let url = Bundle.main.url(forResource: "community-sources", withExtension: "json"),
               let value = try? String(contentsOf: url, encoding: .utf8) else {
-            errorMessage = "内置测试源缺失"
+            errorMessage = "内置精选书源缺失"
             return
         }
         input = value

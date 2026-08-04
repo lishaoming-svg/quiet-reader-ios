@@ -1,0 +1,141 @@
+[
+  {
+    "sourceId": "org.gutendex.public-domain",
+    "bookSourceUrl": "https://gutendex.com",
+    "bookSourceName": "古登堡公版书",
+    "bookSourceGroup": "开放内容",
+    "enabled": true,
+    "lastUpdateTime": 1785772801000,
+    "searchUrl": "https://gutendex.com/books/?search={{key}}&page={{page}}",
+    "ruleSearch": {
+      "bookList": "$.results[*]",
+      "name": "$.title",
+      "author": "$.authors[0].name",
+      "intro": "$.summaries[0]",
+      "kind": "$.languages[*]",
+      "bookUrl": "$[\"formats\"][\"text/plain; charset=utf-8\"]",
+      "coverUrl": "$[\"formats\"][\"image/jpeg\"]"
+    },
+    "ruleContent": {
+      "content": "@text"
+    }
+  },
+  {
+    "sourceId": "tw.lnovel.community",
+    "bookSourceUrl": "https://lnovel.tw",
+    "bookSourceName": "轻小说百科",
+    "bookSourceGroup": "Legado 精选",
+    "enabled": true,
+    "lastUpdateTime": 1785772801000,
+    "searchUrl": "/books?page={{page}}&q%5Bname_cont%5D={{key}}",
+    "ruleSearch": {
+      "bookList": ".col-6.col-md-4.col-md-3.col-lg-6.col-xl-4",
+      "name": "text",
+      "bookUrl": "href",
+      "coverUrl": "img@src"
+    },
+    "ruleBookInfo": {
+      "name": "h1@text"
+    },
+    "ruleToc": {
+      "chapterList": ".accordion-item@a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "article .card-body@html"
+    }
+  },
+  {
+    "sourceId": "com.hongxiu.public-chapters",
+    "bookSourceUrl": "https://m.hongxiu.com",
+    "bookSourceName": "红袖读书（公开章节）",
+    "bookSourceGroup": "Legado 精选",
+    "enabled": true,
+    "lastUpdateTime": 1785772801000,
+    "searchUrl": "/search?kw={{key}}",
+    "ruleSearch": {
+      "bookList": ".book-li",
+      "name": "h4@text",
+      "author": ".book-author@text",
+      "intro": ".book-desc@text",
+      "kind": ".tag-small-group@text",
+      "bookUrl": "a@href",
+      "coverUrl": "img@data-src||img@src"
+    },
+    "ruleBookInfo": {
+      "name": "h1@text",
+      "tocUrl": "a[href^=\"/chapterlist/\"]@href"
+    },
+    "ruleToc": {
+      "chapterList": ".chapter-li",
+      "chapterName": "a@text",
+      "chapterUrl": "a@href"
+    },
+    "ruleContent": {
+      "content": ".read-section.jsChapterWrapper@html||#chapterContent@html"
+    }
+  },
+  {
+    "sourceId": "org.lightnovelworld.community",
+    "bookSourceUrl": "https://lightnovelworld.org",
+    "bookSourceName": "Light Novel World",
+    "bookSourceGroup": "Legado 精选",
+    "enabled": true,
+    "lastUpdateTime": 1785772801000,
+    "searchUrl": "/api/search/?q={{key}}",
+    "ruleSearch": {
+      "bookList": "$.novels[*]",
+      "name": "$.title",
+      "author": "$.author",
+      "kind": "$.genres[*]",
+      "bookUrl": "$.slug##^##/novel/",
+      "coverUrl": "$.cover_path"
+    },
+    "ruleBookInfo": {
+      "name": "@css:h1.novel-title@text",
+      "intro": "@css:div.summary-content@text",
+      "tocUrl": "@css:div.content-card@onclick##location.href=|'"
+    },
+    "ruleToc": {
+      "chapterList": "@css:div.chapter-card",
+      "chapterName": "@css:h3.chapter-title@text",
+      "chapterUrl": "@css:div.chapter-card@onclick##location.href=|'",
+      "nextTocUrl": "@css:a[title=\"Next Page\"]@href"
+    },
+    "ruleContent": {
+      "content": "@css:div.chapter-text@html"
+    }
+  },
+  {
+    "sourceId": "com.royalroad.community",
+    "bookSourceUrl": "https://www.royalroad.com",
+    "bookSourceName": "Royal Road",
+    "bookSourceGroup": "Legado 精选",
+    "enabled": true,
+    "lastUpdateTime": 1785772801000,
+    "searchUrl": "/fictions/search?title={{key}}",
+    "ruleSearch": {
+      "bookList": ".fiction-list-item",
+      "name": "h2@text",
+      "kind": ".tags@text",
+      "bookUrl": "h2 a@href",
+      "coverUrl": "img@src"
+    },
+    "ruleBookInfo": {
+      "name": ".fic-title h1@text",
+      "author": ".fic-title h4 a@text",
+      "intro": ".description@html",
+      "kind": ".tags@text",
+      "coverUrl": ".thumbnail@src"
+    },
+    "ruleToc": {
+      "chapterList": ".chapter-row",
+      "chapterName": "a@text",
+      "chapterUrl": "a@href"
+    },
+    "ruleContent": {
+      "content": ".chapter-content@html"
+    }
+  }
+]
