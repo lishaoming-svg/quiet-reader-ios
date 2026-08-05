@@ -30,6 +30,8 @@ open QuietReader.xcodeproj
 
 Windows 环境不能运行 Xcode。推送到 GitHub 后，可在 Actions 中运行 `构建 iOS 测试包`，下载 `QuietReader-unsigned-ipa` 构建产物，再使用 AltStore 或 Sideloadly 以自己的 Apple ID 签名安装。
 
+第三方书源的实时链路可在 Actions 中手动运行 `在线书源冒烟测试`。该测试会在 iPhone 模拟器中使用 App 自身的书源引擎执行搜索、详情、目录和第一章正文读取，不纳入每次提交的固定测试，以免第三方服务临时故障阻断正常构建。
+
 ## 书源边界
 
 当前书源格式兼容 Legado 的常用顶层字段和四段规则结构，但不是完整 Legado 引擎。暂不支持任意 JavaScript、登录、验证码、复杂 POST、XPath 和付费操作。
