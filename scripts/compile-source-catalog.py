@@ -23,6 +23,10 @@ RULE_FIELDS = {
         "bookList", "name", "author", "intro", "kind", "lastChapter",
         "updateTime", "bookUrl", "coverUrl", "wordCount",
     ],
+    "ruleExplore": [
+        "bookList", "name", "author", "intro", "kind", "lastChapter",
+        "updateTime", "bookUrl", "coverUrl", "wordCount",
+    ],
     "ruleBookInfo": [
         "init", "name", "author", "intro", "kind", "lastChapter",
         "updateTime", "coverUrl", "tocUrl", "wordCount",

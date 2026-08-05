@@ -13,6 +13,8 @@ enum URLTemplateRenderer {
         let rendered = template
             .replacingOccurrences(of: "{{key}}", with: encodedKeyword)
             .replacingOccurrences(of: "{{keyword}}", with: encodedKeyword)
+            .replacingOccurrences(of: "{{page-1}}", with: String(max(0, page - 1)))
+            .replacingOccurrences(of: "{{page+1}}", with: String(page + 1))
             .replacingOccurrences(of: "{{page}}", with: String(page))
             .trimmingCharacters(in: .whitespacesAndNewlines)
 

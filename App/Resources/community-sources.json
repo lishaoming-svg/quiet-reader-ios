@@ -6,7 +6,9 @@
     "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785920400000,
+    "enabledExplore": true,
+    "lastUpdateTime": 1785924000000,
+    "exploreUrl": "最近更新::/",
     "searchUrl": "/search.php?keyWord={{key}}",
     "ruleSearch": {
       "bookList": "ul.txt-list-row5 li",
@@ -39,7 +41,9 @@
     "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785920400000,
+    "enabledExplore": true,
+    "lastUpdateTime": 1785924000000,
+    "exploreUrl": "最近更新::/",
     "searchUrl": "/ar.php?keyWord={{key}}",
     "ruleSearch": {
       "bookList": "ul.txt-list-row5 li",
@@ -71,8 +75,10 @@
     "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785920400000,
+    "enabledExplore": true,
+    "lastUpdateTime": 1785924000000,
     "header": "{\"User-Agent\":\"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1\"}",
+    "exploreUrl": "总点击::/modules/article/toplist.php?sort=allvisit&page={{page}}\n月点击::/modules/article/toplist.php?sort=monthvisit&page={{page}}\n最近更新::/modules/article/toplist.php?sort=lastupdate&page={{page}}",
     "searchUrl": "/modules/article/search.php?searchkey={{key}}",
     "ruleSearch": {
       "bookList": "table.grid tr",
@@ -103,7 +109,9 @@
     "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785920400000,
+    "enabledExplore": true,
+    "lastUpdateTime": 1785924000000,
+    "exploreUrl": "言情年榜::/tuijian/yanqing_top100.html\nGL 年榜::/tuijian/gl_top100.html\n耽美年榜::/tuijian/DanMei_top100.html",
     "searchUrl": "/so/search.php?q={{key}}",
     "ruleSearch": {
       "bookList": ".excerpt",
@@ -111,6 +119,12 @@
       "author": "h2 h4@text##^.*_([^【]+).*$##$1",
       "intro": ".note@text",
       "bookUrl": "h2 a@href"
+    },
+    "ruleExplore": {
+      "bookList": "article.excerpt h3",
+      "name": "a@text##^\\d+[、.．]\\s*|_.*$",
+      "author": "a@text##^.*_([^〖【]+).*$##$1",
+      "bookUrl": "a@href"
     },
     "ruleBookInfo": {
       "intro": ".article-content p.1@text##.*文案："
@@ -132,7 +146,9 @@
     "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785920400000,
+    "enabledExplore": true,
+    "lastUpdateTime": 1785924000000,
+    "exploreUrl": "总点击::/top/allvisit/{{page}}\n月点击::/top/monthvisit/{{page}}\n周点击::/top/weekvisit/{{page}}\n玄幻::/category/xuanhuan/\n都市::/category/dushi\n科幻::/category/kehuan\n灵异::/category/lingyi",
     "searchUrl": "/modules/article/search.php?searchkey={{key}}",
     "ruleSearch": {
       "bookList": ".librarylist li",

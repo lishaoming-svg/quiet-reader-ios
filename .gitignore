@@ -7,4 +7,5 @@ QuietReader.xcodeproj/
 xcuserdata/
 *.ipa
 *.zip
+__pycache__/
 notes/local-*

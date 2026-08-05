@@ -12,7 +12,7 @@ struct SourceEngine {
     ) async throws -> [SearchBook] {
         guard let template = source.searchUrl?.nilIfBlank,
               let rules = source.ruleSearch,
-              let listRule = rules.bookList?.nilIfBlank else {
+              rules.bookList?.nilIfBlank != nil else {
             return []
         }
 
@@ -22,6 +22,33 @@ struct SourceEngine {
             page: page,
             relativeTo: source.bookSourceUrl
         )
+        return try await loadBooks(at: url, rules: rules, source: source)
+    }
+
+    func explore(
+        category: SourceExploreCategory,
+        page: Int = 1,
+        source: BookSourceDefinition
+    ) async throws -> [SearchBook] {
+        guard let rules = source.ruleExplore ?? source.ruleSearch,
+              rules.bookList?.nilIfBlank != nil else {
+            return []
+        }
+
+        let url = try URLTemplateRenderer.render(
+            category.address,
+            page: page,
+            relativeTo: source.bookSourceUrl
+        )
+        return try await loadBooks(at: url, rules: rules, source: source)
+    }
+
+    private func loadBooks(
+        at url: URL,
+        rules: SearchRuleDefinition,
+        source: BookSourceDefinition
+    ) async throws -> [SearchBook] {
+        guard let listRule = rules.bookList?.nilIfBlank else { return [] }
         let resource = try await client.fetch(url, source: source)
         let root = try extractor.root(from: resource)
         let nodes = try extractor.list(listRule, in: root)

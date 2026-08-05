@@ -8,11 +8,15 @@ enum BundledSourceUpdater {
         in modelContext: ModelContext,
         bundle: Bundle = .main
     ) throws -> Int {
-        guard let url = bundle.url(forResource: "community-sources", withExtension: "json") else {
-            return 0
-        }
-        let definitions = try SourceImporter().decodeSources(Data(contentsOf: url)).sources
+        let definitions = try bundledDefinitions(bundle: bundle)
         return try refreshExistingSources(in: modelContext, definitions: definitions)
+    }
+
+    static func bundledDefinitions(bundle: Bundle = .main) throws -> [BookSourceDefinition] {
+        guard let url = bundle.url(forResource: "community-sources", withExtension: "json") else {
+            return []
+        }
+        return try SourceImporter().decodeSources(Data(contentsOf: url)).sources
     }
 
     @discardableResult

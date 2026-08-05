@@ -4,8 +4,12 @@ import SwiftUI
 struct SourceManagerView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \BookSourceRecord.sourceName) private var sources: [BookSourceRecord]
+    @Query private var bookshelfBooks: [BookRecord]
     @State private var showingImporter = false
     @State private var loginSource: BookSourceDefinition?
+    @State private var cleanupCandidateIDs = Set<String>()
+    @State private var showingCleanupAlert = false
+    @State private var isAtBottom = false
 
     var body: some View {
         ZStack {
@@ -17,35 +21,58 @@ struct SourceManagerView: View {
                     message: "可以粘贴 JSON、输入远程地址，或导入内置的精选书源。"
                 )
             } else {
-                List {
-                    Section {
-                        ForEach(sources) { source in
-                            SourceRow(
-                                source: source,
-                                onChange: { try? modelContext.save() },
-                                onLogin: { loginSource = source.definition }
-                            )
-                            .listRowBackground(AppTheme.paperLight.opacity(0.92))
+                ScrollViewReader { proxy in
+                    List {
+                        Color.clear
+                            .frame(height: 0)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .id(ListAnchor.top)
+                            .onAppear { isAtBottom = false }
+
+                        Section {
+                            ForEach(sources) { source in
+                                SourceRow(
+                                    source: source,
+                                    onChange: { try? modelContext.save() },
+                                    onLogin: { loginSource = source.definition }
+                                )
+                                .listRowBackground(AppTheme.paperLight.opacity(0.92))
+                            }
+                            .onDelete(perform: delete)
+                        } header: {
+                            Text("共 \(sources.count) 个书源")
+                                .foregroundStyle(AppTheme.inkSoft)
                         }
-                        .onDelete(perform: delete)
-                    } header: {
-                        Text("共 \(sources.count) 个书源")
-                            .foregroundStyle(AppTheme.inkSoft)
+
+                        Color.clear
+                            .frame(height: 1)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .id(ListAnchor.bottom)
+                            .onAppear { isAtBottom = true }
+                    }
+                    .scrollContentBackground(.hidden)
+                    .overlay(alignment: .bottomTrailing) {
+                        jumpButton(proxy: proxy)
                     }
                 }
-                .scrollContentBackground(.hidden)
             }
         }
         .navigationTitle("书源")
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItemGroup(placement: .topBarLeading) {
                 NavigationLink {
                     BundledSourceLibraryView()
                 } label: {
                     Label("内置源库", systemImage: "tray.full")
                 }
+                Button(action: prepareCleanup) {
+                    Label("一键清理", systemImage: "paintbrush")
+                }
+                .disabled(sources.isEmpty)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -61,12 +88,74 @@ struct SourceManagerView: View {
         .sheet(item: $loginSource) { source in
             SourceLoginView(source: source)
         }
+        .alert("一键清理书源", isPresented: $showingCleanupAlert) {
+            Button("取消", role: .cancel) {}
+            if !cleanupCandidateIDs.isEmpty {
+                Button("清理 \(cleanupCandidateIDs.count) 个", role: .destructive) {
+                    cleanSources()
+                }
+            }
+        } message: {
+            Text(cleanupMessage)
+        }
+    }
+
+    private var cleanupMessage: String {
+        if cleanupCandidateIDs.isEmpty {
+            return "没有可清理的冗余书源。已启用、内置精选和书架正在使用的书源都会保留。"
+        }
+        return "将删除 \(cleanupCandidateIDs.count) 个未启用且未被书架使用的书源；已启用、内置精选和书架用源会保留。"
+    }
+
+    private func jumpButton(proxy: ScrollViewProxy) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                proxy.scrollTo(
+                    isAtBottom ? ListAnchor.top : ListAnchor.bottom,
+                    anchor: isAtBottom ? .top : .bottom
+                )
+            }
+            isAtBottom.toggle()
+        } label: {
+            Image(systemName: isAtBottom ? "arrow.up.to.line" : "arrow.down.to.line")
+                .font(.headline.bold())
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(AppTheme.vermilion, in: Circle())
+                .shadow(color: AppTheme.ink.opacity(0.18), radius: 8, y: 4)
+        }
+        .accessibilityLabel(isAtBottom ? "回到顶部" : "前往底部")
+        .padding(18)
+    }
+
+    private func prepareCleanup() {
+        let curatedDefinitions = (try? BundledSourceUpdater.bundledDefinitions()) ?? []
+        cleanupCandidateIDs = SourceCleanupPlanner.removableSourceIDs(
+            allSourceIDs: Set(sources.map(\.sourceID)),
+            enabledSourceIDs: Set(sources.filter(\.enabled).map(\.sourceID)),
+            curatedSourceIDs: Set(curatedDefinitions.map(\.id)),
+            bookshelfSourceIDs: Set(bookshelfBooks.map(\.sourceID))
+        )
+        showingCleanupAlert = true
+    }
+
+    private func cleanSources() {
+        for source in sources where cleanupCandidateIDs.contains(source.sourceID) {
+            modelContext.delete(source)
+        }
+        try? modelContext.save()
+        cleanupCandidateIDs.removeAll()
     }
 
     private func delete(at offsets: IndexSet) {
         offsets.forEach { modelContext.delete(sources[$0]) }
         try? modelContext.save()
     }
+}
+
+private enum ListAnchor: Hashable {
+    case top
+    case bottom
 }
 
 private struct SourceRow: View {
@@ -104,6 +193,18 @@ private struct SourceRow: View {
                         .font(.caption.bold())
                         .buttonStyle(.bordered)
                         .tint(AppTheme.vermilion)
+                }
+                if let definition = source.definition,
+                   definition.enabledExplore != false,
+                   !SourceExploreParser.categories(from: definition.exploreUrl).isEmpty {
+                    NavigationLink {
+                        SourceExploreView(source: definition)
+                    } label: {
+                        Label("榜单", systemImage: "list.number")
+                            .font(.caption.bold())
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(AppTheme.jade)
                 }
             }
         }

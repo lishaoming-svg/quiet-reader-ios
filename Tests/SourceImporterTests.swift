@@ -22,6 +22,10 @@ final class SourceImporterTests: XCTestCase {
         )
         XCTAssertTrue(sources.allSatisfy { $0.loginUrl?.nilIfBlank == nil })
         XCTAssertTrue(sources.allSatisfy(\.isEnabled))
+        XCTAssertTrue(sources.allSatisfy { $0.enabledExplore == true })
+        XCTAssertTrue(sources.allSatisfy {
+            !SourceExploreParser.categories(from: $0.exploreUrl).isEmpty
+        })
     }
 
     func testDecodesSingleSourceObject() throws {
@@ -80,5 +84,16 @@ final class SourceImporterTests: XCTestCase {
 
         XCTAssertEqual(result.sources[0].ruleSearch?.bookList, ".book")
         XCTAssertEqual(result.sources[0].ruleSearch?.name, "h2@text")
+    }
+
+    func testDecodesExploreRuleStoredAsObject() throws {
+        let data = Data(
+            #"{"bookSourceUrl":"https://example.com","bookSourceName":"榜单源","exploreUrl":"热门::/top/{{page}}","ruleExplore":{"bookList":".book","name":"h2@text"}}"#.utf8
+        )
+
+        let result = try SourceImporter().decodeSources(data)
+
+        XCTAssertEqual(result.sources[0].ruleExplore?.bookList, ".book")
+        XCTAssertEqual(result.sources[0].ruleExplore?.name, "h2@text")
     }
 }

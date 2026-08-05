@@ -14,6 +14,7 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
     var searchUrl: String?
     var exploreUrl: String?
     var ruleSearch: SearchRuleDefinition?
+    var ruleExplore: SearchRuleDefinition?
     var ruleBookInfo: BookInfoRuleDefinition?
     var ruleToc: TocRuleDefinition?
     var ruleContent: ContentRuleDefinition?
@@ -36,7 +37,7 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case sourceId, bookSourceUrl, bookSourceName, bookSourceGroup, bookSourceType
         case enabled, enabledExplore, lastUpdateTime, header, loginUrl, searchUrl, exploreUrl
-        case ruleSearch, ruleBookInfo, ruleToc, ruleContent
+        case ruleSearch, ruleExplore, ruleBookInfo, ruleToc, ruleContent
     }
 
     init(from decoder: Decoder) throws {
@@ -54,6 +55,10 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
         searchUrl = try container.decodeIfPresent(String.self, forKey: .searchUrl)
         exploreUrl = try container.decodeIfPresent(String.self, forKey: .exploreUrl)
         ruleSearch = try container.decodeFlexibleRule(SearchRuleDefinition.self, forKey: .ruleSearch)
+        ruleExplore = try container.decodeFlexibleRule(
+            SearchRuleDefinition.self,
+            forKey: .ruleExplore
+        )
         ruleBookInfo = try container.decodeFlexibleRule(
             BookInfoRuleDefinition.self,
             forKey: .ruleBookInfo
@@ -64,6 +69,13 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
             forKey: .ruleContent
         )
     }
+}
+
+struct SourceExploreCategory: Hashable, Identifiable, Sendable {
+    var title: String
+    var address: String
+
+    var id: String { "\(title)::\(address)" }
 }
 
 struct SearchRuleDefinition: Codable, Hashable, Sendable {

@@ -168,7 +168,7 @@ struct SearchView: View {
     }
 }
 
-private struct SearchResultRow: View {
+struct SearchResultRow: View {
     let book: SearchBook
 
     var body: some View {
