@@ -1,179 +1,160 @@
 [
   {
-    "sourceId": "org.gutendex.public-domain",
-    "bookSourceUrl": "https://gutendex.com",
-    "bookSourceName": "古登堡公版书",
-    "bookSourceGroup": "开放内容",
+    "sourceId": "archive.0e12f30e88f0744dea7fc074",
+    "bookSourceUrl": "http://m.elkoparts.net",
+    "bookSourceName": "饿狼小说",
+    "bookSourceGroup": "精选实测 · 无需登录",
+    "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785772801000,
-    "searchUrl": "https://gutendex.com/books/?search={{key}}&page={{page}}",
+    "lastUpdateTime": 1785920400000,
+    "searchUrl": "/search.php?keyWord={{key}}",
     "ruleSearch": {
-      "bookList": "$.results[*]",
-      "name": "$.title",
-      "author": "$.authors[0].name",
-      "intro": "$.summaries[0]",
-      "kind": "$.languages[*]",
-      "bookUrl": "$[\"formats\"][\"text/plain; charset=utf-8\"]",
-      "coverUrl": "$[\"formats\"][\"image/jpeg\"]"
-    },
-    "ruleContent": {
-      "content": "@text"
-    }
-  },
-  {
-    "sourceId": "tw.lnovel.community",
-    "bookSourceUrl": "https://lnovel.tw",
-    "bookSourceName": "轻小说百科",
-    "bookSourceGroup": "Legado 精选",
-    "enabled": true,
-    "lastUpdateTime": 1785772801000,
-    "searchUrl": "/books?page={{page}}&q%5Bname_cont%5D={{key}}",
-    "ruleSearch": {
-      "bookList": ".col-6.col-md-4.col-md-3.col-lg-6.col-xl-4",
-      "name": "text",
-      "bookUrl": "href",
-      "coverUrl": "img@src"
+      "bookList": "ul.txt-list-row5 li",
+      "name": ".s2 a@text",
+      "author": ".s4@text",
+      "kind": ".s1@text##\\[|\\]",
+      "lastChapter": ".s3 a@text",
+      "bookUrl": ".s2 a@href"
     },
     "ruleBookInfo": {
-      "name": "h1@text"
+      "name": ".top h1@text",
+      "author": ".top p.0@text##作者：",
+      "intro": ".xdesc@text",
+      "coverUrl": ".imgbox img@src"
     },
     "ruleToc": {
-      "chapterList": ".accordion-item@a",
+      "chapterList": ".section-list li a",
       "chapterName": "text",
       "chapterUrl": "href"
     },
     "ruleContent": {
-      "content": "article .card-body@html"
+      "content": "#content@html",
+      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]"
     }
   },
   {
-    "sourceId": "com.hongxiu.public-chapters",
-    "bookSourceUrl": "https://m.hongxiu.com",
-    "bookSourceName": "红袖读书（公开章节）",
-    "bookSourceGroup": "Legado 精选",
-    "enabled": true,
-    "lastUpdateTime": 1785772801000,
-    "searchUrl": "/search?kw={{key}}",
-    "ruleSearch": {
-      "bookList": ".book-li",
-      "name": "h4@text",
-      "author": ".book-author@text",
-      "intro": ".book-desc@text",
-      "kind": ".tag-small-group@text",
-      "bookUrl": "a@href",
-      "coverUrl": "img@data-src||img@src"
-    },
-    "ruleBookInfo": {
-      "name": "h1@text",
-      "tocUrl": "a[href^=\"/chapterlist/\"]@href"
-    },
-    "ruleToc": {
-      "chapterList": ".chapter-li",
-      "chapterName": "a@text",
-      "chapterUrl": "a@href"
-    },
-    "ruleContent": {
-      "content": ".read-section.jsChapterWrapper@html||#chapterContent@html"
-    }
-  },
-  {
-    "sourceId": "org.lightnovelworld.community",
-    "bookSourceUrl": "https://lightnovelworld.org",
-    "bookSourceName": "Light Novel World",
-    "bookSourceGroup": "Legado 精选",
-    "enabled": true,
-    "lastUpdateTime": 1785772801000,
-    "searchUrl": "/api/search/?q={{key}}",
-    "ruleSearch": {
-      "bookList": "$.novels[*]",
-      "name": "$.title",
-      "author": "$.author",
-      "kind": "$.genres[*]",
-      "bookUrl": "$.slug##^##/novel/",
-      "coverUrl": "$.cover_path"
-    },
-    "ruleBookInfo": {
-      "name": "@css:h1.novel-title@text",
-      "intro": "@css:div.summary-content@text",
-      "tocUrl": "@css:div.content-card@onclick##location.href=|'"
-    },
-    "ruleToc": {
-      "chapterList": "@css:div.chapter-card",
-      "chapterName": "@css:h3.chapter-title@text",
-      "chapterUrl": "@css:div.chapter-card@onclick##location.href=|'",
-      "nextTocUrl": "@css:a[title=\"Next Page\"]@href"
-    },
-    "ruleContent": {
-      "content": "@css:div.chapter-text@html"
-    }
-  },
-  {
-    "sourceId": "com.royalroad.community",
-    "bookSourceUrl": "https://www.royalroad.com",
-    "bookSourceName": "Royal Road",
-    "bookSourceGroup": "Legado 精选",
-    "enabled": true,
-    "lastUpdateTime": 1785772801000,
-    "searchUrl": "/fictions/search?title={{key}}",
-    "ruleSearch": {
-      "bookList": ".fiction-list-item",
-      "name": "h2@text",
-      "kind": ".tags@text",
-      "bookUrl": "h2 a@href",
-      "coverUrl": "img@src"
-    },
-    "ruleBookInfo": {
-      "name": ".fic-title h1@text",
-      "author": ".fic-title h4 a@text",
-      "intro": ".description@html",
-      "kind": ".tags@text",
-      "coverUrl": ".thumbnail@src"
-    },
-    "ruleToc": {
-      "chapterList": ".chapter-row",
-      "chapterName": "a@text",
-      "chapterUrl": "a@href"
-    },
-    "ruleContent": {
-      "content": ".chapter-content@html"
-    }
-  },
-  {
-    "sourceId": "cf.langge.novel.quiet-reader",
-    "bookSourceUrl": "https://api.langge.cf",
-    "bookSourceName": "🍅大灰狼小说5.0（墨阅兼容）",
-    "bookSourceGroup": "大灰狼 · 社区源",
+    "sourceId": "archive.c1c2db7490999e4d53855df9",
+    "bookSourceUrl": "http://23.224.242.55",
+    "bookSourceName": "森林文学",
+    "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785911600000,
-    "loginUrl": "/login",
-    "searchUrl": "/search?title={{key}}&tab=小说&source=全部",
+    "lastUpdateTime": 1785920400000,
+    "searchUrl": "/ar.php?keyWord={{key}}",
     "ruleSearch": {
-      "bookList": "$.data[*]",
-      "name": "$.book_name",
-      "author": "$.author",
-      "intro": "$.abstract",
-      "kind": "{{$.source}} {{$.tags}}",
-      "lastChapter": "$.last_chapter_title",
-      "bookUrl": "/detail?book_id={{$.book_id}}&source={{$.source}}&tab={{$.tab}}",
-      "coverUrl": "$.thumb_url"
+      "bookList": "ul.txt-list-row5 li",
+      "name": ".s2 a@text",
+      "author": ".s4@text",
+      "kind": ".s1@text##\\[|\\]",
+      "lastChapter": ".s3 a@text",
+      "bookUrl": ".s2 a@href"
     },
     "ruleBookInfo": {
-      "name": "$.data.book_name",
-      "author": "$.data.author",
-      "intro": "$.data.abstract",
-      "kind": "$.data.tags",
-      "lastChapter": "$.data.last_chapter_title",
-      "coverUrl": "$.data.thumb_url",
-      "tocUrl": "/catalog?book_id={{$.data.book_id}}&source={{$.data.source}}&tab={{$.data.tab}}"
+      "name": ".detail-box h2@text||.layout-col1 h2@text",
+      "intro": ".detail-box .xs-show@text||.xdesc@text",
+      "coverUrl": ".imgbox img@src"
     },
     "ruleToc": {
-      "chapterList": "$.data[*]",
-      "chapterName": "$.title",
-      "chapterUrl": "/content?item_id={{$.item_id}}&source={{$.source}}&tab={{$.tab}}&version=4.6.29"
+      "chapterList": ".section-list li a",
+      "chapterName": "text",
+      "chapterUrl": "href"
     },
     "ruleContent": {
-      "content": "$.content"
+      "content": "#content@html",
+      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]"
+    }
+  },
+  {
+    "sourceId": "archive.870ca07aea94fc8c54d0ef9e",
+    "bookSourceUrl": "http://www.b5200.net",
+    "bookSourceName": "B5200",
+    "bookSourceGroup": "精选实测 · 无需登录",
+    "bookSourceType": 0,
+    "enabled": true,
+    "lastUpdateTime": 1785920400000,
+    "header": "{\"User-Agent\":\"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1\"}",
+    "searchUrl": "/modules/article/search.php?searchkey={{key}}",
+    "ruleSearch": {
+      "bookList": "table.grid tr",
+      "name": "td.odd:first-of-type a@text",
+      "author": "td.odd.1@text",
+      "lastChapter": "td.even:first-of-type a@text",
+      "bookUrl": "td.odd:first-of-type a@href"
+    },
+    "ruleBookInfo": {
+      "name": "#info h1@text",
+      "author": "#info p.0@text##作\\s*者：",
+      "intro": "#intro p@text",
+      "coverUrl": "#fmimg img@src"
+    },
+    "ruleToc": {
+      "chapterList": ".box_con dd a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "#content@html"
+    }
+  },
+  {
+    "sourceId": "archive.a184d924d4a2bcfac86e52a8",
+    "bookSourceUrl": "https://www.52shuku.net",
+    "bookSourceName": "五二书库",
+    "bookSourceGroup": "精选实测 · 无需登录",
+    "bookSourceType": 0,
+    "enabled": true,
+    "lastUpdateTime": 1785920400000,
+    "searchUrl": "/so/search.php?q={{key}}",
+    "ruleSearch": {
+      "bookList": ".excerpt",
+      "name": "h2 h4@text##^\\d+\\.\\s*|_.*$",
+      "author": "h2 h4@text##^.*_([^【]+).*$##$1",
+      "intro": ".note@text",
+      "bookUrl": "h2 a@href"
+    },
+    "ruleBookInfo": {
+      "intro": ".article-content p.1@text##.*文案："
+    },
+    "ruleToc": {
+      "chapterList": ".mulu a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": ".article-content@html",
+      "replaceRegex": "##目录\\s+上一页.*|Tips.*|传送门：.*"
+    }
+  },
+  {
+    "sourceId": "archive.1e94ef54501668df21018322",
+    "bookSourceUrl": "http://www.xbotaodz.com",
+    "bookSourceName": "快眼看书",
+    "bookSourceGroup": "精选实测 · 无需登录",
+    "bookSourceType": 0,
+    "enabled": true,
+    "lastUpdateTime": 1785920400000,
+    "searchUrl": "/modules/article/search.php?searchkey={{key}}",
+    "ruleSearch": {
+      "bookList": ".librarylist li",
+      "name": ".novelname@text",
+      "author": ".info span:nth-child(2)@text##作者：",
+      "lastChapter": ".last a@text",
+      "bookUrl": ".novelname@href",
+      "coverUrl": ".pt-ll-l img@src"
+    },
+    "ruleBookInfo": {
+      "name": ".w-left h1@text",
+      "author": ".novelinfo-l li:first-child@text##作者：",
+      "intro": ".novelintro@text",
+      "coverUrl": ".novelinfo-r img@src"
+    },
+    "ruleToc": {
+      "chapterList": ".fulldir ul li a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "#chaptercontent@html"
     }
   }
 ]
