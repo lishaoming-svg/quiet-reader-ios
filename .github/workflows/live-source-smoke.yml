@@ -1,4 +1,4 @@
-name: ????????
+name: 在线书源冒烟测试
 
 on:
   workflow_dispatch:
@@ -8,11 +8,11 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
     steps:
-      - name: ????
+      - name: 检出源码
         uses: actions/checkout@v4
 
-      - name: ?? XcodeGen
+      - name: 安装 XcodeGen
         run: brew install xcodegen
 
-      - name: ?????????
+      - name: 实测精选源搜索链路
         run: bash scripts/run-live-source-smoke.sh

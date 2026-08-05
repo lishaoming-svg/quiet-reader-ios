@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 xcodegen generate
 SIMULATOR_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
 if [[ -z "$SIMULATOR_ID" ]]; then
-  echo "????? iPhone ???" >&2
+  echo "没有可用的 iPhone 模拟器" >&2
   exit 1
 fi
 

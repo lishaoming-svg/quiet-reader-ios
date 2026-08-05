@@ -2,8 +2,8 @@
   {
     "sourceId": "archive.0e12f30e88f0744dea7fc074",
     "bookSourceUrl": "http://m.elkoparts.net",
-    "bookSourceName": "????",
-    "bookSourceGroup": "???? ? ????",
+    "bookSourceName": "饿狼小说",
+    "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
     "lastUpdateTime": 1785920400000,
@@ -18,7 +18,7 @@
     },
     "ruleBookInfo": {
       "name": ".top h1@text",
-      "author": ".top p.0@text##???",
+      "author": ".top p.0@text##作者：",
       "intro": ".xdesc@text",
       "coverUrl": ".imgbox img@src"
     },
@@ -29,14 +29,14 @@
     },
     "ruleContent": {
       "content": "#content@html",
-      "replaceRegex": "##.*?[0-9]+/[0-9]+?.*|[?(]????.*[?)]"
+      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]"
     }
   },
   {
     "sourceId": "archive.c1c2db7490999e4d53855df9",
     "bookSourceUrl": "http://23.224.242.55",
-    "bookSourceName": "????",
-    "bookSourceGroup": "???? ? ????",
+    "bookSourceName": "森林文学",
+    "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
     "lastUpdateTime": 1785920400000,
@@ -61,14 +61,14 @@
     },
     "ruleContent": {
       "content": "#content@html",
-      "replaceRegex": "##.*?[0-9]+/[0-9]+?.*|[?(]????.*[?)]"
+      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]"
     }
   },
   {
     "sourceId": "archive.870ca07aea94fc8c54d0ef9e",
     "bookSourceUrl": "http://www.b5200.net",
     "bookSourceName": "B5200",
-    "bookSourceGroup": "???? ? ????",
+    "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
     "lastUpdateTime": 1785920400000,
@@ -83,7 +83,7 @@
     },
     "ruleBookInfo": {
       "name": "#info h1@text",
-      "author": "#info p.0@text##?\\s*??",
+      "author": "#info p.0@text##作\\s*者：",
       "intro": "#intro p@text",
       "coverUrl": "#fmimg img@src"
     },
@@ -99,8 +99,8 @@
   {
     "sourceId": "archive.a184d924d4a2bcfac86e52a8",
     "bookSourceUrl": "https://www.52shuku.net",
-    "bookSourceName": "????",
-    "bookSourceGroup": "???? ? ????",
+    "bookSourceName": "五二书库",
+    "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
     "lastUpdateTime": 1785920400000,
@@ -108,12 +108,12 @@
     "ruleSearch": {
       "bookList": ".excerpt",
       "name": "h2 h4@text##^\\d+\\.\\s*|_.*$",
-      "author": "h2 h4@text##^.*_([^?]+).*$##$1",
+      "author": "h2 h4@text##^.*_([^【]+).*$##$1",
       "intro": ".note@text",
       "bookUrl": "h2 a@href"
     },
     "ruleBookInfo": {
-      "intro": ".article-content p.1@text##.*???"
+      "intro": ".article-content p.1@text##.*文案："
     },
     "ruleToc": {
       "chapterList": ".mulu a",
@@ -122,14 +122,14 @@
     },
     "ruleContent": {
       "content": ".article-content@html",
-      "replaceRegex": "##??\\s+???.*|Tips.*|????.*"
+      "replaceRegex": "##目录\\s+上一页.*|Tips.*|传送门：.*"
     }
   },
   {
     "sourceId": "archive.1e94ef54501668df21018322",
     "bookSourceUrl": "http://www.xbotaodz.com",
-    "bookSourceName": "????",
-    "bookSourceGroup": "???? ? ????",
+    "bookSourceName": "快眼看书",
+    "bookSourceGroup": "精选实测 · 无需登录",
     "bookSourceType": 0,
     "enabled": true,
     "lastUpdateTime": 1785920400000,
@@ -137,14 +137,14 @@
     "ruleSearch": {
       "bookList": ".librarylist li",
       "name": ".novelname@text",
-      "author": ".info span:nth-child(2)@text##???",
+      "author": ".info span:nth-child(2)@text##作者：",
       "lastChapter": ".last a@text",
       "bookUrl": ".novelname@href",
       "coverUrl": ".pt-ll-l img@src"
     },
     "ruleBookInfo": {
       "name": ".w-left h1@text",
-      "author": ".novelinfo-l li:first-child@text##???",
+      "author": ".novelinfo-l li:first-child@text##作者：",
       "intro": ".novelintro@text",
       "coverUrl": ".novelinfo-r img@src"
     },

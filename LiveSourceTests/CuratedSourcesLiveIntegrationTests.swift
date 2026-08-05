@@ -2,7 +2,7 @@ import XCTest
 @testable import QuietReader
 
 final class CuratedSourcesLiveIntegrationTests: XCTestCase {
-    private let keyword = "??"
+    private let keyword = "异悚"
 
     func testFiveCuratedSourcesCanSearchAndRead() async throws {
         let sourceURL = try XCTUnwrap(
@@ -106,9 +106,9 @@ private enum LiveSourceError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noMatchingBook: "?????????????"
-        case .noChapters: "???????"
-        case .contentTooShort(let count): "?????\(count) ??"
+        case .noMatchingBook: "没有搜索到包含关键字的书名"
+        case .noChapters: "没有解析到章节"
+        case .contentTooShort(let count): "正文过短：\(count) 字符"
         }
     }
 }
