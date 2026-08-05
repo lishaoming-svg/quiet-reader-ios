@@ -1,6 +1,10 @@
+import SwiftData
 import SwiftUI
 
 struct RootView: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var didRefreshBundledSources = false
+
     var body: some View {
         TabView {
             NavigationStack { BookshelfView() }
@@ -16,5 +20,10 @@ struct RootView: View {
                 .tabItem { Label("书源", systemImage: "point.3.connected.trianglepath.dotted") }
         }
         .tint(AppTheme.vermilion)
+        .task {
+            guard !didRefreshBundledSources else { return }
+            didRefreshBundledSources = true
+            try? BundledSourceUpdater.refreshExistingSources(in: modelContext)
+        }
     }
 }

@@ -45,7 +45,9 @@ struct RuleExtractor {
     func string(_ rule: String?, in node: RuleNode, asURL: Bool = false) throws -> String {
         guard let rule = rule?.nilIfBlank else { return "" }
         for fallback in rule.components(separatedBy: "||") {
-            let result = try extract(RuleSpec(fallback), from: node)
+            let result = fallback.contains("{{")
+                ? try interpolate(fallback, from: node)
+                : try extract(RuleSpec(fallback), from: node)
             if let value = result.nilIfBlank {
                 return asURL ? URLTemplateRenderer.absoluteURL(value, relativeTo: node.baseURL) : value
             }
@@ -73,6 +75,25 @@ struct RuleExtractor {
             value = text
         }
         return applyReplacement(value, pattern: spec.replacePattern, replacement: spec.replacement)
+    }
+
+    private func interpolate(_ template: String, from node: RuleNode) throws -> String {
+        let regex = try NSRegularExpression(pattern: #"\{\{([^{}]+)\}\}"#)
+        var result = template
+        let matches = regex.matches(
+            in: template,
+            range: NSRange(template.startIndex..., in: template)
+        )
+
+        for match in matches.reversed() {
+            guard let expressionRange = Range(match.range(at: 1), in: template),
+                  let fullRange = Range(match.range(at: 0), in: result) else {
+                continue
+            }
+            let value = try extract(RuleSpec(String(template[expressionRange])), from: node)
+            result.replaceSubrange(fullRange, with: value)
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func selectedElements(_ spec: RuleSpec, from element: Element) throws -> [Element] {

@@ -83,7 +83,10 @@ final class RuleExtractorTests: XCTestCase {
             {
               "book_name": "测试小说",
               "book_id": "book-100",
-              "item_id": "chapter-200"
+              "item_id": "chapter-200",
+              "source": "猫眼",
+              "tab": "小说",
+              "tags": "悬疑"
             }
           ]
         }
@@ -99,16 +102,48 @@ final class RuleExtractorTests: XCTestCase {
 
         XCTAssertEqual(try extractor.string("$.book_name", in: node), "测试小说")
         XCTAssertEqual(
-            try extractor.string("$.book_id##^##/detail?book_id=", in: node, asURL: true),
-            "https://api.langge.cf/detail?book_id=book-100"
+            try extractor.string("{{$.source}} {{$.tags}}", in: node),
+            "猫眼 悬疑"
         )
-        XCTAssertEqual(
-            try extractor.string(
-                "$.item_id##^##/content?version=4.6.29&item_id=",
+        try assertURL(
+            extractor.string(
+                "/detail?book_id={{$.book_id}}&source={{$.source}}&tab={{$.tab}}",
                 in: node,
                 asURL: true
             ),
-            "https://api.langge.cf/content?version=4.6.29&item_id=chapter-200"
+            path: "/detail",
+            query: ["book_id": "book-100", "source": "猫眼", "tab": "小说"]
         )
+        try assertURL(
+            extractor.string(
+                "/content?item_id={{$.item_id}}&source={{$.source}}"
+                    + "&tab={{$.tab}}&version=4.6.29",
+                in: node,
+                asURL: true
+            ),
+            path: "/content",
+            query: [
+                "item_id": "chapter-200",
+                "source": "猫眼",
+                "tab": "小说",
+                "version": "4.6.29"
+            ]
+        )
+    }
+
+    private func assertURL(
+        _ value: String,
+        path: String,
+        query expectedQuery: [String: String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let components = try XCTUnwrap(URLComponents(string: value), file: file, line: line)
+        XCTAssertEqual(components.host, "api.langge.cf", file: file, line: line)
+        XCTAssertEqual(components.path, path, file: file, line: line)
+        let query = Dictionary(
+            uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") }
+        )
+        XCTAssertEqual(query, expectedQuery, file: file, line: line)
     }
 }

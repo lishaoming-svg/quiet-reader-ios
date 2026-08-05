@@ -15,8 +15,13 @@ final class SourceImporterTests: XCTestCase {
         XCTAssertEqual(source.bookSourceUrl, "https://api.langge.cf")
         XCTAssertEqual(source.ruleSearch?.bookList, "$.data[*]")
         XCTAssertEqual(
+            source.ruleSearch?.bookUrl,
+            "/detail?book_id={{$.book_id}}&source={{$.source}}&tab={{$.tab}}"
+        )
+        XCTAssertEqual(
             source.ruleToc?.chapterUrl,
-            "$.item_id##^##/content?version=4.6.29&item_id="
+            "/content?item_id={{$.item_id}}&source={{$.source}}"
+                + "&tab={{$.tab}}&version=4.6.29"
         )
         XCTAssertEqual(source.ruleContent?.content, "$.content")
     }

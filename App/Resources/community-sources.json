@@ -145,16 +145,16 @@
     "bookSourceGroup": "大灰狼 · 社区源",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785866400000,
-    "searchUrl": "/search?title={{key}}&tab=小说&source=全部&page={{page}}",
+    "lastUpdateTime": 1785909063219,
+    "searchUrl": "/search?title={{key}}&tab=小说&source=全部",
     "ruleSearch": {
       "bookList": "$.data[*]",
       "name": "$.book_name",
       "author": "$.author",
       "intro": "$.abstract",
-      "kind": "$.tags",
+      "kind": "{{$.source}} {{$.tags}}",
       "lastChapter": "$.last_chapter_title",
-      "bookUrl": "$.book_id##^##/detail?book_id=",
+      "bookUrl": "/detail?book_id={{$.book_id}}&source={{$.source}}&tab={{$.tab}}",
       "coverUrl": "$.thumb_url"
     },
     "ruleBookInfo": {
@@ -164,12 +164,12 @@
       "kind": "$.data.tags",
       "lastChapter": "$.data.last_chapter_title",
       "coverUrl": "$.data.thumb_url",
-      "tocUrl": "$.data.book_id##^##/catalog?book_id="
+      "tocUrl": "/catalog?book_id={{$.data.book_id}}&source={{$.data.source}}&tab={{$.data.tab}}"
     },
     "ruleToc": {
       "chapterList": "$.data[*]",
       "chapterName": "$.title",
-      "chapterUrl": "$.item_id##^##/content?version=4.6.29&item_id="
+      "chapterUrl": "/content?item_id={{$.item_id}}&source={{$.source}}&tab={{$.tab}}&version=4.6.29"
     },
     "ruleContent": {
       "content": "$.content"

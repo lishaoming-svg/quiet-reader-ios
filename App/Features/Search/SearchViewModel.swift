@@ -22,13 +22,18 @@ final class SearchViewModel: ObservableObject {
         results = []
 
         let outcomes = await withTaskGroup(of: SourceSearchOutcome.self) { group in
-            for source in sources {
+            for (sourceOrder, source) in sources.enumerated() {
                 group.addTask {
                     do {
                         let books = try await SourceEngine().search(keyword: keyword, source: source)
-                        return SourceSearchOutcome(books: books, error: nil)
+                        return SourceSearchOutcome(
+                            sourceOrder: sourceOrder,
+                            books: books,
+                            error: nil
+                        )
                     } catch {
                         return SourceSearchOutcome(
+                            sourceOrder: sourceOrder,
                             books: [],
                             error: "\(source.bookSourceName)：\(error.localizedDescription)"
                         )
@@ -41,16 +46,13 @@ final class SearchViewModel: ObservableObject {
             return values
         }
 
+        let orderedOutcomes = outcomes.sorted { $0.sourceOrder < $1.sourceOrder }
         var seen = Set<String>()
-        results = outcomes
+        let uniqueBooks = orderedOutcomes
             .flatMap(\.books)
             .filter { seen.insert($0.id).inserted }
-            .sorted {
-                $0.sourceName == $1.sourceName
-                    ? $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                    : $0.sourceName.localizedStandardCompare($1.sourceName) == .orderedAscending
-            }
-        let failures = outcomes.compactMap(\.error)
+        results = SearchResultRanker.rank(uniqueBooks, keyword: keyword)
+        let failures = orderedOutcomes.compactMap(\.error)
         if results.isEmpty {
             errorMessage = failures.isEmpty
                 ? "没有找到“\(keyword)”"
@@ -61,6 +63,7 @@ final class SearchViewModel: ObservableObject {
 }
 
 private struct SourceSearchOutcome: Sendable {
+    var sourceOrder: Int
     var books: [SearchBook]
     var error: String?
 }
