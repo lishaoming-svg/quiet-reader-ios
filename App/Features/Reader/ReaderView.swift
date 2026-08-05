@@ -25,6 +25,8 @@ struct ReaderView: View {
     @State private var layoutSize = CGSize.zero
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var authenticationRequired = false
+    @State private var showingSourceLogin = false
     @State private var controlsVisible = true
     @State private var showingSettings = false
     @State private var showingBookmarks = false
@@ -86,6 +88,12 @@ struct ReaderView: View {
             if controlsVisible { readerControls }
         }
         .sheet(isPresented: $showingSettings) { ReaderSettingsView() }
+        .sheet(isPresented: $showingSourceLogin) {
+            SourceLoginView(source: source) {
+                authenticationRequired = false
+                Task { await loadChapter(forceRefresh: true) }
+            }
+        }
         .sheet(isPresented: $showingBookmarks) {
             BookmarkListView(bookID: book.id) { bookmark in
                 showingBookmarks = false
@@ -124,6 +132,11 @@ struct ReaderView: View {
         } else if let errorMessage {
             VStack(spacing: 16) {
                 InlineErrorView(message: errorMessage)
+                if authenticationRequired, source.loginUrl?.nilIfBlank != nil {
+                    Button("登录书源后继续") { showingSourceLogin = true }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.vermilion)
+                }
                 Button("重新加载") { Task { await loadChapter(forceRefresh: true) } }
                     .buttonStyle(.borderedProminent)
                     .tint(AppTheme.vermilion)
@@ -448,12 +461,17 @@ struct ReaderView: View {
     private func loadChapter(forceRefresh: Bool = false) async {
         isLoading = true
         errorMessage = nil
+        authenticationRequired = false
         let currentChapter = chapter
 
         if !forceRefresh, let cached = cachedChapter(url: currentChapter.url) {
-            prepareDocument(cached.content, chapter: currentChapter)
-            isLoading = false
-            return
+            if SourceEngine.authenticationMessage(in: cached.content) == nil {
+                prepareDocument(cached.content, chapter: currentChapter)
+                isLoading = false
+                return
+            }
+            modelContext.delete(cached)
+            try? modelContext.save()
         }
 
         do {
@@ -462,6 +480,7 @@ struct ReaderView: View {
             prepareDocument(value, chapter: currentChapter)
         } catch {
             errorMessage = error.localizedDescription
+            authenticationRequired = (error as? SourceEngineError)?.requiresAuthentication == true
         }
         isLoading = false
     }

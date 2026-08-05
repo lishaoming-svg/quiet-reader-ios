@@ -5,6 +5,7 @@ struct SourceManagerView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \BookSourceRecord.sourceName) private var sources: [BookSourceRecord]
     @State private var showingImporter = false
+    @State private var loginSource: BookSourceDefinition?
 
     var body: some View {
         ZStack {
@@ -19,9 +20,11 @@ struct SourceManagerView: View {
                 List {
                     Section {
                         ForEach(sources) { source in
-                            SourceRow(source: source) {
-                                try? modelContext.save()
-                            }
+                            SourceRow(
+                                source: source,
+                                onChange: { try? modelContext.save() },
+                                onLogin: { loginSource = source.definition }
+                            )
                             .listRowBackground(AppTheme.paperLight.opacity(0.92))
                         }
                         .onDelete(perform: delete)
@@ -37,6 +40,13 @@ struct SourceManagerView: View {
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    BundledSourceLibraryView()
+                } label: {
+                    Label("内置源库", systemImage: "tray.full")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showingImporter = true
@@ -47,6 +57,9 @@ struct SourceManagerView: View {
         }
         .sheet(isPresented: $showingImporter) {
             SourceImportView()
+        }
+        .sheet(item: $loginSource) { source in
+            SourceLoginView(source: source)
         }
     }
 
@@ -59,6 +72,7 @@ struct SourceManagerView: View {
 private struct SourceRow: View {
     @Bindable var source: BookSourceRecord
     let onChange: () -> Void
+    let onLogin: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -80,10 +94,18 @@ private struct SourceRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            Toggle("启用", isOn: $source.enabled)
-                .labelsHidden()
-                .tint(AppTheme.vermilion)
-                .onChange(of: source.enabled) { _, _ in onChange() }
+            VStack(spacing: 8) {
+                Toggle("启用", isOn: $source.enabled)
+                    .labelsHidden()
+                    .tint(AppTheme.vermilion)
+                    .onChange(of: source.enabled) { _, _ in onChange() }
+                if source.definition?.loginUrl?.nilIfBlank != nil {
+                    Button("登录", action: onLogin)
+                        .font(.caption.bold())
+                        .buttonStyle(.bordered)
+                        .tint(AppTheme.vermilion)
+                }
+            }
         }
         .padding(.vertical, 5)
     }

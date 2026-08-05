@@ -40,11 +40,21 @@ actor SourceHTTPClient {
         )
     }
 
+    func installCookies(_ cookies: [HTTPCookie], for sourceID: String) {
+        for cookie in cookies {
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
+        if let session = sessions.removeValue(forKey: sourceID) {
+            session.invalidateAndCancel()
+        }
+    }
+
     private func session(for sourceID: String) -> URLSession {
         if let session = sessions[sourceID] { return session }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = true
         configuration.httpCookieAcceptPolicy = .always
+        configuration.httpCookieStorage = .shared
         configuration.requestCachePolicy = .reloadRevalidatingCacheData
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 45

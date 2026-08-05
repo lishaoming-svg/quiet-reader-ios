@@ -13,6 +13,7 @@ final class SourceImporterTests: XCTestCase {
         )
 
         XCTAssertEqual(source.bookSourceUrl, "https://api.langge.cf")
+        XCTAssertEqual(source.loginUrl, "/login")
         XCTAssertEqual(source.ruleSearch?.bookList, "$.data[*]")
         XCTAssertEqual(
             source.ruleSearch?.bookUrl,

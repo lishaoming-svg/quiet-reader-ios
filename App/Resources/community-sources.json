@@ -145,7 +145,8 @@
     "bookSourceGroup": "大灰狼 · 社区源",
     "bookSourceType": 0,
     "enabled": true,
-    "lastUpdateTime": 1785909063219,
+    "lastUpdateTime": 1785911600000,
+    "loginUrl": "/login",
     "searchUrl": "/search?title={{key}}&tab=小说&source=全部",
     "ruleSearch": {
       "bookList": "$.data[*]",

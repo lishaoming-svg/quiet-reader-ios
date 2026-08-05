@@ -10,6 +10,7 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
     var enabledExplore: Bool?
     var lastUpdateTime: Int64?
     var header: String?
+    var loginUrl: String?
     var searchUrl: String?
     var exploreUrl: String?
     var ruleSearch: SearchRuleDefinition?
@@ -34,7 +35,7 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case sourceId, bookSourceUrl, bookSourceName, bookSourceGroup, bookSourceType
-        case enabled, enabledExplore, lastUpdateTime, header, searchUrl, exploreUrl
+        case enabled, enabledExplore, lastUpdateTime, header, loginUrl, searchUrl, exploreUrl
         case ruleSearch, ruleBookInfo, ruleToc, ruleContent
     }
 
@@ -49,6 +50,7 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
         enabledExplore = try container.decodeIfPresent(Bool.self, forKey: .enabledExplore)
         lastUpdateTime = try container.decodeIfPresent(Int64.self, forKey: .lastUpdateTime)
         header = try container.decodeIfPresent(String.self, forKey: .header)
+        loginUrl = try container.decodeIfPresent(String.self, forKey: .loginUrl)
         searchUrl = try container.decodeIfPresent(String.self, forKey: .searchUrl)
         exploreUrl = try container.decodeIfPresent(String.self, forKey: .exploreUrl)
         ruleSearch = try container.decodeFlexibleRule(SearchRuleDefinition.self, forKey: .ruleSearch)

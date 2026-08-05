@@ -141,6 +141,9 @@ struct SourceEngine {
                 content = replace(content, pattern: replaceRule, with: "")
             }
             let cleaned = cleanReadableText(content)
+            if let message = Self.authenticationMessage(in: cleaned) {
+                throw SourceEngineError.authenticationRequired(message)
+            }
             if !cleaned.isEmpty { pages.append(cleaned) }
 
             guard let nextRule = rules?.nextContentUrl?.nilIfBlank else { break }
@@ -152,6 +155,16 @@ struct SourceEngine {
         let result = pages.joined(separator: "\n\n")
         guard !result.isEmpty else { throw SourceEngineError.emptyContent }
         return result
+    }
+
+    static func authenticationMessage(in value: String) -> String? {
+        let markers = [
+            "免登录访问次数已达上限",
+            "继续阅读请登录",
+            "登录后刷新页面"
+        ]
+        guard markers.contains(where: value.contains) else { return nil }
+        return value.nilIfBlank ?? "该书源需要登录后继续阅读"
     }
 
     private func cleanReadableText(_ value: String) -> String {
@@ -191,6 +204,12 @@ enum SourceEngineError: LocalizedError {
     case responseTooLarge
     case emptyChapterList
     case emptyContent
+    case authenticationRequired(String)
+
+    var requiresAuthentication: Bool {
+        if case .authenticationRequired = self { return true }
+        return false
+    }
 
     var errorDescription: String? {
         switch self {
@@ -200,6 +219,7 @@ enum SourceEngineError: LocalizedError {
         case .responseTooLarge: "书源响应超过 25 MB 限制"
         case .emptyChapterList: "没有解析到章节目录"
         case .emptyContent: "没有解析到正文内容"
+        case .authenticationRequired(let message): message
         }
     }
 }
