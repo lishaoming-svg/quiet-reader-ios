@@ -18,12 +18,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_zlib_json(path: Path):
-    return json.loads(zlib.decompress(path.read_bytes()).decode("utf-8"))
+    return json.loads(zlib.decompress(path.read_bytes(), wbits=-zlib.MAX_WBITS).decode("utf-8"))
 
 
 def main() -> int:
     root = parse_args().catalog.resolve()
     manifest = json.loads((root / "source-catalog-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["compression"] == "deflate-raw-rfc1951"
     index = load_zlib_json(root / "source-catalog-index.zlib")
     assert manifest["uniqueSourceCount"] == index["sourceCount"] == len(index["entries"])
     assert index["shardCount"] == len(manifest["shards"]) == 64
@@ -39,7 +40,9 @@ def main() -> int:
         path = root / shard_info["file"]
         compressed = path.read_bytes()
         assert hashlib.sha256(compressed).hexdigest() == shard_info["sha256"]
-        definitions = json.loads(zlib.decompress(compressed).decode("utf-8"))
+        definitions = json.loads(
+            zlib.decompress(compressed, wbits=-zlib.MAX_WBITS).decode("utf-8")
+        )
         assert len(definitions) == shard_info["sourceCount"]
         shard_ids = {item["sourceId"] for item in definitions}
         assert all(entry_shards[source_id] == number for source_id in shard_ids)

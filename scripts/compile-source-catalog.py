@@ -290,7 +290,9 @@ def quality(candidate: Candidate) -> tuple[int, int, int]:
 
 def compressed_json(value: Any) -> bytes:
     raw = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return zlib.compress(raw, level=9)
+    # Apple's COMPRESSION_ZLIB decoder consumes raw RFC 1951 DEFLATE streams.
+    compressor = zlib.compressobj(level=9, wbits=-zlib.MAX_WBITS)
+    return compressor.compress(raw) + compressor.flush()
 
 
 def main() -> int:
@@ -388,6 +390,7 @@ def main() -> int:
 
     manifest = {
         "version": 1,
+        "compression": "deflate-raw-rfc1951",
         "input": root.name,
         "rawSourceCount": raw_source_count,
         "uniqueSourceCount": len(entries),
