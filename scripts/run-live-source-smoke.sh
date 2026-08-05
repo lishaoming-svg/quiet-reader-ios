@@ -16,6 +16,6 @@ xcodebuild \
   -scheme QuietReaderLiveSources \
   -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
   -derivedDataPath build/live-source-tests \
-  -only-testing:QuietReaderLiveSourceTests/DalanglangLiveIntegrationTests \
+  -only-testing:QuietReaderLiveSourceTests/CuratedSourcesLiveIntegrationTests \
   CODE_SIGNING_ALLOWED=NO \
   test

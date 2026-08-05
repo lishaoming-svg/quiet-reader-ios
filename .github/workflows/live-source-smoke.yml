@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  dalanglang:
+  curated-sources:
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -14,5 +14,5 @@ jobs:
       - name: 安装 XcodeGen
         run: brew install xcodegen
 
-      - name: 实测大灰狼完整阅读链路
+      - name: 实测精选源搜索链路
         run: bash scripts/run-live-source-smoke.sh
