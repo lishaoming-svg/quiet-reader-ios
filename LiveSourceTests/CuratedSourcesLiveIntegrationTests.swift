@@ -3,86 +3,112 @@ import XCTest
 
 final class CuratedSourcesLiveIntegrationTests: XCTestCase {
     private let keyword = "??"
-    private let candidateIDs: Set<String> = [
-        "archive.f5b48e99e8b9cacdc8ea71e7",
-        "archive.79837eac8d2e7a7ec846ab12",
-        "archive.5d79cc1ae351dd6201f795df",
-        "archive.c951076108ab20a86c676a88",
-        "archive.b2a8b0a5a4943bf125ec3b8a",
-        "archive.f26fddee5db49879634838f3",
-        "archive.f7fa03d55fca42ba83bc2f80",
-        "archive.b51e15e903884b0b2a033288",
-        "archive.1cc9d3cb71d5905ef69180a3",
-        "archive.0e12f30e88f0744dea7fc074",
-        "archive.c1f4d100ecf45011a91b6892",
-        "archive.82dd69bd8e8580392f1afbdb",
-        "archive.44166c418c49b2b578b57654",
-        "archive.9991a827e1fe7988d8489753",
-        "archive.cb22d2bac74469e2ed2521e7"
-    ]
 
-    func testCatalogCandidatesCanSearchExactTitle() async throws {
-        let sources = try await BundledSourceCatalog.shared.loadDefinitions(ids: candidateIDs)
-        XCTAssertEqual(sources.count, candidateIDs.count)
+    func testFiveCuratedSourcesCanSearchAndRead() async throws {
+        let sourceURL = try XCTUnwrap(
+            Bundle.main.url(forResource: "community-sources", withExtension: "json")
+        )
+        let sourceData = try Data(contentsOf: sourceURL)
+        let sources = try JSONDecoder().decode([BookSourceDefinition].self, from: sourceData)
+        XCTAssertEqual(sources.count, 5)
+        XCTAssertTrue(sources.allSatisfy { $0.loginUrl?.nilIfBlank == nil })
 
-        let outcomes = await withTaskGroup(of: SearchOutcome.self) { group in
+        let outcomes = await withTaskGroup(of: SourceOutcome.self) { group in
             for source in sources {
                 group.addTask { [keyword] in
                     do {
-                        let books = try await SourceEngine().search(
-                            keyword: keyword,
+                        let engine = SourceEngine()
+                        let books = try await engine.search(keyword: keyword, source: source)
+                        let matchingBooks = books.filter { $0.name.contains(keyword) }
+                        let ranked = SearchResultRanker.rank(matchingBooks, keyword: keyword)
+                        guard let book = ranked.first else {
+                            throw LiveSourceError.noMatchingBook
+                        }
+                        let detailedBook = try await engine.loadDetails(book: book, source: source)
+                        let chapters = try await engine.loadChapters(
+                            book: detailedBook,
                             source: source
                         )
-                        let ranked = SearchResultRanker.rank(books, keyword: keyword)
-                        return SearchOutcome(
+                        guard let firstChapter = chapters.first else {
+                            throw LiveSourceError.noChapters
+                        }
+                        let content = try await engine.loadContent(
+                            chapter: firstChapter,
+                            source: source
+                        )
+                        guard content.count >= 200 else {
+                            throw LiveSourceError.contentTooShort(content.count)
+                        }
+                        return SourceOutcome(
                             source: source,
+                            title: book.name,
+                            exactMatch: book.name == keyword,
                             bookCount: books.count,
-                            firstTitle: ranked.first?.name,
-                            exactMatch: books.contains { $0.name == keyword },
+                            chapterCount: chapters.count,
+                            contentCharacters: content.count,
                             error: nil
                         )
                     } catch {
-                        return SearchOutcome(
+                        return SourceOutcome(
                             source: source,
-                            bookCount: 0,
-                            firstTitle: nil,
+                            title: nil,
                             exactMatch: false,
+                            bookCount: 0,
+                            chapterCount: 0,
+                            contentCharacters: 0,
                             error: error.localizedDescription
                         )
                     }
                 }
             }
 
-            var values: [SearchOutcome] = []
+            var values: [SourceOutcome] = []
             for await outcome in group { values.append(outcome) }
             return values.sorted { $0.source.bookSourceName < $1.source.bookSourceName }
         }
 
         for outcome in outcomes {
-            if outcome.exactMatch {
+            if let error = outcome.error {
                 print(
-                    "CANDIDATE_OK id=\(outcome.source.id) "
-                        + "name=\(outcome.source.bookSourceName) books=\(outcome.bookCount) "
-                        + "first=\(outcome.firstTitle ?? "")"
+                    "CURATED_SOURCE_FAIL id=\(outcome.source.id) "
+                        + "name=\(outcome.source.bookSourceName) error=\(error)"
                 )
             } else {
                 print(
-                    "CANDIDATE_FAIL id=\(outcome.source.id) "
-                        + "name=\(outcome.source.bookSourceName) books=\(outcome.bookCount) "
-                        + "first=\(outcome.firstTitle ?? "") "
-                        + "error=\(outcome.error ?? "????????")"
+                    "CURATED_SOURCE_OK id=\(outcome.source.id) "
+                        + "name=\(outcome.source.bookSourceName) "
+                        + "title=\(outcome.title ?? "") exact=\(outcome.exactMatch) "
+                        + "books=\(outcome.bookCount) chapters=\(outcome.chapterCount) "
+                        + "contentCharacters=\(outcome.contentCharacters)"
                 )
             }
         }
 
-        XCTAssertGreaterThanOrEqual(outcomes.filter(\.exactMatch).count, 5)
+        XCTAssertTrue(outcomes.allSatisfy { $0.error == nil })
+        XCTAssertGreaterThanOrEqual(outcomes.filter(\.exactMatch).count, 4)
     }
 }
 
-private struct SearchOutcome: Sendable {
+private struct SourceOutcome: Sendable {
     var source: BookSourceDefinition
-    var bookCount: Int
-    var firstTitle: String?
+    var title: String?
     var exactMatch: Bool
+    var bookCount: Int
+    var chapterCount: Int
+    var contentCharacters: Int
     var error: String?
+}
+
+private enum LiveSourceError: LocalizedError {
+    case noMatchingBook
+    case noChapters
+    case contentTooShort(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .noMatchingBook: "?????????????"
+        case .noChapters: "???????"
+        case .contentTooShort(let count): "?????\(count) ??"
+        }
+    }
 }
