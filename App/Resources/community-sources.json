@@ -137,5 +137,42 @@
     "ruleContent": {
       "content": ".chapter-content@html"
     }
+  },
+  {
+    "sourceId": "cf.langge.novel.quiet-reader",
+    "bookSourceUrl": "https://api.langge.cf",
+    "bookSourceName": "🍅大灰狼小说5.0（墨阅兼容）",
+    "bookSourceGroup": "大灰狼 · 社区源",
+    "bookSourceType": 0,
+    "enabled": true,
+    "lastUpdateTime": 1785866400000,
+    "searchUrl": "/search?title={{key}}&tab=小说&source=全部&page={{page}}",
+    "ruleSearch": {
+      "bookList": "$.data[*]",
+      "name": "$.book_name",
+      "author": "$.author",
+      "intro": "$.abstract",
+      "kind": "$.tags",
+      "lastChapter": "$.last_chapter_title",
+      "bookUrl": "$.book_id##^##/detail?book_id=",
+      "coverUrl": "$.thumb_url"
+    },
+    "ruleBookInfo": {
+      "name": "$.data.book_name",
+      "author": "$.data.author",
+      "intro": "$.data.abstract",
+      "kind": "$.data.tags",
+      "lastChapter": "$.data.last_chapter_title",
+      "coverUrl": "$.data.thumb_url",
+      "tocUrl": "$.data.book_id##^##/catalog?book_id="
+    },
+    "ruleToc": {
+      "chapterList": "$.data[*]",
+      "chapterName": "$.title",
+      "chapterUrl": "$.item_id##^##/content?version=4.6.29&item_id="
+    },
+    "ruleContent": {
+      "content": "$.content"
+    }
   }
 ]

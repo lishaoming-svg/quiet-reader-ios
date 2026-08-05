@@ -2,6 +2,25 @@ import XCTest
 @testable import QuietReader
 
 final class SourceImporterTests: XCTestCase {
+    func testBundledSourcesIncludeCompatibleDalanglangNovelSource() throws {
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "community-sources", withExtension: "json")
+        )
+        let data = try Data(contentsOf: url)
+        let sources = try JSONDecoder().decode([BookSourceDefinition].self, from: data)
+        let source = try XCTUnwrap(
+            sources.first { $0.sourceId == "cf.langge.novel.quiet-reader" }
+        )
+
+        XCTAssertEqual(source.bookSourceUrl, "https://api.langge.cf")
+        XCTAssertEqual(source.ruleSearch?.bookList, "$.data[*]")
+        XCTAssertEqual(
+            source.ruleToc?.chapterUrl,
+            "$.item_id##^##/content?version=4.6.29&item_id="
+        )
+        XCTAssertEqual(source.ruleContent?.content, "$.content")
+    }
+
     func testDecodesSingleSourceObject() throws {
         let data = Data(
             """

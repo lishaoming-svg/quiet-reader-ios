@@ -75,4 +75,40 @@ final class RuleExtractorTests: XCTestCase {
         let node = try XCTUnwrap(extractor.list("@css:div.chapter-card", in: root).first)
         XCTAssertEqual(try extractor.string("@css:h3@text", in: node), "第一章")
     }
+
+    func testDalanglangJSONRulesBuildCompatibleURLs() throws {
+        let json = """
+        {
+          "data": [
+            {
+              "book_name": "测试小说",
+              "book_id": "book-100",
+              "item_id": "chapter-200"
+            }
+          ]
+        }
+        """
+        let resource = FetchedResource(
+            data: Data(json.utf8),
+            finalURL: URL(string: "https://api.langge.cf/search")!,
+            contentType: "application/json; charset=utf-8"
+        )
+        let extractor = RuleExtractor()
+        let root = try extractor.root(from: resource)
+        let node = try XCTUnwrap(extractor.list("$.data[*]", in: root).first)
+
+        XCTAssertEqual(try extractor.string("$.book_name", in: node), "测试小说")
+        XCTAssertEqual(
+            try extractor.string("$.book_id##^##/detail?book_id=", in: node, asURL: true),
+            "https://api.langge.cf/detail?book_id=book-100"
+        )
+        XCTAssertEqual(
+            try extractor.string(
+                "$.item_id##^##/content?version=4.6.29&item_id=",
+                in: node,
+                asURL: true
+            ),
+            "https://api.langge.cf/content?version=4.6.29&item_id=chapter-200"
+        )
+    }
 }
