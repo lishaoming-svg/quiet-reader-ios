@@ -109,6 +109,10 @@ final class ReadingProgressRecord {
     var chapterURL: String
     var chapterTitle: String
     var chapterIndex: Int
+    var locatorOffset: Int = 0
+    var chapterProgress: Double = 0
+    var pageIndex: Int = 0
+    var readingMode: String = "scroll"
     var updatedAt: Date
 
     init(bookID: String, chapter: BookChapter) {
@@ -119,10 +123,20 @@ final class ReadingProgressRecord {
         updatedAt = .now
     }
 
-    func update(chapter: BookChapter) {
+    func update(
+        chapter: BookChapter,
+        locatorOffset: Int = 0,
+        chapterProgress: Double = 0,
+        pageIndex: Int = 0,
+        readingMode: String = "scroll"
+    ) {
         chapterURL = chapter.url
         chapterTitle = chapter.title
         chapterIndex = chapter.index
+        self.locatorOffset = max(0, locatorOffset)
+        self.chapterProgress = min(max(chapterProgress, 0), 1)
+        self.pageIndex = max(0, pageIndex)
+        self.readingMode = readingMode
         updatedAt = .now
     }
 }
@@ -143,6 +157,100 @@ final class ChapterCacheRecord {
         title = chapter.title
         self.content = content
         cachedAt = .now
+    }
+}
+
+@Model
+final class ReadingSessionRecord {
+    @Attribute(.unique) var sessionID: String
+    var bookID: String
+    var bookName: String
+    var sourceID: String
+    var startedAt: Date
+    var endedAt: Date
+    var activeSeconds: Double
+
+    init(
+        sessionID: String,
+        bookID: String,
+        bookName: String,
+        sourceID: String,
+        startedAt: Date = .now,
+        endedAt: Date = .now,
+        activeSeconds: Double = 0
+    ) {
+        self.sessionID = sessionID
+        self.bookID = bookID
+        self.bookName = bookName
+        self.sourceID = sourceID
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.activeSeconds = max(0, activeSeconds)
+    }
+
+    func update(endedAt: Date, activeSeconds: Double) {
+        self.endedAt = endedAt
+        self.activeSeconds = max(0, activeSeconds)
+    }
+}
+
+@Model
+final class BookmarkRecord {
+    @Attribute(.unique) var bookmarkID: String
+    var bookID: String
+    var bookName: String
+    var sourceID: String
+    var chapterURL: String
+    var chapterTitle: String
+    var chapterIndex: Int
+    var locatorOffset: Int
+    var chapterProgress: Double
+    var excerpt: String
+    var createdAt: Date
+
+    init(
+        book: SearchBook,
+        chapter: BookChapter,
+        locatorOffset: Int,
+        chapterProgress: Double,
+        excerpt: String
+    ) {
+        bookmarkID = UUID().uuidString
+        bookID = book.id
+        bookName = book.name
+        sourceID = book.sourceID
+        chapterURL = chapter.url
+        chapterTitle = chapter.title
+        chapterIndex = chapter.index
+        self.locatorOffset = max(0, locatorOffset)
+        self.chapterProgress = min(max(chapterProgress, 0), 1)
+        self.excerpt = excerpt
+        createdAt = .now
+    }
+}
+
+@Model
+final class SearchHistoryRecord {
+    @Attribute(.unique) var normalizedKeyword: String
+    var keyword: String
+    var searchedAt: Date
+    var useCount: Int
+
+    init(keyword: String) {
+        let cleaned = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalizedKeyword = cleaned.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )
+        self.keyword = cleaned
+        searchedAt = .now
+        useCount = 1
+    }
+
+    func touch(keyword: String) {
+        self.keyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchedAt = .now
+        useCount += 1
     }
 }
 

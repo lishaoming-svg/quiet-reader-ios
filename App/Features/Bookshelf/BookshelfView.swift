@@ -5,6 +5,7 @@ struct BookshelfView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \BookRecord.lastReadAt, order: .reverse) private var books: [BookRecord]
     @Query private var sourceRecords: [BookSourceRecord]
+    @Query private var progresses: [ReadingProgressRecord]
 
     var body: some View {
         ZStack {
@@ -23,7 +24,7 @@ struct BookshelfView: View {
                                 NavigationLink {
                                     BookDetailView(book: book.searchBook, source: source)
                                 } label: {
-                                    BookshelfRow(book: book)
+                                    BookshelfRow(book: book, progress: progress(for: book.bookID))
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
@@ -33,7 +34,11 @@ struct BookshelfView: View {
                                     }
                                 }
                             } else {
-                                BookshelfRow(book: book, sourceMissing: true)
+                                BookshelfRow(
+                                    book: book,
+                                    progress: progress(for: book.bookID),
+                                    sourceMissing: true
+                                )
                             }
                         }
                     }
@@ -49,10 +54,15 @@ struct BookshelfView: View {
     private func source(for book: BookRecord) -> BookSourceDefinition? {
         sourceRecords.first(where: { $0.sourceID == book.sourceID })?.definition
     }
+
+    private func progress(for bookID: String) -> ReadingProgressRecord? {
+        progresses.first { $0.bookID == bookID }
+    }
 }
 
 private struct BookshelfRow: View {
     let book: BookRecord
+    let progress: ReadingProgressRecord?
     var sourceMissing = false
 
     var body: some View {
@@ -73,6 +83,12 @@ private struct BookshelfRow: View {
                 )
                 .font(.caption)
                 .foregroundStyle(sourceMissing ? AppTheme.vermilion : AppTheme.jade)
+                if let progress {
+                    Text("\(progress.chapterTitle) · 本章 \(Int(progress.chapterProgress * 100))%")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.inkSoft)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             Image(systemName: "chevron.right")

@@ -11,7 +11,10 @@ struct QuietReaderApp: App {
                 for: BookSourceRecord.self,
                 BookRecord.self,
                 ReadingProgressRecord.self,
-                ChapterCacheRecord.self
+                ChapterCacheRecord.self,
+                ReadingSessionRecord.self,
+                BookmarkRecord.self,
+                SearchHistoryRecord.self
             )
         } catch {
             fatalError("无法初始化本地数据库：\(error.localizedDescription)")

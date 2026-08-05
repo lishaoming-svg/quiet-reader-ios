@@ -2,7 +2,9 @@ import SwiftData
 import SwiftUI
 
 struct SearchView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \BookSourceRecord.sourceName) private var sourceRecords: [BookSourceRecord]
+    @Query(sort: \SearchHistoryRecord.searchedAt, order: .reverse) private var searchHistory: [SearchHistoryRecord]
     @StateObject private var viewModel = SearchViewModel()
     @State private var keyword = ""
 
@@ -15,12 +17,52 @@ struct SearchView: View {
             PaperBackground()
             VStack(spacing: 0) {
                 searchHeader
+                if shouldShowHistory { searchHistoryBar }
                 content
             }
         }
         .navigationTitle("寻书")
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    private var shouldShowHistory: Bool {
+        !viewModel.isSearching && viewModel.results.isEmpty && !searchHistory.isEmpty
+    }
+
+    private var searchHistoryBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("最近搜索")
+                    .font(.caption.bold())
+                    .foregroundStyle(AppTheme.inkSoft)
+                Spacer()
+                Button("清空") {
+                    searchHistory.forEach(modelContext.delete)
+                    try? modelContext.save()
+                }
+                .font(.caption)
+                .foregroundStyle(AppTheme.vermilion)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(searchHistory.prefix(12)) { item in
+                        Button(item.keyword) {
+                            keyword = item.keyword
+                            performSearch()
+                        }
+                        .font(.callout)
+                        .foregroundStyle(AppTheme.ink)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(AppTheme.paperLight, in: Capsule())
+                        .overlay { Capsule().stroke(AppTheme.line.opacity(0.7)) }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
     }
 
     private var searchHeader: some View {
@@ -106,7 +148,23 @@ struct SearchView: View {
     }
 
     private func performSearch() {
-        Task { await viewModel.search(keyword: keyword, sources: enabledSources) }
+        guard let cleaned = keyword.nilIfBlank else { return }
+        keyword = cleaned
+        saveSearchHistory(cleaned)
+        Task { await viewModel.search(keyword: cleaned, sources: enabledSources) }
+    }
+
+    private func saveSearchHistory(_ value: String) {
+        let normalized = value.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )
+        if let existing = searchHistory.first(where: { $0.normalizedKeyword == normalized }) {
+            existing.touch(keyword: value)
+        } else {
+            modelContext.insert(SearchHistoryRecord(keyword: value))
+        }
+        try? modelContext.save()
     }
 }
 

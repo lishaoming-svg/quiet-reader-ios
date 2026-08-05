@@ -11,6 +11,8 @@ struct BookDetailView: View {
     @State private var errorMessage: String?
     @State private var isInBookshelf = false
     @State private var resumeIndex: Int?
+    @State private var cacheTask: Task<Void, Never>?
+    @State private var cacheProgress: BatchCacheProgress?
 
     init(book: SearchBook, source: BookSourceDefinition) {
         self.source = source
@@ -83,6 +85,7 @@ struct BookDetailView: View {
     @ViewBuilder
     private var chapterSection: some View {
         section(title: "目录") {
+            cacheControls
             if isLoading {
                 HStack {
                     ProgressView().tint(AppTheme.vermilion)
@@ -140,6 +143,40 @@ struct BookDetailView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var cacheControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("共 \(chapters.count) 章", systemImage: "list.number")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.inkSoft)
+                Spacer()
+                if cacheProgress?.isRunning == true {
+                    Button("取消") { cacheTask?.cancel() }
+                        .font(.caption.bold())
+                        .foregroundStyle(AppTheme.vermilion)
+                } else {
+                    Menu {
+                        Button("缓存后续 20 章") { startCaching(maximumCount: 20) }
+                        Button("缓存全书") { startCaching(maximumCount: nil) }
+                    } label: {
+                        Label("批量缓存", systemImage: "arrow.down.circle")
+                            .font(.caption.bold())
+                    }
+                    .disabled(chapters.isEmpty || isLoading)
+                }
+            }
+            if let progress = cacheProgress {
+                ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
+                    .tint(AppTheme.vermilion)
+                Text(progress.statusText)
+                    .font(.caption)
+                    .foregroundStyle(progress.failed > 0 ? AppTheme.vermilion : AppTheme.inkSoft)
+                    .lineLimit(2)
+            }
+            Divider().overlay(AppTheme.line.opacity(0.5))
         }
     }
 
@@ -217,5 +254,71 @@ struct BookDetailView: View {
         resumeIndex = chapters.indices.contains(progress.chapterIndex)
             ? progress.chapterIndex
             : chapters.firstIndex(where: { $0.url == progress.chapterURL })
+    }
+
+    private func startCaching(maximumCount: Int?) {
+        guard !chapters.isEmpty else { return }
+        let startIndex = min(max(resumeIndex ?? 0, 0), chapters.count - 1)
+        let remaining = chapters.dropFirst(startIndex)
+        let targets = maximumCount.map { Array(remaining.prefix($0)) } ?? Array(remaining)
+        cacheTask?.cancel()
+        cacheProgress = BatchCacheProgress(total: targets.count)
+        cacheTask = Task { await cache(targets) }
+    }
+
+    private func cache(_ targets: [BookChapter]) async {
+        var completed = 0
+        var failed = 0
+
+        for chapter in targets {
+            if Task.isCancelled { break }
+            cacheProgress?.currentTitle = chapter.title
+
+            let key = "\(source.id)::\(chapter.url)"
+            let descriptor = FetchDescriptor<ChapterCacheRecord>(
+                predicate: #Predicate { $0.cacheKey == key }
+            )
+            if ((try? modelContext.fetchCount(descriptor)) ?? 0) == 0 {
+                do {
+                    let content = try await SourceEngine().loadContent(chapter: chapter, source: source)
+                    modelContext.insert(
+                        ChapterCacheRecord(
+                            sourceID: source.id,
+                            bookID: book.id,
+                            chapter: chapter,
+                            content: content
+                        )
+                    )
+                    try modelContext.save()
+                } catch {
+                    failed += 1
+                }
+            }
+            completed += 1
+            cacheProgress?.completed = completed
+            cacheProgress?.failed = failed
+        }
+
+        cacheProgress?.isRunning = false
+        cacheProgress?.wasCancelled = Task.isCancelled
+    }
+}
+
+private struct BatchCacheProgress {
+    let total: Int
+    var completed = 0
+    var failed = 0
+    var currentTitle = ""
+    var isRunning = true
+    var wasCancelled = false
+
+    var statusText: String {
+        if isRunning {
+            return "正在缓存 \(completed)/\(total)：\(currentTitle)"
+        }
+        if wasCancelled {
+            return "已取消，完成 \(completed)/\(total)，失败 \(failed) 章"
+        }
+        return "缓存完成 \(completed)/\(total)，失败 \(failed) 章"
     }
 }
