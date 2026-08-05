@@ -54,6 +54,16 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.quietreader.tests
+  QuietReaderLiveSourceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: LiveSourceTests
+    dependencies:
+      - target: QuietReader
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.quietreader.live-source-tests
 schemes:
   QuietReader:
     build:
@@ -64,3 +74,11 @@ schemes:
       gatherCoverageData: true
       targets:
         - QuietReaderTests
+  QuietReaderLiveSources:
+    build:
+      targets:
+        QuietReader: all
+        QuietReaderLiveSourceTests: [test]
+    test:
+      targets:
+        - QuietReaderLiveSourceTests

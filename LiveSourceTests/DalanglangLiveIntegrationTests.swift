@@ -3,10 +3,6 @@ import XCTest
 
 final class DalanglangLiveIntegrationTests: XCTestCase {
     func testLiveSearchDetailCatalogAndFirstChapter() async throws {
-        guard ProcessInfo.processInfo.environment["RUN_LIVE_SOURCE_TESTS"] == "1" else {
-            throw XCTSkip("仅在手动在线书源冒烟测试中运行")
-        }
-
         let sourceURL = try XCTUnwrap(
             Bundle.main.url(forResource: "community-sources", withExtension: "json")
         )

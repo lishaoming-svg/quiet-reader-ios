@@ -11,11 +11,11 @@ if [[ -z "$SIMULATOR_ID" ]]; then
   exit 1
 fi
 
-RUN_LIVE_SOURCE_TESTS=1 xcodebuild \
+xcodebuild \
   -project QuietReader.xcodeproj \
-  -scheme QuietReader \
+  -scheme QuietReaderLiveSources \
   -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
   -derivedDataPath build/live-source-tests \
-  -only-testing:QuietReaderTests/DalanglangLiveIntegrationTests \
+  -only-testing:QuietReaderLiveSourceTests/DalanglangLiveIntegrationTests \
   CODE_SIGNING_ALLOWED=NO \
   test
