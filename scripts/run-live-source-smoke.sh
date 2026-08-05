@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 xcodegen generate
 SIMULATOR_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
 if [[ -z "$SIMULATOR_ID" ]]; then
-  echo "没有可用的 iPhone 模拟器" >&2
+  echo "????? iPhone ???" >&2
   exit 1
 fi
 
@@ -16,6 +16,6 @@ xcodebuild \
   -scheme QuietReaderLiveSources \
   -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
   -derivedDataPath build/live-source-tests \
-  -only-testing:QuietReaderLiveSourceTests/DalanglangLiveIntegrationTests \
+  -only-testing:QuietReaderLiveSourceTests/CuratedSourcesLiveIntegrationTests \
   CODE_SIGNING_ALLOWED=NO \
   test

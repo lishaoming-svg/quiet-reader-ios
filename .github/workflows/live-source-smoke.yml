@@ -1,18 +1,18 @@
-name: 在线书源冒烟测试
+name: ????????
 
 on:
   workflow_dispatch:
 
 jobs:
-  dalanglang:
+  curated-sources:
     runs-on: macos-15
     timeout-minutes: 20
     steps:
-      - name: 检出源码
+      - name: ????
         uses: actions/checkout@v4
 
-      - name: 安装 XcodeGen
+      - name: ?? XcodeGen
         run: brew install xcodegen
 
-      - name: 实测大灰狼完整阅读链路
+      - name: ?????????
         run: bash scripts/run-live-source-smoke.sh
