@@ -177,6 +177,11 @@ struct SearchResultRow: View {
     let book: SearchBook
     let group: SearchBookGroup
 
+    init(book: SearchBook, group: SearchBookGroup? = nil) {
+        self.book = book
+        self.group = group ?? SearchBookGroup(id: book.id, books: [book])
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             BookCoverView(urlString: book.coverURL, title: book.name, width: 64, height: 92)
