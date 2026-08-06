@@ -32,37 +32,41 @@ final class BundledSourceUpdaterTests: XCTestCase {
         XCTAssertFalse(record.enabled)
     }
 
-    func testRetiredBundledSourceIsDisabledDuringRefresh() throws {
+    func testRetiredBundledSourcesAreDisabledDuringRefresh() throws {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: BookSourceRecord.self,
             configurations: configuration
         )
         let context = ModelContext(container)
-        let oldDefinition = try definition(
-            id: "archive.870ca07aea94fc8c54d0ef9e",
-            timestamp: 1,
-            searchURL: "/old"
-        )
-        let newDefinition = try definition(
-            id: "archive.870ca07aea94fc8c54d0ef9e",
-            timestamp: 2,
-            searchURL: "/new",
-            enabled: false
-        )
-        let record = try BookSourceRecord(definition: oldDefinition)
-        record.enabled = true
-        context.insert(record)
+        let retiredIDs = [
+            "archive.870ca07aea94fc8c54d0ef9e",
+            "archive.a184d924d4a2bcfac86e52a8"
+        ]
+        var records: [BookSourceRecord] = []
+        var definitions: [BookSourceDefinition] = []
+        for id in retiredIDs {
+            let oldDefinition = try definition(id: id, timestamp: 1, searchURL: "/old")
+            let record = try BookSourceRecord(definition: oldDefinition)
+            record.enabled = true
+            context.insert(record)
+            records.append(record)
+            definitions.append(
+                try definition(id: id, timestamp: 2, searchURL: "/new", enabled: false)
+            )
+        }
         try context.save()
 
         let updateCount = try BundledSourceUpdater.refreshExistingSources(
             in: context,
-            definitions: [newDefinition]
+            definitions: definitions
         )
 
-        XCTAssertEqual(updateCount, 1)
-        XCTAssertFalse(record.enabled)
-        XCTAssertEqual(record.definition?.searchUrl, "/new")
+        XCTAssertEqual(updateCount, 2)
+        for record in records {
+            XCTAssertFalse(record.enabled)
+            XCTAssertEqual(record.definition?.searchUrl, "/new")
+        }
     }
 
     func testBundledPagedSourcesHaveCompletePaginationRules() throws {
@@ -70,6 +74,7 @@ final class BundledSourceUpdaterTests: XCTestCase {
         let wolf = try XCTUnwrap(sources.first { $0.bookSourceName == "饿狼小说" })
         let forest = try XCTUnwrap(sources.first { $0.bookSourceName == "森林文学" })
         let b5200 = try XCTUnwrap(sources.first { $0.bookSourceName == "B5200" })
+        let fiveTwo = try XCTUnwrap(sources.first { $0.bookSourceName == "五二书库" })
 
         for source in [wolf, forest] {
             XCTAssertEqual(
@@ -83,6 +88,9 @@ final class BundledSourceUpdaterTests: XCTestCase {
         }
         XCTAssertFalse(b5200.isEnabled)
         XCTAssertEqual(b5200.groupName, "备用源 · 目录可能缺章")
+        XCTAssertFalse(fiveTwo.isEnabled)
+        XCTAssertFalse(fiveTwo.enabledExplore ?? true)
+        XCTAssertEqual(fiveTwo.groupName, "备用源 · 全书分页")
     }
 
     private func definition(

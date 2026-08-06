@@ -15,6 +15,22 @@ final class SourceResponseGuardTests: XCTestCase {
         XCTAssertNil(SourceEngine.authenticationMessage(in: "第一章的正常正文。"))
     }
 
+    func testRejectsWholeBookPageDirectory() {
+        let chapters = (1...311).map {
+            BookChapter(title: "第\($0)页", url: "https://example.com/page/\($0)", index: $0 - 1)
+        }
+
+        XCTAssertTrue(SourceEngine.isWholeBookPageDirectory(chapters))
+    }
+
+    func testKeepsRealChapterDirectory() {
+        let chapters = (1...195).map {
+            BookChapter(title: "第\($0)章", url: "https://example.com/chapter/\($0)", index: $0 - 1)
+        }
+
+        XCTAssertFalse(SourceEngine.isWholeBookPageDirectory(chapters))
+    }
+
     func testTransientNetworkFailuresAreRetried() {
         XCTAssertTrue(SourceRequestRetryPolicy.shouldRetry(URLError(.timedOut)))
         XCTAssertTrue(SourceRequestRetryPolicy.shouldRetry(URLError(.networkConnectionLost)))

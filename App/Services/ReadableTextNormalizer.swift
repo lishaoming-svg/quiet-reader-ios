@@ -58,7 +58,29 @@ enum ReadableTextNormalizer {
         mixed(#"(?<![a-z])gui[1-5]?[\s*＊·•・_＿~～]*头"#, as: "龟头"),
         mixed(#"([强轮])[\s*＊·•・_＿~～]*jian[1-5]?(?![a-z])"#, as: "$1奸"),
         mixed(#"([牛装傻])[\s*＊·•・_＿~～]*bi[1-5]?(?![a-z])"#, as: "$1逼"),
-        mixed(#"(?<![a-z])cao[1-5]?[\s*＊·•・_＿~～]*([你我他她])"#, as: "操$1")
+        mixed(#"(?<![a-z])cao[1-5]?[\s*＊·•・_＿~～]*([你我他她])"#, as: "操$1"),
+
+        // Some sites replace every occurrence of a filtered Han character, including
+        // harmless compounds such as "事qíng" and "jīng神". Requiring an adjacent
+        // Han character keeps ordinary English and standalone pinyin untouched.
+        contextual("gangan", as: "干干"),
+        contextual("dangdang", as: "荡荡"),
+        contextual("qing", as: "情"),
+        contextual("qiang", as: "强"),
+        contextual("chuang", as: "床"),
+        contextual("gan", as: "干"),
+        contextual("jing", as: "精"),
+        contextual("feng", as: "缝"),
+        contextual("rou", as: "肉"),
+        contextual("yin", as: "阴"),
+        contextual("jiao", as: "交"),
+        contextual("chui", as: "吹"),
+        contextual("huang", as: "黄"),
+        contextual("ji", as: "鸡"),
+        contextual("bi", as: "逼"),
+        contextual("lang", as: "浪"),
+        contextual("shou", as: "兽"),
+        contextual("yu", as: "欲")
     ]
 
     private static let compiledRules: [(regex: NSRegularExpression, replacement: String)] =
@@ -127,6 +149,13 @@ enum ReadableTextNormalizer {
 
     private static func mixed(_ pattern: String, as replacement: String) -> ReplacementRule {
         ReplacementRule(pattern: pattern, replacement: replacement)
+    }
+
+    private static func contextual(_ pinyin: String, as replacement: String) -> ReplacementRule {
+        ReplacementRule(
+            pattern: "(?:(?<=\\p{Han})\(pinyin)(?![a-z])|(?<![a-z])\(pinyin)(?=\\p{Han}))",
+            replacement: replacement
+        )
     }
 
     private static func replaceMatches(

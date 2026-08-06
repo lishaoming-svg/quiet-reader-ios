@@ -29,8 +29,26 @@ final class ReadableTextNormalizerTests: XCTestCase {
         )
     }
 
+    func testRestoresWholeCharacterPinyinInsideChineseContext() {
+        let input = "没心qíng，查清qíng况，保持jīng神并进行jiāo流。"
+
+        XCTAssertEqual(
+            ReadableTextNormalizer.normalize(input),
+            "没心情，查清情况，保持精神并进行交流。"
+        )
+    }
+
+    func testRestoresSampledWholeCharacterPinyinFromPagedSource() {
+        let input = "勉qiáng下chuáng，gāngān净净的土huáng被子，海làng被风chuī动，猛shòu用ròu眼可见。"
+
+        XCTAssertEqual(
+            ReadableTextNormalizer.normalize(input),
+            "勉强下床，干干净净的土黄被子，海浪被风吹动，猛兽用肉眼可见。"
+        )
+    }
+
     func testKeepsOrdinaryEnglishAndUnrelatedPinyin() {
-        let input = "打开 App 查看 AI 技术，人物名为 Cao，拼音 sheng yin 保持原样。"
+        let input = "打开 App 查看 AI 技术，人物名为 Cao，拼音 qíng、jīng、sheng yin 保持原样。"
 
         XCTAssertEqual(ReadableTextNormalizer.normalize(input), input)
     }

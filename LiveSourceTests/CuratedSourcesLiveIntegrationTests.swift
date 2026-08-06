@@ -12,7 +12,7 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
         let bundledSources = try JSONDecoder().decode([BookSourceDefinition].self, from: sourceData)
         let sources = bundledSources.filter(\.isEnabled)
         XCTAssertEqual(bundledSources.count, 5)
-        XCTAssertEqual(sources.count, 4)
+        XCTAssertEqual(sources.count, 3)
         XCTAssertTrue(sources.allSatisfy { $0.loginUrl?.nilIfBlank == nil })
 
         let outcomes = await withTaskGroup(of: SourceOutcome.self) { group in

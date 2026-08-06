@@ -74,22 +74,18 @@ struct BookDetailView: View {
                 Label(book.sourceName, systemImage: "network")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
-                if availableAlternatives.count > 1 {
+                if !switchableAlternatives.isEmpty {
                     Menu {
-                        ForEach(availableAlternatives) { choice in
+                        ForEach(switchableAlternatives) { choice in
                             Button {
                                 switchSource(to: choice.book, source: choice.source)
                             } label: {
-                                if choice.source.id == source.id {
-                                    Label(choice.source.bookSourceName, systemImage: "checkmark")
-                                } else {
-                                    Text(choice.source.bookSourceName)
-                                }
+                                Text(choice.source.bookSourceName)
                             }
                         }
                     } label: {
                         Label(
-                            "换源 · \(availableAlternatives.count) 个可用来源",
+                            "换源 · \(switchableAlternatives.count) 个可用来源",
                             systemImage: "arrow.triangle.swap"
                         )
                         .font(.caption.bold())
@@ -117,6 +113,12 @@ struct BookDetailView: View {
                 $0.sourceID == candidate.sourceID && $0.enabled
             })?.definition else { return nil }
             return BookSourceChoice(book: candidate, source: definition)
+        }
+    }
+
+    private var switchableAlternatives: [BookSourceChoice] {
+        availableAlternatives.filter {
+            $0.source.id != source.id || $0.book.bookURL != book.bookURL
         }
     }
 
@@ -255,7 +257,8 @@ struct BookDetailView: View {
             if isInBookshelf { updateStoredBook() }
         } catch {
             errorMessage = error.localizedDescription
-            if chapters.isEmpty {
+            let hasIncompatibleDirectory = (error as? SourceEngineError) == .incompatiblePageDirectory
+            if chapters.isEmpty, !hasIncompatibleDirectory {
                 chapters = [BookChapter(title: "全文", url: book.bookURL, index: 0)]
             }
             loadReadingProgress()

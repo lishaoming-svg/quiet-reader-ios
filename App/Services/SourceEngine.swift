@@ -4,6 +4,9 @@ import SwiftSoup
 struct SourceEngine {
     private static let maximumTocPageCount = 100
     private static let maximumContentPageCount = 20
+    private static let pageTitleRegex = try? NSRegularExpression(
+        pattern: #"^\s*第?\s*\d+\s*页\s*$"#
+    )
     private let client = SourceHTTPClient.shared
     private let extractor = RuleExtractor()
 
@@ -143,6 +146,9 @@ struct SourceEngine {
         if chapters.isEmpty {
             throw SourceEngineError.emptyChapterList
         }
+        if Self.isWholeBookPageDirectory(chapters) {
+            throw SourceEngineError.incompatiblePageDirectory
+        }
         return chapters
     }
 
@@ -206,6 +212,18 @@ struct SourceEngine {
         return value.nilIfBlank ?? "该书源需要登录后继续阅读"
     }
 
+    static func isWholeBookPageDirectory(_ chapters: [BookChapter]) -> Bool {
+        guard chapters.count >= 20, let pageTitleRegex else { return false }
+        let pageTitleCount = chapters.reduce(into: 0) { count, chapter in
+            let title = chapter.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let range = NSRange(title.startIndex..., in: title)
+            if pageTitleRegex.firstMatch(in: title, range: range)?.range == range {
+                count += 1
+            }
+        }
+        return pageTitleCount * 5 >= chapters.count * 4
+    }
+
     private func cleanReadableText(_ value: String) -> String {
         var text = value
         if value.contains("<") && value.contains(">"),
@@ -236,12 +254,13 @@ struct SourceEngine {
     }
 }
 
-enum SourceEngineError: LocalizedError {
+enum SourceEngineError: LocalizedError, Equatable {
     case invalidURL(String)
     case invalidResponse
     case httpStatus(Int)
     case responseTooLarge
     case emptyChapterList
+    case incompatiblePageDirectory
     case emptyContent
     case tocPaginationLimit(Int)
     case contentPaginationLimit(Int)
@@ -263,6 +282,8 @@ enum SourceEngineError: LocalizedError {
         case .httpStatus(let code): "书源请求失败，状态码 \(code)"
         case .responseTooLarge: "书源响应超过 25 MB 限制"
         case .emptyChapterList: "没有解析到章节目录"
+        case .incompatiblePageDirectory:
+            "该书源把整本书拆成网页分页，无法识别真实章节，请切换书源或返回寻书重新搜索"
         case .emptyContent: "没有解析到正文内容"
         case .tocPaginationLimit(let count): "目录超过连续 \(count) 页，已停止加载以避免返回不完整章节"
         case .contentPaginationLimit(let count): "本章超过连续 \(count) 页，已停止加载以避免显示不完整正文"

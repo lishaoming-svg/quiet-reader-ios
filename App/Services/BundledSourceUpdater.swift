@@ -3,10 +3,11 @@ import SwiftData
 
 @MainActor
 enum BundledSourceUpdater {
-    // These bundled sources are known to return incomplete books and must not stay active
-    // after a rule refresh, even when the user previously enabled them.
+    // These bundled sources return incomplete books or incompatible page-based directories.
+    // A rule refresh must retire them even when the user previously enabled them.
     private static let retiredSourceIDs: Set<String> = [
-        "archive.870ca07aea94fc8c54d0ef9e"
+        "archive.870ca07aea94fc8c54d0ef9e",
+        "archive.a184d924d4a2bcfac86e52a8"
     ]
 
     @discardableResult
