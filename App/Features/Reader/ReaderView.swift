@@ -614,12 +614,16 @@ struct ReaderView: View {
     }
 
     private func prepareDocument(_ value: String, chapter: BookChapter) {
-        content = value
-        blocks = ReaderDocumentBuilder.blocks(from: value)
+        let normalized = ReadableTextNormalizer.normalize(value)
+        content = normalized
+        blocks = ReaderDocumentBuilder.blocks(from: normalized)
+        if normalized != value {
+            cache(chapter, content: normalized)
+        }
 
         let targetLocator: Int
         if let fraction = pendingChapterFraction {
-            targetLocator = Int(fraction * Double((value as NSString).length))
+            targetLocator = Int(fraction * Double((normalized as NSString).length))
         } else if let pendingLocatorOffset {
             targetLocator = pendingLocatorOffset
         } else {

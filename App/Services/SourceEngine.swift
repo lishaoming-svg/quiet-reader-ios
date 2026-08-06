@@ -189,7 +189,9 @@ struct SourceEngine {
             currentURL = nextURL
         }
 
-        let result = pages.joined(separator: "\n\n")
+        let result = ReadableTextNormalizer.normalize(
+            pages.joined(separator: "\n\n")
+        )
         guard !result.isEmpty else { throw SourceEngineError.emptyContent }
         return result
     }
