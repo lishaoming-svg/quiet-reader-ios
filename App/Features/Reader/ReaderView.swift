@@ -259,9 +259,9 @@ struct ReaderView: View {
                 .frame(height: 22)
                 .padding(.top, 12)
         }
+        .frame(maxWidth: readerMargin.maximumContentWidth, maxHeight: .infinity)
         .padding(.horizontal, readerMargin.horizontalPadding)
         .padding(.vertical, 12)
-        .frame(maxWidth: readerMargin.maximumContentWidth, maxHeight: .infinity)
         .frame(maxWidth: .infinity)
     }
 
