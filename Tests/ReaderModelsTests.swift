@@ -9,6 +9,24 @@ final class ReaderModelsTests: XCTestCase {
         XCTAssertGreaterThan(blocks.count, 2)
         XCTAssertEqual(blocks.first?.locatorOffset, 0)
         XCTAssertEqual(blocks.map(\.locatorOffset), blocks.map(\.locatorOffset).sorted())
+        XCTAssertEqual(blocks.filter(\.isParagraphStart).count, 2)
+        XCTAssertTrue(blocks.first?.isParagraphStart == true)
+    }
+
+    func testDisplayDocumentNormalizesChineseParagraphIndentAndMapsLocator() {
+        let content = "  第一段。  \n\n　　第二段。"
+        let document = ReaderDocumentBuilder.displayDocument(
+            from: content,
+            paragraphIndent: true
+        )
+
+        XCTAssertEqual(document.text, "　　第一段。\n　　第二段。")
+        let displayedOffset = (document.text as NSString).range(of: "第二段").location
+        let originalOffset = (content as NSString).range(of: "第二段").location
+        XCTAssertEqual(
+            document.locatorOffset(forDisplayedUTF16Offset: displayedOffset),
+            originalOffset
+        )
     }
 
     func testPaginatorProducesPagesAndMapsLocator() {
@@ -24,6 +42,10 @@ final class ReaderModelsTests: XCTestCase {
 
         XCTAssertGreaterThan(pages.count, 1)
         XCTAssertEqual(pages.first?.locatorOffset, 0)
+        XCTAssertEqual(pages.first?.showsChapterTitle, true)
+        XCTAssertFalse(pages.dropFirst().contains(where: \.showsChapterTitle))
+        XCTAssertFalse(pages.map(\.text).joined().contains("第一章"))
+        XCTAssertTrue(pages.map(\.text).joined().hasPrefix("　　"))
         XCTAssertEqual(
             ReaderPaginator.pageIndex(for: pages.last?.locatorOffset ?? 0, in: pages),
             pages.count - 1

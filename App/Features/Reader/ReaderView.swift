@@ -5,10 +5,12 @@ struct ReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("reader.fontSize") private var fontSize = 19.0
-    @AppStorage("reader.lineSpacing") private var lineSpacing = 8.0
+    @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
     @AppStorage("reader.paper") private var paperValue = ReaderPaper.warm.rawValue
     @AppStorage("reader.serif") private var usesSerif = true
     @AppStorage("reader.mode") private var modeValue = ReaderMode.scroll.rawValue
+    @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
+    @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
 
     let book: SearchBook
     let chapters: [BookChapter]
@@ -56,6 +58,9 @@ struct ReaderView: View {
     private var chapter: BookChapter { chapters[currentIndex] }
     private var paper: ReaderPaper { ReaderPaper(rawValue: paperValue) ?? .warm }
     private var readerMode: ReaderMode { ReaderMode(rawValue: modeValue) ?? .scroll }
+    private var readerMargin: ReaderMargin {
+        ReaderMargin(rawValue: marginValue) ?? .comfortable
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -121,6 +126,8 @@ struct ReaderView: View {
         .onChange(of: fontSize) { _, _ in repaginateForSettingsChange() }
         .onChange(of: lineSpacing) { _, _ in repaginateForSettingsChange() }
         .onChange(of: usesSerif) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: marginValue) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: paragraphIndent) { _, _ in repaginateForSettingsChange() }
     }
 
     @ViewBuilder
@@ -159,29 +166,32 @@ struct ReaderView: View {
 
     private var scrollingReader: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                Text(chapter.title)
-                    .font(.system(size: fontSize + 5, weight: .bold, design: .serif))
-                    .padding(.bottom, 4)
-                Rectangle()
-                    .fill(AppTheme.vermilion)
-                    .frame(width: 34, height: 2)
-                    .padding(.bottom, 4)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                chapterHeading
+                    .padding(.bottom, 30)
                 ForEach(blocks) { block in
-                    Text(block.text)
+                    Text(displayText(for: block))
                         .font(readerFont)
                         .lineSpacing(lineSpacing)
+                        .tracking(ReaderTypography.letterSpacing)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(
+                            .top,
+                            block.id > 0 && block.isParagraphStart ? max(4, lineSpacing * 0.45) : 0
+                        )
                         .id(block.id)
                 }
+                chapterEnding
+                    .padding(.top, 42)
             }
             .foregroundStyle(paper.primaryText)
             .textSelection(.enabled)
             .scrollTargetLayout()
-            .frame(maxWidth: 720, alignment: .leading)
-            .padding(.horizontal, 22)
-            .padding(.top, 26)
-            .padding(.bottom, controlsVisible ? 34 : 90)
+            .frame(maxWidth: readerMargin.maximumContentWidth, alignment: .leading)
+            .padding(.horizontal, readerMargin.horizontalPadding)
+            .padding(.top, 36)
+            .padding(.bottom, controlsVisible ? 36 : 84)
+            .frame(maxWidth: .infinity)
         }
         .scrollPosition(id: $scrollBlockID, anchor: .top)
         .onChange(of: scrollBlockID) { _, _ in
@@ -222,24 +232,113 @@ struct ReaderView: View {
     }
 
     private func pageView(_ page: ReaderPage) -> some View {
-        Text(page.text)
-            .font(readerFont)
-            .lineSpacing(lineSpacing)
-            .foregroundStyle(paper.primaryText)
-            .textSelection(.enabled)
-            .frame(maxWidth: 720, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.horizontal, 22)
-            .padding(.top, 26)
-            .padding(.bottom, 22)
-            .clipped()
+        VStack(alignment: .leading, spacing: 0) {
+            pageHeader
+                .frame(height: 22)
+                .padding(.bottom, 14)
+
+            if page.showsChapterTitle {
+                chapterHeading
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .topLeading
+                    )
+                    .frame(height: ReaderTypography.chapterHeadingHeight, alignment: .topLeading)
+            }
+
+            Text(page.text)
+                .font(readerFont)
+                .lineSpacing(lineSpacing)
+                .tracking(ReaderTypography.letterSpacing)
+                .foregroundStyle(paper.primaryText)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .clipped()
+
+            pageFooter(page)
+                .frame(height: 22)
+                .padding(.top, 12)
+        }
+        .padding(.horizontal, readerMargin.horizontalPadding)
+        .padding(.vertical, 12)
+        .frame(maxWidth: readerMargin.maximumContentWidth, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 
     private var readerFont: Font {
-        .system(
-            size: fontSize,
-            weight: .regular,
-            design: usesSerif ? .serif : .default
+        Font(
+            ReaderTypography.bodyUIFont(
+                size: fontSize,
+                usesSerif: usesSerif
+            )
         )
+    }
+
+    private var chapterTitleFont: Font {
+        Font(
+            ReaderTypography.titleUIFont(
+                size: ReaderTypography.titleSize(for: fontSize)
+            )
+        )
+    }
+
+    private var chapterHeading: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("第 \(currentIndex + 1) 章 · 共 \(chapters.count) 章")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .tracking(1.2)
+                .foregroundStyle(paper.secondaryText)
+            Text(chapter.title)
+                .font(chapterTitleFont)
+                .lineSpacing(4)
+                .foregroundStyle(paper.primaryText)
+                .lineLimit(2)
+            Capsule()
+                .fill(AppTheme.vermilion.opacity(0.82))
+                .frame(width: 28, height: 2)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var chapterEnding: some View {
+        HStack(spacing: 12) {
+            Rectangle().fill(paper.secondaryText.opacity(0.22)).frame(height: 0.5)
+            Text("本章完")
+                .font(.caption)
+                .tracking(1)
+                .foregroundStyle(paper.secondaryText)
+            Rectangle().fill(paper.secondaryText.opacity(0.22)).frame(height: 0.5)
+        }
+    }
+
+    private var pageHeader: some View {
+        HStack(spacing: 12) {
+            Text(book.name)
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            Text("第 \(currentIndex + 1) 章")
+        }
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .tracking(0.5)
+        .foregroundStyle(paper.secondaryText.opacity(0.82))
+    }
+
+    private func pageFooter(_ page: ReaderPage) -> some View {
+        HStack {
+            Text("全书 \(Int(fullBookProgress * 100))%")
+            Spacer()
+            Text("\(page.id + 1) / \(pages.count)")
+                .monospacedDigit()
+        }
+        .font(.system(size: 11, weight: .regular, design: .rounded))
+        .foregroundStyle(paper.secondaryText.opacity(0.78))
+    }
+
+    private func displayText(for block: ReaderBlock) -> String {
+        if paragraphIndent && block.isParagraphStart {
+            return "　　\(block.text)"
+        }
+        return block.text
     }
 
     @ToolbarContentBuilder
@@ -436,8 +535,14 @@ struct ReaderView: View {
     private func rebuildPages(keeping locatorOffset: Int) {
         guard !content.isEmpty else { return }
         let pageSize = CGSize(
-            width: max(120, layoutSize.width - 44),
-            height: max(180, layoutSize.height - 62)
+            width: max(
+                120,
+                min(
+                    readerMargin.maximumContentWidth,
+                    layoutSize.width - readerMargin.horizontalPadding * 2
+                )
+            ),
+            height: max(180, layoutSize.height - ReaderTypography.pageChromeHeight)
         )
         pages = ReaderPaginator.paginate(
             chapterTitle: chapter.title,
@@ -445,7 +550,8 @@ struct ReaderView: View {
             size: pageSize,
             fontSize: fontSize,
             lineSpacing: lineSpacing,
-            usesSerif: usesSerif
+            usesSerif: usesSerif,
+            paragraphIndent: paragraphIndent
         )
         pageIndex = ReaderPaginator.pageIndex(for: locatorOffset, in: pages)
     }
@@ -724,10 +830,21 @@ struct ReaderView: View {
 private struct ReaderSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("reader.fontSize") private var fontSize = 19.0
-    @AppStorage("reader.lineSpacing") private var lineSpacing = 8.0
+    @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
     @AppStorage("reader.paper") private var paperValue = ReaderPaper.warm.rawValue
     @AppStorage("reader.serif") private var usesSerif = true
     @AppStorage("reader.mode") private var modeValue = ReaderMode.scroll.rawValue
+    @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
+    @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
+
+    private var previewFont: Font {
+        Font(
+            ReaderTypography.bodyUIFont(
+                size: fontSize,
+                usesSerif: usesSerif
+            )
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -741,14 +858,37 @@ private struct ReaderSettingsView: View {
                     .pickerStyle(.segmented)
                 }
                 Section("文字") {
+                    Text("　　山窗听雨，灯下翻书。字有疏密，行有呼吸。")
+                        .font(previewFont)
+                        .lineSpacing(lineSpacing)
+                        .tracking(ReaderTypography.letterSpacing)
+                        .padding(.vertical, 8)
                     LabeledContent("字号", value: "\(Int(fontSize))")
                     Slider(value: $fontSize, in: 15...30, step: 1)
                         .tint(AppTheme.vermilion)
                     LabeledContent("行距", value: "\(Int(lineSpacing))")
                     Slider(value: $lineSpacing, in: 3...16, step: 1)
                         .tint(AppTheme.vermilion)
-                    Toggle("使用衬线字体", isOn: $usesSerif)
+                    Toggle("使用宋体正文", isOn: $usesSerif)
                         .tint(AppTheme.vermilion)
+                }
+                Section("版式") {
+                    Picker("页面留白", selection: $marginValue) {
+                        ForEach(ReaderMargin.allCases) { margin in
+                            Text(margin.title).tag(margin.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle("段首缩进两格", isOn: $paragraphIndent)
+                        .tint(AppTheme.vermilion)
+                    Button("恢复舒适默认版式") {
+                        fontSize = 19
+                        lineSpacing = 9
+                        usesSerif = true
+                        marginValue = ReaderMargin.comfortable.rawValue
+                        paragraphIndent = true
+                    }
+                    .foregroundStyle(AppTheme.vermilion)
                 }
                 Section("纸张") {
                     Picker("阅读主题", selection: $paperValue) {

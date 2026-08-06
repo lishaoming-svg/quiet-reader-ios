@@ -31,12 +31,106 @@ struct ReaderBlock: Identifiable, Equatable {
     let id: Int
     let locatorOffset: Int
     let text: String
+    let isParagraphStart: Bool
 }
 
 struct ReaderPage: Identifiable, Equatable {
     let id: Int
     let locatorOffset: Int
     let text: String
+    let showsChapterTitle: Bool
+}
+
+enum ReaderMargin: String, CaseIterable, Identifiable {
+    case compact
+    case comfortable
+    case spacious
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .compact: "紧凑"
+        case .comfortable: "舒适"
+        case .spacious: "宽松"
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .compact: 18
+        case .comfortable: 26
+        case .spacious: 36
+        }
+    }
+
+    var maximumContentWidth: CGFloat {
+        switch self {
+        case .compact: 720
+        case .comfortable: 660
+        case .spacious: 600
+        }
+    }
+}
+
+enum ReaderTypography {
+    static let letterSpacing: CGFloat = 0.18
+    static let chapterHeadingHeight: CGFloat = 108
+    static let pageChromeHeight: CGFloat = 92
+
+    static func bodyUIFont(size: CGFloat, usesSerif: Bool) -> UIFont {
+        if usesSerif {
+            if let songti = UIFont(name: "STSongti-SC-Regular", size: size) {
+                return songti
+            }
+            let fallback = UIFont.systemFont(ofSize: size, weight: .regular)
+            if let descriptor = fallback.fontDescriptor.withDesign(.serif) {
+                return UIFont(descriptor: descriptor, size: size)
+            }
+            return fallback
+        }
+        return UIFont(name: "PingFangSC-Regular", size: size)
+            ?? UIFont.systemFont(ofSize: size, weight: .regular)
+    }
+
+    static func titleUIFont(size: CGFloat) -> UIFont {
+        UIFont(name: "STSongti-SC-Bold", size: size)
+            ?? UIFont.systemFont(ofSize: size, weight: .semibold)
+    }
+
+    static func titleSize(for bodySize: CGFloat) -> CGFloat {
+        min(max(bodySize + 7, 25), 32)
+    }
+}
+
+struct ReaderDisplayDocument {
+    let text: String
+    fileprivate let spans: [ReaderLocatorSpan]
+    fileprivate let originalLength: Int
+
+    func locatorOffset(forDisplayedUTF16Offset rawOffset: Int) -> Int {
+        guard !spans.isEmpty else { return 0 }
+        let displayLength = (text as NSString).length
+        let offset = min(max(rawOffset, 0), displayLength)
+        if offset == displayLength { return originalLength }
+
+        if let span = spans.first(where: { NSLocationInRange(offset, $0.displayRange) }) {
+            if span.tracksCharacters {
+                return min(originalLength, span.originalOffset + offset - span.displayRange.location)
+            }
+            return min(originalLength, span.originalOffset)
+        }
+        return min(
+            originalLength,
+            spans.first(where: { $0.displayRange.location > offset })?.originalOffset ?? originalLength
+        )
+    }
+}
+
+fileprivate struct ReaderLocatorSpan {
+    let displayRange: NSRange
+    let originalOffset: Int
+    let tracksCharacters: Bool
 }
 
 enum ReaderDocumentBuilder {
@@ -65,7 +159,8 @@ enum ReaderDocumentBuilder {
                             ReaderBlock(
                                 id: identifier,
                                 locatorOffset: documentOffset + safeRange.location,
-                                text: text
+                                text: text,
+                                isParagraphStart: localOffset == 0
                             )
                         )
                         identifier += 1
@@ -77,9 +172,81 @@ enum ReaderDocumentBuilder {
         }
 
         if result.isEmpty {
-            return [ReaderBlock(id: 0, locatorOffset: 0, text: content)]
+            return [ReaderBlock(id: 0, locatorOffset: 0, text: content, isParagraphStart: true)]
         }
         return result
+    }
+
+    static func displayDocument(
+        from content: String,
+        paragraphIndent: Bool
+    ) -> ReaderDisplayDocument {
+        let nsContent = content as NSString
+        guard nsContent.length > 0 else {
+            return ReaderDisplayDocument(text: "", spans: [], originalLength: 0)
+        }
+
+        var result = ""
+        var spans: [ReaderLocatorSpan] = []
+        var originalLineOffset = 0
+        var hasParagraph = false
+        let visibleCharacters = CharacterSet.whitespacesAndNewlines.inverted
+
+        for line in content.components(separatedBy: "\n") {
+            let nsLine = line as NSString
+            let lineLength = nsLine.length
+            let first = nsLine.rangeOfCharacter(from: visibleCharacters)
+            if first.location != NSNotFound {
+                let last = nsLine.rangeOfCharacter(from: visibleCharacters, options: .backwards)
+                let paragraphRange = NSRange(
+                    location: first.location,
+                    length: NSMaxRange(last) - first.location
+                )
+                let originalParagraphOffset = originalLineOffset + paragraphRange.location
+
+                if hasParagraph {
+                    let separatorOffset = (result as NSString).length
+                    result.append("\n")
+                    spans.append(
+                        ReaderLocatorSpan(
+                            displayRange: NSRange(location: separatorOffset, length: 1),
+                            originalOffset: originalParagraphOffset,
+                            tracksCharacters: false
+                        )
+                    )
+                }
+
+                if paragraphIndent {
+                    let indentOffset = (result as NSString).length
+                    result.append("　　")
+                    spans.append(
+                        ReaderLocatorSpan(
+                            displayRange: NSRange(location: indentOffset, length: 2),
+                            originalOffset: originalParagraphOffset,
+                            tracksCharacters: false
+                        )
+                    )
+                }
+
+                let textOffset = (result as NSString).length
+                result.append(nsLine.substring(with: paragraphRange))
+                spans.append(
+                    ReaderLocatorSpan(
+                        displayRange: NSRange(location: textOffset, length: paragraphRange.length),
+                        originalOffset: originalParagraphOffset,
+                        tracksCharacters: true
+                    )
+                )
+                hasParagraph = true
+            }
+            originalLineOffset += lineLength + 1
+        }
+
+        return ReaderDisplayDocument(
+            text: result,
+            spans: spans,
+            originalLength: nsContent.length
+        )
     }
 
     static func excerpt(from content: String, locatorOffset: Int, length: Int = 90) -> String {
@@ -101,35 +268,32 @@ enum ReaderPaginator {
         size: CGSize,
         fontSize: CGFloat,
         lineSpacing: CGFloat,
-        usesSerif: Bool
+        usesSerif: Bool,
+        paragraphIndent: Bool = true,
+        firstPageTitleHeight: CGFloat = ReaderTypography.chapterHeadingHeight
     ) -> [ReaderPage] {
         guard !content.isEmpty, size.width > 80, size.height > 120 else { return [] }
 
-        let prefix = "\(chapterTitle)\n\n"
-        let combined = prefix + content
-        let prefixLength = (prefix as NSString).length
-        let nsCombined = combined as NSString
-
-        let systemFont = UIFont.systemFont(ofSize: fontSize)
-        let font: UIFont
-        if usesSerif,
-           let descriptor = systemFont.fontDescriptor.withDesign(.serif) {
-            font = UIFont(descriptor: descriptor, size: fontSize)
-        } else {
-            font = systemFont
-        }
+        _ = chapterTitle
+        let document = ReaderDocumentBuilder.displayDocument(
+            from: content,
+            paragraphIndent: paragraphIndent
+        )
+        guard !document.text.isEmpty else { return [] }
+        let nsDisplayText = document.text as NSString
+        let font = ReaderTypography.bodyUIFont(size: fontSize, usesSerif: usesSerif)
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
-        paragraphStyle.paragraphSpacing = max(5, lineSpacing * 0.7)
-        paragraphStyle.lineBreakMode = .byWordWrapping
+        paragraphStyle.lineBreakMode = .byCharWrapping
 
         let storage = NSTextStorage(
-            string: combined,
+            string: document.text,
             attributes: [
                 .font: font,
                 .foregroundColor: UIColor.label,
-                .paragraphStyle: paragraphStyle
+                .paragraphStyle: paragraphStyle,
+                .kern: ReaderTypography.letterSpacing
             ]
         )
         let layoutManager = NSLayoutManager()
@@ -140,10 +304,16 @@ enum ReaderPaginator {
         var lastGlyphEnd = 0
 
         while lastGlyphEnd < layoutManager.numberOfGlyphs {
-            let container = NSTextContainer(size: size)
+            let isFirstPage = pages.isEmpty
+            let availableHeight = isFirstPage
+                ? max(80, size.height - firstPageTitleHeight)
+                : size.height
+            let container = NSTextContainer(
+                size: CGSize(width: size.width, height: availableHeight)
+            )
             container.lineFragmentPadding = 0
             container.maximumNumberOfLines = 0
-            container.lineBreakMode = .byWordWrapping
+            container.lineBreakMode = .byCharWrapping
             layoutManager.addTextContainer(container)
             layoutManager.ensureLayout(for: container)
 
@@ -158,15 +328,25 @@ enum ReaderPaginator {
             pages.append(
                 ReaderPage(
                     id: pages.count,
-                    locatorOffset: max(0, characterRange.location - prefixLength),
-                    text: nsCombined.substring(with: characterRange)
+                    locatorOffset: document.locatorOffset(
+                        forDisplayedUTF16Offset: characterRange.location
+                    ),
+                    text: nsDisplayText.substring(with: characterRange),
+                    showsChapterTitle: isFirstPage
                 )
             )
             lastGlyphEnd = NSMaxRange(glyphRange)
         }
 
         if pages.isEmpty {
-            return [ReaderPage(id: 0, locatorOffset: 0, text: combined)]
+            return [
+                ReaderPage(
+                    id: 0,
+                    locatorOffset: 0,
+                    text: document.text,
+                    showsChapterTitle: true
+                )
+            ]
         }
         return pages
     }
