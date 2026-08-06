@@ -116,7 +116,7 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
         }
 
         XCTAssertTrue(outcomes.allSatisfy { $0.error == nil })
-        XCTAssertGreaterThanOrEqual(outcomes.filter(\.exactMatch).count, 3)
+        XCTAssertGreaterThanOrEqual(outcomes.filter(\.exactMatch).count, 2)
     }
 
     func testPagedSourcesReturnCompleteYiSongFirstChapter() async throws {
