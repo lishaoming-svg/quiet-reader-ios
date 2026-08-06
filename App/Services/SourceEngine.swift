@@ -2,6 +2,8 @@ import Foundation
 import SwiftSoup
 
 struct SourceEngine {
+    private static let maximumTocPageCount = 100
+    private static let maximumContentPageCount = 20
     private let client = SourceHTTPClient.shared
     private let extractor = RuleExtractor()
 
@@ -113,7 +115,7 @@ struct SourceEngine {
         var seen = Set<String>()
         var chapters: [BookChapter] = []
 
-        for _ in 0..<50 {
+        for pageIndex in 0..<Self.maximumTocPageCount {
             guard visitedPages.insert(currentURL.absoluteString).inserted else { break }
             let resource = try await client.fetch(currentURL, source: source)
             let root = try extractor.root(from: resource)
@@ -132,6 +134,10 @@ struct SourceEngine {
             guard let nextRule = rules.nextTocUrl?.nilIfBlank else { break }
             let next = try extractor.string(nextRule, in: root, asURL: true)
             guard let nextURL = URL(string: next), !next.isEmpty else { break }
+            guard !visitedPages.contains(nextURL.absoluteString) else { break }
+            if pageIndex == Self.maximumTocPageCount - 1 {
+                throw SourceEngineError.tocPaginationLimit(Self.maximumTocPageCount)
+            }
             currentURL = nextURL
         }
         if chapters.isEmpty {
@@ -149,7 +155,7 @@ struct SourceEngine {
         var visited = Set<String>()
         var pages: [String] = []
 
-        for _ in 0..<3 {
+        for pageIndex in 0..<Self.maximumContentPageCount {
             guard visited.insert(currentURL.absoluteString).inserted else { break }
             let resource = try await client.fetch(currentURL, source: source)
             var rawText = resource.text
@@ -176,6 +182,10 @@ struct SourceEngine {
             guard let nextRule = rules?.nextContentUrl?.nilIfBlank else { break }
             let next = try extractor.string(nextRule, in: root, asURL: true)
             guard let nextURL = URL(string: next), !next.isEmpty else { break }
+            guard !visited.contains(nextURL.absoluteString) else { break }
+            if pageIndex == Self.maximumContentPageCount - 1 {
+                throw SourceEngineError.contentPaginationLimit(Self.maximumContentPageCount)
+            }
             currentURL = nextURL
         }
 
@@ -231,7 +241,13 @@ enum SourceEngineError: LocalizedError {
     case responseTooLarge
     case emptyChapterList
     case emptyContent
+    case tocPaginationLimit(Int)
+    case contentPaginationLimit(Int)
     case authenticationRequired(String)
+    case requestTimedOut
+    case connectionInterrupted
+    case networkUnavailable
+    case requestFailed(String)
 
     var requiresAuthentication: Bool {
         if case .authenticationRequired = self { return true }
@@ -246,7 +262,13 @@ enum SourceEngineError: LocalizedError {
         case .responseTooLarge: "书源响应超过 25 MB 限制"
         case .emptyChapterList: "没有解析到章节目录"
         case .emptyContent: "没有解析到正文内容"
+        case .tocPaginationLimit(let count): "目录超过连续 \(count) 页，已停止加载以避免返回不完整章节"
+        case .contentPaginationLimit(let count): "本章超过连续 \(count) 页，已停止加载以避免显示不完整正文"
         case .authenticationRequired(let message): message
+        case .requestTimedOut: "书源多次请求仍然超时，请稍后重试"
+        case .connectionInterrupted: "书源连接中断，多次请求仍未完整返回正文"
+        case .networkUnavailable: "当前网络不可用，或无法连接到书源服务器"
+        case .requestFailed(let message): "书源网络请求失败：\(message)"
         }
     }
 }

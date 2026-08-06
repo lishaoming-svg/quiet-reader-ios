@@ -3,6 +3,12 @@ import SwiftData
 
 @MainActor
 enum BundledSourceUpdater {
+    // These bundled sources are known to return incomplete books and must not stay active
+    // after a rule refresh, even when the user previously enabled them.
+    private static let retiredSourceIDs: Set<String> = [
+        "archive.870ca07aea94fc8c54d0ef9e"
+    ]
+
     @discardableResult
     static func refreshExistingSources(
         in modelContext: ModelContext,
@@ -33,7 +39,10 @@ enum BundledSourceUpdater {
                   definition.updateTimestamp > record.lastUpdateTime else {
                 continue
             }
-            try record.apply(definition, preserveLocalSettings: true)
+            try record.apply(
+                definition,
+                preserveLocalSettings: !retiredSourceIDs.contains(definition.id)
+            )
             updateCount += 1
         }
 

@@ -17,9 +17,45 @@ actor SourceHTTPClient {
     private var sessions: [String: URLSession] = [:]
 
     func fetch(_ url: URL, source: BookSourceDefinition) async throws -> FetchedResource {
+        var lastError: Error?
+
+        for attempt in 1...SourceRequestRetryPolicy.maximumAttemptCount {
+            try Task.checkCancellation()
+            do {
+                return try await performFetch(url, source: source)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as URLError where error.code == .cancelled {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                guard attempt < SourceRequestRetryPolicy.maximumAttemptCount,
+                      SourceRequestRetryPolicy.shouldRetry(error) else {
+                    throw SourceRequestRetryPolicy.userFacingError(for: error)
+                }
+                try await Task.sleep(
+                    nanoseconds: UInt64(attempt) * SourceRequestRetryPolicy.retryDelayNanoseconds
+                )
+            }
+        }
+
+        throw SourceRequestRetryPolicy.userFacingError(
+            for: lastError ?? SourceEngineError.invalidResponse
+        )
+    }
+
+    private func performFetch(
+        _ url: URL,
+        source: BookSourceDefinition
+    ) async throws -> FetchedResource {
         var request = URLRequest(url: url)
-        request.timeoutInterval = 30
-        request.setValue("QuietReader/0.1", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 20
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                + "AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
         parseHeaders(source.header).forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
         let (data, response) = try await session(for: source.id).data(for: request)
@@ -55,9 +91,9 @@ actor SourceHTTPClient {
         configuration.httpShouldSetCookies = true
         configuration.httpCookieAcceptPolicy = .always
         configuration.httpCookieStorage = .shared
-        configuration.requestCachePolicy = .reloadRevalidatingCacheData
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 45
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 25
         let session = URLSession(configuration: configuration)
         sessions[sourceID] = session
         return session
@@ -73,6 +109,54 @@ actor SourceHTTPClient {
             result[item.key] = String(describing: item.value)
         }
     }
+}
+
+enum SourceRequestRetryPolicy {
+    static let maximumAttemptCount = 3
+    static let retryDelayNanoseconds: UInt64 = 400_000_000
+
+    static func shouldRetry(_ error: Error) -> Bool {
+        if let error = error as? URLError {
+            return retryableURLCodes.contains(error.code)
+        }
+        if let sourceError = error as? SourceEngineError,
+           case .httpStatus(let code) = sourceError {
+            return retryableHTTPStatusCodes.contains(code)
+        }
+        return false
+    }
+
+    static func userFacingError(for error: Error) -> Error {
+        guard let error = error as? URLError else { return error }
+        switch error.code {
+        case .timedOut:
+            return SourceEngineError.requestTimedOut
+        case .networkConnectionLost, .cannotConnectToHost, .resourceUnavailable:
+            return SourceEngineError.connectionInterrupted
+        case .notConnectedToInternet, .cannotFindHost, .dnsLookupFailed:
+            return SourceEngineError.networkUnavailable
+        case .cancelled:
+            return CancellationError()
+        default:
+            return SourceEngineError.requestFailed(error.localizedDescription)
+        }
+    }
+
+    private static let retryableURLCodes: Set<URLError.Code> = [
+        .timedOut,
+        .networkConnectionLost,
+        .cannotConnectToHost,
+        .cannotFindHost,
+        .dnsLookupFailed,
+        .notConnectedToInternet,
+        .resourceUnavailable,
+        .badServerResponse,
+        .secureConnectionFailed
+    ]
+
+    private static let retryableHTTPStatusCodes: Set<Int> = [
+        408, 425, 429, 500, 502, 503, 504
+    ]
 }
 
 enum TextDecoder {

@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class SearchViewModel: ObservableObject {
     @Published var results: [SearchBook] = []
+    @Published var resultGroups: [SearchBookGroup] = []
     @Published var isSearching = false
     @Published var errorMessage: String?
     @Published var searchedKeyword = ""
@@ -20,6 +21,7 @@ final class SearchViewModel: ObservableObject {
         isSearching = true
         errorMessage = nil
         results = []
+        resultGroups = []
 
         let outcomes = await withTaskGroup(of: SourceSearchOutcome.self) { group in
             for (sourceOrder, source) in sources.enumerated() {
@@ -52,6 +54,7 @@ final class SearchViewModel: ObservableObject {
             .flatMap(\.books)
             .filter { seen.insert($0.id).inserted }
         results = SearchResultRanker.rank(uniqueBooks, keyword: keyword)
+        resultGroups = SearchResultGrouper.group(results)
         let failures = orderedOutcomes.compactMap(\.error)
         if results.isEmpty {
             errorMessage = failures.isEmpty

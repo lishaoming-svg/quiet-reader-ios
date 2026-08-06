@@ -26,10 +26,28 @@ final class SearchResultRankerTests: XCTestCase {
         )
     }
 
-    private func book(name: String, author: String = "") -> SearchBook {
+    func testGroupsSameBookFromDifferentSourcesButKeepsDifferentAuthorsSeparate() {
+        let books = [
+            book(name: "异悚", author: "黑色火种", sourceID: "one"),
+            book(name: "异悚_黑色火种【完结】", author: "作者：黑色火种", sourceID: "two"),
+            book(name: "异悚", author: "凌风雪", sourceID: "three")
+        ]
+
+        let groups = SearchResultGrouper.group(books)
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups.first?.sourceCount, 2)
+        XCTAssertEqual(groups.last?.sourceCount, 1)
+    }
+
+    private func book(
+        name: String,
+        author: String = "",
+        sourceID: String = "test"
+    ) -> SearchBook {
         SearchBook(
-            sourceID: "test",
-            sourceName: "测试源",
+            sourceID: sourceID,
+            sourceName: "测试源 \(sourceID)",
             name: name,
             author: author,
             intro: "",

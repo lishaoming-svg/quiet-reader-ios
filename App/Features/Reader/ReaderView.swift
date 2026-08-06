@@ -81,6 +81,7 @@ struct ReaderView: View {
         .navigationTitle(book.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(controlsVisible ? .visible : .hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .toolbarBackground(paper.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { readerToolbar }
@@ -140,6 +141,13 @@ struct ReaderView: View {
                 Button("重新加载") { Task { await loadChapter(forceRefresh: true) } }
                     .buttonStyle(.borderedProminent)
                     .tint(AppTheme.vermilion)
+                if currentIndex < chapters.count - 1 {
+                    Button("跳过本章，阅读下一章") {
+                        goToChapter(currentIndex + 1, locatorOffset: 0)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(AppTheme.vermilion)
+                }
             }
             .padding(24)
         } else if readerMode == .scroll {
@@ -459,13 +467,20 @@ struct ReaderView: View {
     }
 
     private func loadChapter(forceRefresh: Bool = false) async {
+        let requestedIndex = currentIndex
+        let currentChapter = chapters[requestedIndex]
         isLoading = true
         errorMessage = nil
         authenticationRequired = false
-        let currentChapter = chapter
+        content = ""
+        blocks = []
+        pages = []
+        pageIndex = 0
+        scrollBlockID = nil
 
         if !forceRefresh, let cached = cachedChapter(url: currentChapter.url) {
             if SourceEngine.authenticationMessage(in: cached.content) == nil {
+                guard !Task.isCancelled, currentIndex == requestedIndex else { return }
                 prepareDocument(cached.content, chapter: currentChapter)
                 isLoading = false
                 return
@@ -476,12 +491,19 @@ struct ReaderView: View {
 
         do {
             let value = try await SourceEngine().loadContent(chapter: currentChapter, source: source)
+            guard !Task.isCancelled, currentIndex == requestedIndex else { return }
             cache(currentChapter, content: value)
             prepareDocument(value, chapter: currentChapter)
+        } catch is CancellationError {
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
+            guard currentIndex == requestedIndex else { return }
             errorMessage = error.localizedDescription
             authenticationRequired = (error as? SourceEngineError)?.requiresAuthentication == true
         }
+        guard currentIndex == requestedIndex else { return }
         isLoading = false
     }
 

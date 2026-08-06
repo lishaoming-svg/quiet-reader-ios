@@ -131,12 +131,17 @@ struct SearchView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 13) {
-                    ForEach(viewModel.results) { book in
+                    ForEach(viewModel.resultGroups) { group in
+                        let book = group.primary
                         if let source = enabledSources.first(where: { $0.id == book.sourceID }) {
                             NavigationLink {
-                                BookDetailView(book: book, source: source)
+                                BookDetailView(
+                                    book: book,
+                                    source: source,
+                                    alternatives: group.books
+                                )
                             } label: {
-                                SearchResultRow(book: book)
+                                SearchResultRow(book: book, group: group)
                             }
                             .buttonStyle(.plain)
                         }
@@ -170,6 +175,7 @@ struct SearchView: View {
 
 struct SearchResultRow: View {
     let book: SearchBook
+    let group: SearchBookGroup
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -188,9 +194,18 @@ struct SearchResultRow: View {
                         .foregroundStyle(AppTheme.inkSoft)
                         .lineLimit(2)
                 }
-                Label(book.sourceName, systemImage: "network")
+                Label(
+                    group.sourceCount > 1 ? "\(group.sourceCount) 个来源可切换" : book.sourceName,
+                    systemImage: group.sourceCount > 1 ? "arrow.triangle.swap" : "network"
+                )
                     .font(.caption2)
                     .foregroundStyle(AppTheme.jade)
+                if group.sourceCount > 1 {
+                    Text(group.sourceNames)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.inkSoft)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
         }

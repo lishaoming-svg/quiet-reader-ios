@@ -3,8 +3,10 @@ import SwiftUI
 
 struct BookDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \BookSourceRecord.sourceName) private var sourceRecords: [BookSourceRecord]
 
-    let source: BookSourceDefinition
+    let alternatives: [SearchBook]
+    @State private var source: BookSourceDefinition
     @State private var book: SearchBook
     @State private var chapters: [BookChapter] = []
     @State private var isLoading = true
@@ -14,8 +16,13 @@ struct BookDetailView: View {
     @State private var cacheTask: Task<Void, Never>?
     @State private var cacheProgress: BatchCacheProgress?
 
-    init(book: SearchBook, source: BookSourceDefinition) {
-        self.source = source
+    init(
+        book: SearchBook,
+        source: BookSourceDefinition,
+        alternatives: [SearchBook] = []
+    ) {
+        self.alternatives = alternatives.isEmpty ? [book] : alternatives
+        _source = State(initialValue: source)
         _book = State(initialValue: book)
     }
 
@@ -67,6 +74,28 @@ struct BookDetailView: View {
                 Label(book.sourceName, systemImage: "network")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
+                if availableAlternatives.count > 1 {
+                    Menu {
+                        ForEach(availableAlternatives) { choice in
+                            Button {
+                                switchSource(to: choice.book, source: choice.source)
+                            } label: {
+                                if choice.source.id == source.id {
+                                    Label(choice.source.bookSourceName, systemImage: "checkmark")
+                                } else {
+                                    Text(choice.source.bookSourceName)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(
+                            "换源 · \(availableAlternatives.count) 个可用来源",
+                            systemImage: "arrow.triangle.swap"
+                        )
+                        .font(.caption.bold())
+                    }
+                    .tint(AppTheme.jade)
+                }
                 Spacer(minLength: 4)
                 Button(action: toggleBookshelf) {
                     Label(
@@ -80,6 +109,29 @@ struct BookDetailView: View {
             }
         }
         .inkCard()
+    }
+
+    private var availableAlternatives: [BookSourceChoice] {
+        alternatives.compactMap { candidate in
+            guard let definition = sourceRecords.first(where: {
+                $0.sourceID == candidate.sourceID && $0.enabled
+            })?.definition else { return nil }
+            return BookSourceChoice(book: candidate, source: definition)
+        }
+    }
+
+    private func switchSource(to candidate: SearchBook, source definition: BookSourceDefinition) {
+        guard definition.id != source.id || candidate.bookURL != book.bookURL else { return }
+        cacheTask?.cancel()
+        source = definition
+        book = candidate
+        chapters = []
+        resumeIndex = nil
+        cacheProgress = nil
+        errorMessage = nil
+        isLoading = true
+        refreshBookshelfState()
+        Task { await loadBook() }
     }
 
     @ViewBuilder
@@ -302,6 +354,13 @@ struct BookDetailView: View {
         cacheProgress?.isRunning = false
         cacheProgress?.wasCancelled = Task.isCancelled
     }
+}
+
+private struct BookSourceChoice: Identifiable {
+    var book: SearchBook
+    var source: BookSourceDefinition
+
+    var id: String { book.id }
 }
 
 private struct BatchCacheProgress {

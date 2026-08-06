@@ -42,3 +42,61 @@ enum SearchResultRanker {
             )
     }
 }
+
+struct SearchBookGroup: Identifiable, Sendable {
+    let id: String
+    var books: [SearchBook]
+
+    var primary: SearchBook { books[0] }
+    var sourceCount: Int { Set(books.map(\.sourceID)).count }
+    var sourceNames: String { books.map(\.sourceName).joined(separator: "、") }
+}
+
+enum SearchResultGrouper {
+    static func group(_ rankedBooks: [SearchBook]) -> [SearchBookGroup] {
+        var groupIndexes: [String: Int] = [:]
+        var groups: [SearchBookGroup] = []
+
+        for book in rankedBooks {
+            let key = identityKey(for: book)
+            if let index = groupIndexes[key] {
+                groups[index].books.append(book)
+            } else {
+                groupIndexes[key] = groups.count
+                groups.append(SearchBookGroup(id: key, books: [book]))
+            }
+        }
+        return groups
+    }
+
+    private static func identityKey(for book: SearchBook) -> String {
+        "\(canonicalName(book.name))::\(canonicalAuthor(book.author))"
+    }
+
+    private static func canonicalName(_ value: String) -> String {
+        let base = value.components(separatedBy: "_").first ?? value
+        return canonical(base.replacingOccurrences(
+            of: "【(?:完结|全集)】|\\((?:完结|全集)\\)",
+            with: "",
+            options: .regularExpression
+        ))
+    }
+
+    private static func canonicalAuthor(_ value: String) -> String {
+        canonical(value.replacingOccurrences(of: "作者", with: ""))
+    }
+
+    private static func canonical(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                locale: .current
+            )
+            .replacingOccurrences(
+                of: "[\\s\\p{P}\\p{S}]",
+                with: "",
+                options: .regularExpression
+            )
+    }
+}

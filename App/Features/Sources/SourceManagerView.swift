@@ -10,6 +10,16 @@ struct SourceManagerView: View {
     @State private var cleanupCandidateIDs = Set<String>()
     @State private var showingCleanupAlert = false
     @State private var isAtBottom = false
+    @State private var query = ""
+
+    private var filteredSources: [BookSourceRecord] {
+        guard let query = query.nilIfBlank else { return sources }
+        return sources.filter {
+            $0.sourceName.localizedCaseInsensitiveContains(query)
+                || $0.sourceGroup.localizedCaseInsensitiveContains(query)
+                || $0.sourceURL.localizedCaseInsensitiveContains(query)
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -31,7 +41,7 @@ struct SourceManagerView: View {
                             .onAppear { isAtBottom = false }
 
                         Section {
-                            ForEach(sources) { source in
+                            ForEach(filteredSources) { source in
                                 SourceRow(
                                     source: source,
                                     onChange: { try? modelContext.save() },
@@ -41,7 +51,9 @@ struct SourceManagerView: View {
                             }
                             .onDelete(perform: delete)
                         } header: {
-                            Text("共 \(sources.count) 个书源")
+                            Text(query.nilIfBlank == nil
+                                ? "共 \(sources.count) 个书源"
+                                : "找到 \(filteredSources.count) / \(sources.count) 个")
                                 .foregroundStyle(AppTheme.inkSoft)
                         }
 
@@ -60,6 +72,7 @@ struct SourceManagerView: View {
             }
         }
         .navigationTitle("书源")
+        .searchable(text: $query, prompt: "名称、分组或域名")
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -73,6 +86,13 @@ struct SourceManagerView: View {
                     Label("一键清理", systemImage: "paintbrush")
                 }
                 .disabled(sources.isEmpty)
+                Menu {
+                    Button("启用当前结果") { setFilteredSourcesEnabled(true) }
+                    Button("停用当前结果") { setFilteredSourcesEnabled(false) }
+                } label: {
+                    Label("批量操作", systemImage: "checklist")
+                }
+                .disabled(filteredSources.isEmpty)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -147,8 +167,13 @@ struct SourceManagerView: View {
         cleanupCandidateIDs.removeAll()
     }
 
+    private func setFilteredSourcesEnabled(_ enabled: Bool) {
+        filteredSources.forEach { $0.enabled = enabled }
+        try? modelContext.save()
+    }
+
     private func delete(at offsets: IndexSet) {
-        offsets.forEach { modelContext.delete(sources[$0]) }
+        offsets.forEach { modelContext.delete(filteredSources[$0]) }
         try? modelContext.save()
     }
 }

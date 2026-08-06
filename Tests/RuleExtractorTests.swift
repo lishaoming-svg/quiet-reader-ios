@@ -76,4 +76,49 @@ final class RuleExtractorTests: XCTestCase {
         XCTAssertEqual(try extractor.string("@css:h3@text", in: node), "第一章")
     }
 
+    func testPaginationAndFollowingSiblingSelectors() throws {
+        let html = """
+        <div class="listpage"><a href="/toc/2">下一页</a></div>
+        <div class="section-opt"><a href="/chapter/1_2">下一页</a></div>
+        <div class="box_con">
+          <dl>
+            <dd><a href="/latest">最新章节</a></dd>
+            <dt>正文</dt>
+            <dd><a href="/one">第一章</a></dd>
+            <dd><a href="/two">第二章</a></dd>
+          </dl>
+        </div>
+        """
+        let resource = FetchedResource(
+            data: Data(html.utf8),
+            finalURL: URL(string: "https://example.com/book/")!,
+            contentType: "text/html"
+        )
+        let extractor = RuleExtractor()
+        let root = try extractor.root(from: resource)
+
+        XCTAssertEqual(
+            try extractor.string(
+                ".listpage a:containsOwn(下一页)@href",
+                in: root,
+                asURL: true
+            ),
+            "https://example.com/toc/2"
+        )
+        XCTAssertEqual(
+            try extractor.string(
+                ".section-opt a:containsOwn(下一页)@href",
+                in: root,
+                asURL: true
+            ),
+            "https://example.com/chapter/1_2"
+        )
+        let chapters = try extractor.list(
+            ".box_con dt:containsOwn(正文) ~ dd a",
+            in: root
+        )
+        XCTAssertEqual(chapters.count, 2)
+        XCTAssertEqual(try extractor.string("text", in: chapters[0]), "第一章")
+    }
+
 }
