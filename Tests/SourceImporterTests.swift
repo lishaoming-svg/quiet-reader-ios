@@ -2,7 +2,7 @@ import XCTest
 @testable import QuietReader
 
 final class SourceImporterTests: XCTestCase {
-    func testBundledSourcesContainFourEnabledAndOneRetiredNoLoginSource() throws {
+    func testBundledSourcesContainThreeEnabledAndTwoRetiredNoLoginSources() throws {
         let url = try XCTUnwrap(
             Bundle.main.url(forResource: "community-sources", withExtension: "json")
         )
@@ -21,11 +21,15 @@ final class SourceImporterTests: XCTestCase {
             ]
         )
         XCTAssertTrue(sources.allSatisfy { $0.loginUrl?.nilIfBlank == nil })
-        XCTAssertEqual(sources.filter(\.isEnabled).count, 4)
+        let enabledSources = sources.filter(\.isEnabled)
+        XCTAssertEqual(enabledSources.count, 3)
         XCTAssertFalse(
             try XCTUnwrap(sources.first { $0.bookSourceName == "B5200" }).isEnabled
         )
-        XCTAssertTrue(sources.allSatisfy { $0.enabledExplore == true })
+        let fiveTwo = try XCTUnwrap(sources.first { $0.bookSourceName == "五二书库" })
+        XCTAssertFalse(fiveTwo.isEnabled)
+        XCTAssertFalse(fiveTwo.enabledExplore ?? true)
+        XCTAssertTrue(enabledSources.allSatisfy { $0.enabledExplore == true })
         XCTAssertTrue(sources.allSatisfy {
             !SourceExploreParser.categories(from: $0.exploreUrl).isEmpty
         })
