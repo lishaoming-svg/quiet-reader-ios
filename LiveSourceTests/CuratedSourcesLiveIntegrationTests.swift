@@ -184,7 +184,7 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                 "YISONG_COMPLETENESS source=\(outcome.sourceName) "
                     + "chapters=\(outcome.chapterCount) "
                     + "contentCharacters=\(outcome.contentCharacters) "
-                    + "error=\(outcome.error ?? \"none\")"
+                    + "error=\(outcome.error ?? "none")"
             )
         }
         XCTAssertTrue(outcomes.allSatisfy { $0.error == nil })
