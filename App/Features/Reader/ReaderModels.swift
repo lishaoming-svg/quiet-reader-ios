@@ -120,6 +120,93 @@ enum ReaderTypography {
     }
 }
 
+enum ReaderPageTextStyle {
+    static func attributes(
+        fontSize: CGFloat,
+        lineSpacing: CGFloat,
+        usesSerif: Bool,
+        textColor: UIColor = .label
+    ) -> [NSAttributedString.Key: Any] {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = lineSpacing
+        paragraphStyle.lineBreakMode = .byCharWrapping
+
+        return [
+            .font: ReaderTypography.bodyUIFont(size: fontSize, usesSerif: usesSerif),
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraphStyle,
+            .kern: ReaderTypography.letterSpacing,
+        ]
+    }
+
+    static func attributedString(
+        text: String,
+        fontSize: CGFloat,
+        lineSpacing: CGFloat,
+        usesSerif: Bool,
+        textColor: UIColor = .label
+    ) -> NSAttributedString {
+        NSAttributedString(
+            string: text,
+            attributes: attributes(
+                fontSize: fontSize,
+                lineSpacing: lineSpacing,
+                usesSerif: usesSerif,
+                textColor: textColor
+            )
+        )
+    }
+}
+
+struct ReaderPageTextView: UIViewRepresentable {
+    let text: String
+    let fontSize: CGFloat
+    let lineSpacing: CGFloat
+    let usesSerif: Bool
+    let textColor: UIColor
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.backgroundColor = .clear
+        view.contentInset = .zero
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.textContainer.maximumNumberOfLines = 0
+        view.textContainer.lineBreakMode = .byCharWrapping
+        view.textContainer.widthTracksTextView = true
+        view.isEditable = false
+        view.isSelectable = false
+        view.isScrollEnabled = false
+        view.isUserInteractionEnabled = false
+        view.adjustsFontForContentSizeCategory = false
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        uiView.attributedText = ReaderPageTextStyle.attributedString(
+            text: text,
+            fontSize: fontSize,
+            lineSpacing: lineSpacing,
+            usesSerif: usesSerif,
+            textColor: textColor
+        )
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: UITextView,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width, width > 0 else { return nil }
+        let measured = uiView.sizeThatFits(
+            CGSize(width: width, height: 100_000)
+        )
+        return CGSize(width: width, height: ceil(measured.height))
+    }
+}
+
 struct ReaderDisplayDocument {
     let text: String
     fileprivate let spans: [ReaderLocatorSpan]
@@ -304,18 +391,13 @@ enum ReaderPaginator {
             lineSpacing: lineSpacing
         )
 
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineSpacing
-        paragraphStyle.lineBreakMode = .byCharWrapping
-
         let storage = NSTextStorage(
             string: document.text,
-            attributes: [
-                .font: font,
-                .foregroundColor: UIColor.label,
-                .paragraphStyle: paragraphStyle,
-                .kern: ReaderTypography.letterSpacing
-            ]
+            attributes: ReaderPageTextStyle.attributes(
+                fontSize: fontSize,
+                lineSpacing: lineSpacing,
+                usesSerif: usesSerif
+            )
         )
         let layoutManager = NSLayoutManager()
         layoutManager.usesFontLeading = true

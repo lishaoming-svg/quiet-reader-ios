@@ -102,13 +102,14 @@ final class ReaderModelsTests: XCTestCase {
             lineSpacing: lineSpacing,
             usesSerif: true
         )
-        let font = ReaderTypography.bodyUIFont(size: fontSize, usesSerif: true)
-
         for page in pages {
-            let pageText = Text(page.text)
-                .font(Font(font))
-                .lineSpacing(lineSpacing)
-                .tracking(ReaderTypography.letterSpacing)
+            let pageText = ReaderPageTextView(
+                text: page.text,
+                fontSize: fontSize,
+                lineSpacing: lineSpacing,
+                usesSerif: true,
+                textColor: .label
+            )
                 .fixedSize(horizontal: false, vertical: true)
             let controller = UIHostingController(rootView: pageText)
             let measured = controller.sizeThatFits(

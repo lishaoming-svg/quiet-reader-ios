@@ -250,12 +250,13 @@ struct ReaderView: View {
                     .frame(height: ReaderTypography.chapterHeadingHeight, alignment: .topLeading)
             }
 
-            Text(page.text)
-                .font(readerFont)
-                .lineSpacing(lineSpacing)
-                .tracking(ReaderTypography.letterSpacing)
-                .foregroundStyle(paper.primaryText)
-                .textSelection(.enabled)
+            ReaderPageTextView(
+                text: page.text,
+                fontSize: fontSize,
+                lineSpacing: lineSpacing,
+                usesSerif: usesSerif,
+                textColor: UIColor(paper.primaryText)
+            )
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .clipped()
