@@ -165,45 +165,89 @@ struct ReaderPageTextView: UIViewRepresentable {
     let usesSerif: Bool
     let textColor: UIColor
 
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
-        view.backgroundColor = .clear
-        view.contentInset = .zero
-        view.textContainerInset = .zero
-        view.textContainer.lineFragmentPadding = 0
-        view.textContainer.maximumNumberOfLines = 0
-        view.textContainer.lineBreakMode = .byCharWrapping
-        view.textContainer.widthTracksTextView = true
-        view.isEditable = false
-        view.isSelectable = false
-        view.isScrollEnabled = false
-        view.isUserInteractionEnabled = false
-        view.adjustsFontForContentSizeCategory = false
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        return view
+    func makeUIView(context: Context) -> ReaderPageTextCanvas {
+        ReaderPageTextCanvas()
     }
 
-    func updateUIView(_ uiView: UITextView, context: Context) {
-        uiView.attributedText = ReaderPageTextStyle.attributedString(
-            text: text,
-            fontSize: fontSize,
-            lineSpacing: lineSpacing,
-            usesSerif: usesSerif,
-            textColor: textColor
+    func updateUIView(_ uiView: ReaderPageTextCanvas, context: Context) {
+        uiView.setAttributedText(
+            ReaderPageTextStyle.attributedString(
+                text: text,
+                fontSize: fontSize,
+                lineSpacing: lineSpacing,
+                usesSerif: usesSerif,
+                textColor: textColor
+            )
         )
     }
 
     func sizeThatFits(
         _ proposal: ProposedViewSize,
-        uiView: UITextView,
+        uiView: ReaderPageTextCanvas,
         context: Context
     ) -> CGSize? {
         guard let width = proposal.width, width > 0 else { return nil }
-        let measured = uiView.sizeThatFits(
-            CGSize(width: width, height: 100_000)
-        )
-        return CGSize(width: width, height: ceil(measured.height))
+        return CGSize(width: width, height: uiView.measuredHeight(for: width))
+    }
+}
+
+final class ReaderPageTextCanvas: UIView {
+    private let textStorage = NSTextStorage()
+    private let layoutManager = NSLayoutManager()
+    private let textContainer = NSTextContainer(size: .zero)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        isUserInteractionEnabled = false
+        clipsToBounds = true
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
+
+        layoutManager.usesFontLeading = true
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = 0
+        textContainer.lineBreakMode = .byCharWrapping
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(textContainer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setAttributedText(_ text: NSAttributedString) {
+        guard !textStorage.isEqual(to: text) else { return }
+        textStorage.setAttributedString(text)
+        accessibilityLabel = text.string
+        invalidateIntrinsicContentSize()
+        setNeedsDisplay()
+    }
+
+    func measuredHeight(for width: CGFloat) -> CGFloat {
+        guard width > 0, textStorage.length > 0 else { return 0 }
+        textContainer.size = CGSize(width: width, height: 100_000)
+        layoutManager.ensureLayout(for: textContainer)
+        return ceil(layoutManager.usedRect(for: textContainer).height)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = CGSize(width: max(bounds.width, 0), height: max(bounds.height, 0))
+        guard textContainer.size != size else { return }
+        textContainer.size = size
+        layoutManager.ensureLayout(for: textContainer)
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        layoutManager.drawBackground(forGlyphRange: glyphRange, at: .zero)
+        layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
     }
 }
 
