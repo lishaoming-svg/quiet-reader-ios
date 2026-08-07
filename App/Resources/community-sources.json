@@ -7,7 +7,7 @@
     "bookSourceType": 0,
     "enabled": true,
     "enabledExplore": true,
-    "lastUpdateTime": 1786032000000,
+    "lastUpdateTime": 1786204800000,
     "exploreUrl": "最近更新::/",
     "searchUrl": "/search.php?keyWord={{key}}",
     "ruleSearch": {
@@ -33,7 +33,7 @@
     "ruleContent": {
       "content": "#content@html",
       "nextContentUrl": ".section-opt a:containsOwn(下一页)@href",
-      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]"
+      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]|欢迎广大书友.*"
     }
   },
   {
@@ -44,7 +44,7 @@
     "bookSourceType": 0,
     "enabled": true,
     "enabledExplore": true,
-    "lastUpdateTime": 1786032000000,
+    "lastUpdateTime": 1786204800000,
     "exploreUrl": "最近更新::/",
     "searchUrl": "/ar.php?keyWord={{key}}",
     "ruleSearch": {
@@ -69,7 +69,7 @@
     "ruleContent": {
       "content": "#content@html",
       "nextContentUrl": ".section-opt a:containsOwn(下一页)@href",
-      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]"
+      "replaceRegex": "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]|欢迎广大书友.*"
     }
   },
   {

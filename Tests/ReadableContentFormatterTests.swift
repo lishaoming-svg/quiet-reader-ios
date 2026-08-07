@@ -30,12 +30,12 @@ final class ReadableContentFormatterTests: XCTestCase {
     }
 
     func testAppliesLegadoReplacementAfterParagraphExtraction() {
-        let text = "第一章 第一个人 (第1/3页)\n第一段。\n（本章未完，请点击下一页继续阅读）"
+        let text = "第一章 第一个人 (第1/3页)\n第一段。\n（本章未完，请点击下一页继续阅读）\n欢迎广大书友光临阅读。"
 
         XCTAssertEqual(
             ReadableContentFormatter.removingMatches(
                 in: text,
-                rule: "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]"
+                rule: "##.*第[0-9]+/[0-9]+页.*|[（(]本章未完.*[）)]|欢迎广大书友.*"
             ),
             "第一段。"
         )
