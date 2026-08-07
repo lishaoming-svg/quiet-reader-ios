@@ -76,7 +76,16 @@ enum ReaderMargin: String, CaseIterable, Identifiable {
 enum ReaderTypography {
     static let letterSpacing: CGFloat = 0.18
     static let chapterHeadingHeight: CGFloat = 108
-    static let pageChromeHeight: CGFloat = 92
+    static let pageVerticalPadding: CGFloat = 12
+    static let pageHeaderHeight: CGFloat = 22
+    static let pageHeaderBottomSpacing: CGFloat = 14
+    static let pageFooterHeight: CGFloat = 22
+    static let pageFooterTopSpacing: CGFloat = 12
+    static let pageChromeHeight = pageVerticalPadding * 2
+        + pageHeaderHeight
+        + pageHeaderBottomSpacing
+        + pageFooterHeight
+        + pageFooterTopSpacing
 
     static func paragraphSpacing(for lineSpacing: CGFloat) -> CGFloat {
         min(max(lineSpacing * 0.68, 5), 8)
@@ -104,6 +113,10 @@ enum ReaderTypography {
 
     static func titleSize(for bodySize: CGFloat) -> CGFloat {
         min(max(bodySize + 7, 25), 32)
+    }
+
+    static func pageRenderSafetyInset(font: UIFont, lineSpacing: CGFloat) -> CGFloat {
+        ceil(font.lineHeight + max(lineSpacing, 0))
     }
 }
 
@@ -286,6 +299,10 @@ enum ReaderPaginator {
         guard !document.text.isEmpty else { return [] }
         let nsDisplayText = document.text as NSString
         let font = ReaderTypography.bodyUIFont(size: fontSize, usesSerif: usesSerif)
+        let renderSafetyInset = ReaderTypography.pageRenderSafetyInset(
+            font: font,
+            lineSpacing: lineSpacing
+        )
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
@@ -309,9 +326,14 @@ enum ReaderPaginator {
 
         while lastGlyphEnd < layoutManager.numberOfGlyphs {
             let isFirstPage = pages.isEmpty
-            let availableHeight = isFirstPage
+            let pageBodyHeight = isFirstPage
                 ? max(80, size.height - firstPageTitleHeight)
                 : size.height
+            let minimumTextHeight = ceil(font.lineHeight * 2 + max(lineSpacing, 0))
+            let availableHeight = max(
+                minimumTextHeight,
+                pageBodyHeight - renderSafetyInset
+            )
             let container = NSTextContainer(
                 size: CGSize(width: size.width, height: availableHeight)
             )

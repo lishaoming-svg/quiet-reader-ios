@@ -238,8 +238,8 @@ struct ReaderView: View {
     private func pageView(_ page: ReaderPage) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             pageHeader
-                .frame(height: 22)
-                .padding(.bottom, 14)
+                .frame(height: ReaderTypography.pageHeaderHeight)
+                .padding(.bottom, ReaderTypography.pageHeaderBottomSpacing)
 
             if page.showsChapterTitle {
                 chapterHeading
@@ -256,16 +256,17 @@ struct ReaderView: View {
                 .tracking(ReaderTypography.letterSpacing)
                 .foregroundStyle(paper.primaryText)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .clipped()
 
             pageFooter(page)
-                .frame(height: 22)
-                .padding(.top, 12)
+                .frame(height: ReaderTypography.pageFooterHeight)
+                .padding(.top, ReaderTypography.pageFooterTopSpacing)
         }
         .frame(maxWidth: readerMargin.maximumContentWidth, maxHeight: .infinity)
         .padding(.horizontal, readerMargin.horizontalPadding)
-        .padding(.vertical, 12)
+        .padding(.vertical, ReaderTypography.pageVerticalPadding)
         .frame(maxWidth: .infinity)
     }
 

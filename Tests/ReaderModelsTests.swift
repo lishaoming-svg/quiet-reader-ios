@@ -1,3 +1,5 @@
+import SwiftUI
+import UIKit
 import XCTest
 @testable import QuietReader
 
@@ -31,6 +33,10 @@ final class ReaderModelsTests: XCTestCase {
 
     func testPaginatorProducesPagesAndMapsLocator() {
         let content = String(repeating: "这是用于验证分页与位置映射的正文。", count: 240)
+        let document = ReaderDocumentBuilder.displayDocument(
+            from: content,
+            paragraphIndent: true
+        )
         let pages = ReaderPaginator.paginate(
             chapterTitle: "第一章",
             content: content,
@@ -46,10 +52,78 @@ final class ReaderModelsTests: XCTestCase {
         XCTAssertFalse(pages.dropFirst().contains(where: \.showsChapterTitle))
         XCTAssertFalse(pages.map(\.text).joined().contains("第一章"))
         XCTAssertTrue(pages.map(\.text).joined().hasPrefix("　　"))
+        XCTAssertEqual(pages.map(\.text).joined(), document.text)
         XCTAssertEqual(
             ReaderPaginator.pageIndex(for: pages.last?.locatorOffset ?? 0, in: pages),
             pages.count - 1
         )
+    }
+
+    func testPaginatorPreservesEveryCharacterAcrossPageBoundaries() {
+        let content = [
+            String(repeating: "长句跨过页面边界时每一个字都必须出现在下一页并继续完整显示，", count: 80),
+            String(repeating: "第二段包含标点、数字123和复合字符👨‍👩‍👧‍👦，用于检查字符范围。", count: 65),
+        ].joined(separator: "\n")
+        let document = ReaderDocumentBuilder.displayDocument(
+            from: content,
+            paragraphIndent: true
+        )
+        let pages = ReaderPaginator.paginate(
+            chapterTitle: "分页连续性",
+            content: content,
+            size: CGSize(width: 280, height: 420),
+            fontSize: 19,
+            lineSpacing: 9,
+            usesSerif: true
+        )
+
+        XCTAssertGreaterThan(pages.count, 5)
+        XCTAssertEqual(pages.map(\.text).joined(), document.text)
+        XCTAssertEqual(
+            (pages.map(\.text).joined() as NSString).length,
+            (document.text as NSString).length
+        )
+    }
+
+    @MainActor
+    func testPaginatedTextFitsSwiftUIRenderingHeight() {
+        let size = CGSize(width: 280, height: 420)
+        let fontSize: CGFloat = 19
+        let lineSpacing: CGFloat = 9
+        let content = String(
+            repeating: "最后一行必须完整显示，下一页从紧邻的后续文字继续。",
+            count: 220
+        )
+        let pages = ReaderPaginator.paginate(
+            chapterTitle: "分页高度",
+            content: content,
+            size: size,
+            fontSize: fontSize,
+            lineSpacing: lineSpacing,
+            usesSerif: true
+        )
+        let font = ReaderTypography.bodyUIFont(size: fontSize, usesSerif: true)
+
+        for page in pages {
+            let pageText = Text(page.text)
+                .font(Font(font))
+                .lineSpacing(lineSpacing)
+                .tracking(ReaderTypography.letterSpacing)
+                .fixedSize(horizontal: false, vertical: true)
+            let controller = UIHostingController(rootView: pageText)
+            let measured = controller.sizeThatFits(
+                in: CGSize(width: size.width, height: 10_000)
+            )
+            let availableHeight = page.showsChapterTitle
+                ? size.height - ReaderTypography.chapterHeadingHeight
+                : size.height
+
+            XCTAssertLessThanOrEqual(
+                measured.height,
+                availableHeight + 0.5,
+                "第 \(page.id + 1) 页正文高度超出可视区域"
+            )
+        }
     }
 
     func testExcerptStartsNearLocator() {
