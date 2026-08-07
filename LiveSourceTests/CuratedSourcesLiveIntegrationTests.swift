@@ -154,6 +154,10 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                         guard content.count >= 3_200 else {
                             throw LiveSourceError.contentTooShort(content.count)
                         }
+                        let paragraphCount = content.split(whereSeparator: \.isNewline).count
+                        guard paragraphCount >= 20 else {
+                            throw LiveSourceError.paragraphStructureMissing(paragraphCount)
+                        }
                         guard content.contains("多么让人恐惧和绝望") else {
                             throw LiveSourceError.missingChapterEnding
                         }
@@ -161,6 +165,7 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                             sourceName: source.bookSourceName,
                             chapterCount: chapters.count,
                             contentCharacters: content.count,
+                            paragraphCount: paragraphCount,
                             error: nil
                         )
                     } catch {
@@ -168,6 +173,7 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                             sourceName: source.bookSourceName,
                             chapterCount: 0,
                             contentCharacters: 0,
+                            paragraphCount: 0,
                             error: error.localizedDescription
                         )
                     }
@@ -184,6 +190,7 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                 "YISONG_COMPLETENESS source=\(outcome.sourceName) "
                     + "chapters=\(outcome.chapterCount) "
                     + "contentCharacters=\(outcome.contentCharacters) "
+                    + "paragraphs=\(outcome.paragraphCount) "
                     + "error=\(outcome.error ?? "none")"
             )
         }
@@ -208,6 +215,7 @@ private struct CompletenessOutcome: Sendable {
     var sourceName: String
     var chapterCount: Int
     var contentCharacters: Int
+    var paragraphCount: Int
     var error: String?
 }
 
@@ -219,6 +227,7 @@ private enum LiveSourceError: LocalizedError {
     case chapterListTooShort(Int)
     case noExpectedChapter
     case contentTooShort(Int)
+    case paragraphStructureMissing(Int)
     case missingChapterEnding
 
     var errorDescription: String? {
@@ -230,6 +239,7 @@ private enum LiveSourceError: LocalizedError {
         case .chapterListTooShort(let count): "目录不完整：仅解析到 \(count) 章"
         case .noExpectedChapter: "目录中没有找到第一章《第一个人》"
         case .contentTooShort(let count): "正文过短：\(count) 字符"
+        case .paragraphStructureMissing(let count): "正文段落结构缺失：仅解析到 \(count) 段"
         case .missingChapterEnding: "正文缺少第一章结尾"
         }
     }

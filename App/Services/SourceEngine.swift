@@ -175,11 +175,14 @@ struct SourceEngine {
             )
             let root = try extractor.root(from: adjustedResource)
             let contentRule = rules?.content?.nilIfBlank ?? "@text"
-            var content = try extractor.string(contentRule, in: root)
+            let content = try extractor.string(contentRule, in: root)
+            var cleaned = ReadableContentFormatter.plainText(from: content)
             if let replaceRule = rules?.replaceRegex?.nilIfBlank {
-                content = replace(content, pattern: replaceRule, with: "")
+                cleaned = ReadableContentFormatter.removingMatches(
+                    in: cleaned,
+                    rule: replaceRule
+                )
             }
-            let cleaned = cleanReadableText(content)
             if let message = Self.authenticationMessage(in: cleaned) {
                 throw SourceEngineError.authenticationRequired(message)
             }
@@ -222,26 +225,6 @@ struct SourceEngine {
             }
         }
         return pageTitleCount * 5 >= chapters.count * 4
-    }
-
-    private func cleanReadableText(_ value: String) -> String {
-        var text = value
-        if value.contains("<") && value.contains(">"),
-           let document = try? SwiftSoup.parseBodyFragment(value),
-           let body = document.body(),
-           let bodyText = try? body.text() {
-            text = bodyText
-        }
-        return text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .reduce(into: [String]()) { lines, line in
-                if !line.isEmpty || lines.last?.isEmpty == false { lines.append(line) }
-            }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func replace(_ value: String, pattern: String, with replacement: String) -> String {

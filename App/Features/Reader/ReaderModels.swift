@@ -78,6 +78,10 @@ enum ReaderTypography {
     static let chapterHeadingHeight: CGFloat = 108
     static let pageChromeHeight: CGFloat = 92
 
+    static func paragraphSpacing(for lineSpacing: CGFloat) -> CGFloat {
+        min(max(lineSpacing * 0.68, 5), 8)
+    }
+
     static func bodyUIFont(size: CGFloat, usesSerif: Bool) -> UIFont {
         if usesSerif {
             if let songti = UIFont(name: "STSongti-SC-Regular", size: size) {

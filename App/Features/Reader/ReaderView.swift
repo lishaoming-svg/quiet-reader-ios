@@ -177,7 +177,9 @@ struct ReaderView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(
                             .top,
-                            block.id > 0 && block.isParagraphStart ? max(4, lineSpacing * 0.45) : 0
+                            block.id > 0 && block.isParagraphStart
+                                ? ReaderTypography.paragraphSpacing(for: lineSpacing)
+                                : 0
                         )
                         .id(block.id)
                 }
@@ -585,7 +587,12 @@ struct ReaderView: View {
         scrollBlockID = nil
 
         if !forceRefresh, let cached = cachedChapter(url: currentChapter.url) {
-            if SourceEngine.authenticationMessage(in: cached.content) == nil {
+            let requiresRefresh = SourceEngine.authenticationMessage(in: cached.content) != nil
+                || ReadableContentFormatter.shouldRefreshLegacyCache(
+                    cached.content,
+                    sourceID: source.id
+                )
+            if !requiresRefresh {
                 guard !Task.isCancelled, currentIndex == requestedIndex else { return }
                 prepareDocument(cached.content, chapter: currentChapter)
                 isLoading = false
