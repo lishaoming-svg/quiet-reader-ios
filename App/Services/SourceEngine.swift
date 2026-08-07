@@ -115,7 +115,6 @@ struct SourceEngine {
         let tocAddress = book.tocURL.nilIfBlank ?? book.bookURL
         var currentURL = try URLTemplateRenderer.render(tocAddress)
         var visitedPages = Set<String>()
-        var seen = Set<String>()
         var chapters: [BookChapter] = []
 
         for pageIndex in 0..<Self.maximumTocPageCount {
@@ -127,8 +126,7 @@ struct SourceEngine {
             for node in nodes {
                 let title = try extractor.string(rules.chapterName, in: node)
                 let chapterURL = try extractor.string(rules.chapterUrl, in: node, asURL: true)
-                guard !title.isEmpty, !chapterURL.isEmpty,
-                      seen.insert(chapterURL).inserted else {
+                guard !title.isEmpty, !chapterURL.isEmpty else {
                     continue
                 }
                 chapters.append(BookChapter(title: title, url: chapterURL, index: chapters.count))
@@ -143,13 +141,14 @@ struct SourceEngine {
             }
             currentURL = nextURL
         }
-        if chapters.isEmpty {
+        let normalizedChapters = ChapterSequenceNormalizer.normalize(chapters)
+        if normalizedChapters.isEmpty {
             throw SourceEngineError.emptyChapterList
         }
-        if Self.isWholeBookPageDirectory(chapters) {
+        if Self.isWholeBookPageDirectory(normalizedChapters) {
             throw SourceEngineError.incompatiblePageDirectory
         }
-        return chapters
+        return normalizedChapters
     }
 
     func loadContent(

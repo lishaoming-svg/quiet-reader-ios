@@ -121,4 +121,37 @@ final class RuleExtractorTests: XCTestCase {
         XCTAssertEqual(try extractor.string("text", in: chapters[0]), "第一章")
     }
 
+    func testSelectsMainDirectoryWithoutLatestChapterSection() throws {
+        let html = """
+        <div class="row-section">
+          <h2>《山海录》最新章节</h2>
+          <div class="section-box">
+            <ul class="section-list"><li><a href="/last">最终章</a></li></ul>
+          </div>
+          <h2>《山海录》正文</h2>
+          <div class="section-box">
+            <ul class="section-list">
+              <li><a href="/one">第一章</a></li>
+              <li><a href="/two">第二章</a></li>
+            </ul>
+          </div>
+        </div>
+        """
+        let resource = FetchedResource(
+            data: Data(html.utf8),
+            finalURL: URL(string: "https://example.com/book/")!,
+            contentType: "text/html"
+        )
+        let extractor = RuleExtractor()
+        let root = try extractor.root(from: resource)
+        let chapters = try extractor.list(
+            ".row-section h2:containsOwn(正文) + .section-box .section-list li a",
+            in: root
+        )
+
+        XCTAssertEqual(chapters.count, 2)
+        XCTAssertEqual(try extractor.string("text", in: chapters[0]), "第一章")
+        XCTAssertEqual(try extractor.string("text", in: chapters[1]), "第二章")
+    }
+
 }

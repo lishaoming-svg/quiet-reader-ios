@@ -142,6 +142,18 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                         guard chapters.count >= 190 else {
                             throw LiveSourceError.chapterListTooShort(chapters.count)
                         }
+                        let expectedPrefix = [
+                            "第一章 第一个人",
+                            "第二章 神秘女子",
+                            "第三章 第二个人",
+                        ]
+                        let actualPrefix = chapters.prefix(expectedPrefix.count).map(\.title)
+                        guard actualPrefix == expectedPrefix else {
+                            throw LiveSourceError.unexpectedChapterOrder(actualPrefix)
+                        }
+                        guard chapters.indices.allSatisfy({ chapters[$0].index == $0 }) else {
+                            throw LiveSourceError.chapterIndexesOutOfOrder
+                        }
                         guard let firstChapter = chapters.first(where: {
                             $0.title.contains("第一章") && $0.title.contains("第一个人")
                         }) else {
@@ -166,6 +178,8 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                             chapterCount: chapters.count,
                             contentCharacters: content.count,
                             paragraphCount: paragraphCount,
+                            firstTitle: chapters.first?.title ?? "",
+                            lastTitle: chapters.last?.title ?? "",
                             error: nil
                         )
                     } catch {
@@ -174,6 +188,8 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                             chapterCount: 0,
                             contentCharacters: 0,
                             paragraphCount: 0,
+                            firstTitle: "",
+                            lastTitle: "",
                             error: error.localizedDescription
                         )
                     }
@@ -191,6 +207,8 @@ final class CuratedSourcesLiveIntegrationTests: XCTestCase {
                     + "chapters=\(outcome.chapterCount) "
                     + "contentCharacters=\(outcome.contentCharacters) "
                     + "paragraphs=\(outcome.paragraphCount) "
+                    + "first=\(outcome.firstTitle) "
+                    + "last=\(outcome.lastTitle) "
                     + "error=\(outcome.error ?? "none")"
             )
         }
@@ -216,6 +234,8 @@ private struct CompletenessOutcome: Sendable {
     var chapterCount: Int
     var contentCharacters: Int
     var paragraphCount: Int
+    var firstTitle: String
+    var lastTitle: String
     var error: String?
 }
 
@@ -229,6 +249,8 @@ private enum LiveSourceError: LocalizedError {
     case contentTooShort(Int)
     case paragraphStructureMissing(Int)
     case missingChapterEnding
+    case unexpectedChapterOrder([String])
+    case chapterIndexesOutOfOrder
 
     var errorDescription: String? {
         switch self {
@@ -241,6 +263,8 @@ private enum LiveSourceError: LocalizedError {
         case .contentTooShort(let count): "正文过短：\(count) 字符"
         case .paragraphStructureMissing(let count): "正文段落结构缺失：仅解析到 \(count) 段"
         case .missingChapterEnding: "正文缺少第一章结尾"
+        case .unexpectedChapterOrder(let titles): "目录开头顺序异常：\(titles.joined(separator: " | "))"
+        case .chapterIndexesOutOfOrder: "章节索引与目录位置不一致"
         }
     }
 }

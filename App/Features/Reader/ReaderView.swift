@@ -103,7 +103,9 @@ struct ReaderView: View {
         .sheet(isPresented: $showingBookmarks) {
             BookmarkListView(bookID: book.id) { bookmark in
                 showingBookmarks = false
-                goToChapter(bookmark.chapterIndex, locatorOffset: bookmark.locatorOffset)
+                let targetIndex = chapters.firstIndex(where: { $0.url == bookmark.chapterURL })
+                    ?? bookmark.chapterIndex
+                goToChapter(targetIndex, locatorOffset: bookmark.locatorOffset)
             }
         }
         .task(id: currentIndex) { await loadChapter() }
@@ -649,7 +651,7 @@ struct ReaderView: View {
             predicate: #Predicate { $0.bookID == bookID }
         )
         guard let progress = try? modelContext.fetch(descriptor).first,
-              progress.chapterIndex == chapter.index || progress.chapterURL == chapter.url else {
+              progress.chapterURL == chapter.url else {
             return 0
         }
         return progress.locatorOffset
@@ -746,11 +748,11 @@ struct ReaderView: View {
 
     private func refreshBookmarkState() {
         let bookID = book.id
-        let chapterIndex = chapter.index
+        let chapterURL = chapter.url
         let locator = currentLocatorOffset
         let descriptor = FetchDescriptor<BookmarkRecord>(
             predicate: #Predicate {
-                $0.bookID == bookID && $0.chapterIndex == chapterIndex
+                $0.bookID == bookID && $0.chapterURL == chapterURL
             }
         )
         let nearby = try? modelContext.fetch(descriptor).first(where: {

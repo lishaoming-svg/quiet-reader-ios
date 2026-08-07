@@ -306,9 +306,8 @@ struct BookDetailView: View {
             predicate: #Predicate { $0.bookID == bookID }
         )
         guard let progress = try? modelContext.fetch(descriptor).first else { return }
-        resumeIndex = chapters.indices.contains(progress.chapterIndex)
-            ? progress.chapterIndex
-            : chapters.firstIndex(where: { $0.url == progress.chapterURL })
+        resumeIndex = chapters.firstIndex(where: { $0.url == progress.chapterURL })
+            ?? (chapters.indices.contains(progress.chapterIndex) ? progress.chapterIndex : nil)
     }
 
     private func startCaching(maximumCount: Int?) {

@@ -7,7 +7,7 @@
     "bookSourceType": 0,
     "enabled": true,
     "enabledExplore": true,
-    "lastUpdateTime": 1786204800000,
+    "lastUpdateTime": 1786291200000,
     "exploreUrl": "最近更新::/",
     "searchUrl": "/search.php?keyWord={{key}}",
     "ruleSearch": {
@@ -25,7 +25,7 @@
       "coverUrl": ".imgbox img@src"
     },
     "ruleToc": {
-      "chapterList": ".section-list li a",
+      "chapterList": ".row-section h2:containsOwn(正文) + .section-box .section-list li a",
       "chapterName": "text",
       "chapterUrl": "href",
       "nextTocUrl": ".listpage a:containsOwn(下一页)@href"
@@ -44,7 +44,7 @@
     "bookSourceType": 0,
     "enabled": true,
     "enabledExplore": true,
-    "lastUpdateTime": 1786204800000,
+    "lastUpdateTime": 1786291200000,
     "exploreUrl": "最近更新::/",
     "searchUrl": "/ar.php?keyWord={{key}}",
     "ruleSearch": {
@@ -61,7 +61,7 @@
       "coverUrl": ".imgbox img@src"
     },
     "ruleToc": {
-      "chapterList": ".section-list li a",
+      "chapterList": ".row-section h2:containsOwn(正文) + .section-box .section-list li a",
       "chapterName": "text",
       "chapterUrl": "href",
       "nextTocUrl": ".listpage a:containsOwn(下一页)@href"
