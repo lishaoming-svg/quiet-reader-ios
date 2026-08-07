@@ -87,43 +87,54 @@ final class ReaderModelsTests: XCTestCase {
 
     @MainActor
     func testPaginatedTextFitsSwiftUIRenderingHeight() {
-        let size = CGSize(width: 280, height: 420)
-        let fontSize: CGFloat = 19
-        let lineSpacing: CGFloat = 9
-        let content = String(
-            repeating: "最后一行必须完整显示，下一页从紧邻的后续文字继续。",
-            count: 220
-        )
-        let pages = ReaderPaginator.paginate(
-            chapterTitle: "分页高度",
-            content: content,
-            size: size,
-            fontSize: fontSize,
-            lineSpacing: lineSpacing,
-            usesSerif: true
-        )
-        for page in pages {
-            let pageText = ReaderPageTextView(
-                text: page.text,
-                fontSize: fontSize,
-                lineSpacing: lineSpacing,
-                usesSerif: true,
-                textColor: .label
-            )
-                .fixedSize(horizontal: false, vertical: true)
-            let controller = UIHostingController(rootView: pageText)
-            let measured = controller.sizeThatFits(
-                in: CGSize(width: size.width, height: 10_000)
-            )
-            let availableHeight = page.showsChapterTitle
-                ? size.height - ReaderTypography.chapterHeadingHeight
-                : size.height
+        let scenarios: [(size: CGSize, fontSize: CGFloat, lineSpacing: CGFloat, usesSerif: Bool)] = [
+            (CGSize(width: 332, height: 520), 14, 4, false),
+            (CGSize(width: 280, height: 420), 19, 9, true),
+            (CGSize(width: 230, height: 350), 27, 14, true),
+        ]
 
-            XCTAssertLessThanOrEqual(
-                measured.height,
-                availableHeight + 0.5,
-                "第 \(page.id + 1) 页正文高度超出可视区域"
+        for scenario in scenarios {
+            let content = String(
+                repeating: "最后一行必须完整显示，下一页从紧邻的后续文字继续。",
+                count: 100
             )
+            let document = ReaderDocumentBuilder.displayDocument(
+                from: content,
+                paragraphIndent: true
+            )
+            let pages = ReaderPaginator.paginate(
+                chapterTitle: "分页高度",
+                content: content,
+                size: scenario.size,
+                fontSize: scenario.fontSize,
+                lineSpacing: scenario.lineSpacing,
+                usesSerif: scenario.usesSerif
+            )
+            XCTAssertEqual(pages.map(\.text).joined(), document.text)
+
+            for page in pages {
+                let pageText = ReaderPageTextView(
+                    text: page.text,
+                    fontSize: scenario.fontSize,
+                    lineSpacing: scenario.lineSpacing,
+                    usesSerif: scenario.usesSerif,
+                    textColor: .label
+                )
+                    .fixedSize(horizontal: false, vertical: true)
+                let controller = UIHostingController(rootView: pageText)
+                let measured = controller.sizeThatFits(
+                    in: CGSize(width: scenario.size.width, height: 10_000)
+                )
+                let availableHeight = page.showsChapterTitle
+                    ? scenario.size.height - ReaderTypography.chapterHeadingHeight
+                    : scenario.size.height
+
+                XCTAssertLessThanOrEqual(
+                    measured.height,
+                    availableHeight + 0.5,
+                    "字号 \(scenario.fontSize) 的第 \(page.id + 1) 页正文高度超出可视区域"
+                )
+            }
         }
     }
 

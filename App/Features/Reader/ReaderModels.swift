@@ -116,7 +116,7 @@ enum ReaderTypography {
     }
 
     static func pageRenderSafetyInset(font: UIFont, lineSpacing: CGFloat) -> CGFloat {
-        ceil(font.lineHeight + max(lineSpacing, 0))
+        ceil((font.lineHeight + max(lineSpacing, 0)) * 2)
     }
 }
 
