@@ -66,6 +66,7 @@ struct AudiobookServerHealth: Decodable {
     let engine: String
     let engineName: String
     let voices: [AudiobookVoice]
+    let queue: AudiobookServerQueueSummary?
 
     enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocol_version"
@@ -75,7 +76,22 @@ struct AudiobookServerHealth: Decodable {
         case engine
         case engineName = "engine_name"
         case voices
+        case queue
     }
+}
+
+struct AudiobookServerQueueSummary: Decodable {
+    let runningCount: Int
+    let queuedCount: Int
+    let failedCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case runningCount = "running_count"
+        case queuedCount = "queued_count"
+        case failedCount = "failed_count"
+    }
+
+    var pendingCount: Int { runningCount + queuedCount }
 }
 
 struct AudiobookJobRequest: Encodable {
@@ -365,6 +381,7 @@ enum AudiobookClientError: LocalizedError {
     case invalidResponse
     case server(Int, String)
     case protocolMismatch
+    case connection(String)
     case credentials(String)
     case generation(String)
     case audioUnavailable
@@ -374,6 +391,7 @@ enum AudiobookClientError: LocalizedError {
         case .invalidResponse: "听书生成器返回了无法识别的数据"
         case let .server(code, message): "生成器错误（\(code)）：\(message)"
         case .protocolMismatch: "电脑仍在运行旧版生成器。请关闭旧的听书窗口，再双击桌面的“启动墨阅听书”"
+        case let .connection(message): message
         case let .credentials(message): message
         case let .generation(message): message
         case .audioUnavailable: "章节音频尚未生成完成"

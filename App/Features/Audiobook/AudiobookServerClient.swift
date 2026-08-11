@@ -5,9 +5,26 @@ struct AudiobookServerClient {
     var session: URLSession = .shared
 
     func health() async throws -> AudiobookServerHealth {
-        let request = authorizedRequest(path: "v1/health")
-        let (data, response) = try await session.data(for: request)
-        return try decode(AudiobookServerHealth.self, data: data, response: response)
+        var request = authorizedRequest(path: "v1/health")
+        request.timeoutInterval = 10
+        do {
+            let (data, response) = try await session.data(for: request)
+            return try decode(AudiobookServerHealth.self, data: data, response: response)
+        } catch let error as URLError {
+            switch error.code {
+            case .timedOut:
+                throw AudiobookClientError.connection(
+                    "连接电脑超时。请核对手机填写的地址，并确认手机与电脑位于同一局域网。"
+                )
+            case .cannotConnectToHost, .cannotFindHost, .networkConnectionLost,
+                 .notConnectedToInternet:
+                throw AudiobookClientError.connection(
+                    "无法连接电脑。请重新扫描生成器当前显示的二维码。"
+                )
+            default:
+                throw error
+            }
+        }
     }
 
     func submit(_ job: AudiobookJobRequest) async throws -> AudiobookJobStatus {

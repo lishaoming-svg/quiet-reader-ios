@@ -38,6 +38,8 @@ class HTTPServerTests(unittest.TestCase):
 
                 health = self._json_request(f"{base_url}/v1/health")
                 self.assertEqual(health["engine"], "tone-test")
+                self.assertEqual(health["queue"]["running_count"], 0)
+                self.assertEqual(health["queue"]["queued_count"], 0)
 
                 text = "第一段。第二段完整生成。"
                 payload = {

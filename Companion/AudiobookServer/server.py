@@ -199,6 +199,14 @@ class JobManager:
         with self.lock:
             return self.jobs.get(job_id)
 
+    def queue_summary(self) -> dict[str, int]:
+        with self.lock:
+            return {
+                "running_count": sum(job.status == "running" for job in self.jobs.values()),
+                "queued_count": sum(job.status == "queued" for job in self.jobs.values()),
+                "failed_count": sum(job.status == "failed" for job in self.jobs.values()),
+            }
+
     def book_status(self, book_id: str, voice: str, speed: float) -> dict[str, Any]:
         with self.lock:
             jobs = self._book_jobs(book_id, voice, speed)
@@ -559,6 +567,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "engine": self.server.manager.backend.engine_id,
                     "engine_name": self.server.manager.backend.display_name,
                     "voices": self.server.manager.backend.voices(),
+                    "queue": self.server.manager.queue_summary(),
                     "capabilities": [
                         "persistent-queue",
                         "readaloud-package-v1",

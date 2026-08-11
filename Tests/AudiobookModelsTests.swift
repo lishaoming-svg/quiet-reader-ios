@@ -97,6 +97,32 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual((payload["jobs"] as? [[String: Any]])?.count, 3)
     }
 
+    func testServerHealthDecodesRestoredQueueSummary() throws {
+        let data = Data(
+            """
+            {
+              "protocol_version": 4,
+              "service": "墨阅听书生成器",
+              "server_version": "0.4.0",
+              "status": "ready",
+              "engine": "cosyvoice3",
+              "engine_name": "CosyVoice 3",
+              "voices": [],
+              "queue": {
+                "running_count": 1,
+                "queued_count": 54,
+                "failed_count": 2
+              }
+            }
+            """.utf8
+        )
+
+        let health = try JSONDecoder().decode(AudiobookServerHealth.self, from: data)
+        XCTAssertEqual(health.queue?.runningCount, 1)
+        XCTAssertEqual(health.queue?.queuedCount, 54)
+        XCTAssertEqual(health.queue?.pendingCount, 55)
+    }
+
     func testPlaybackQueueKeepsThreeReadableChaptersAhead() {
         let chapters = [
             BookChapter(title: "第一章", url: "chapter-1", index: 0),

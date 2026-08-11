@@ -312,6 +312,11 @@ struct AudiobookView: View {
             if let health {
                 Label("已连接 · \(health.engineName)", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(AppTheme.jade)
+                if let queue = health.queue, queue.pendingCount > 0 {
+                    Text("电脑已恢复历史任务：正在生成 \(queue.runningCount) 章，排队 \(queue.queuedCount) 章。连接测试不会创建任务。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.inkSoft)
+                }
                 if let configuration {
                     Text(configuration.baseURL.absoluteString)
                         .font(.caption.monospaced())
@@ -762,6 +767,11 @@ private struct AudiobookPairingView: View {
                 }
                 if let errorMessage {
                     InlineErrorView(message: errorMessage)
+                }
+                if isTesting {
+                    Text("正在检查 \(address)。此操作只验证并保存连接，不会提交正文或创建音频任务。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.inkSoft)
                 }
                 Section {
                     Button {
