@@ -57,9 +57,13 @@ class GenerationTests(unittest.TestCase):
                 deadline = time.time() + 10
                 while retried.status in ("queued", "running") and time.time() < deadline:
                     time.sleep(0.05)
-                self.assertEqual(retried.status, "completed", retried.error)
                 self.assertEqual(retried.job_id, first.job_id)
                 self.assertEqual(backend.attempts, 2)
+                if shutil.which("ffmpeg"):
+                    self.assertEqual(retried.status, "completed", retried.error)
+                else:
+                    self.assertEqual(retried.status, "failed")
+                    self.assertIn("ffmpeg", retried.error)
             finally:
                 manager.shutdown()
 
