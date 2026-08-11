@@ -39,7 +39,7 @@ from protocol import (
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.5.1"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
 HEALTH_PORT_OFFSET = 1
@@ -201,6 +201,40 @@ class JobManager:
         with self.lock:
             return self.jobs.get(job_id)
 
+    def delete_job(self, job_id: str) -> dict[str, Any]:
+        with self.package_lock:
+            with self.lock:
+                state = self.jobs.get(job_id)
+                if state is None:
+                    raise ProtocolError("找不到听书任务")
+                if state.status == "running":
+                    raise ProtocolError("当前章节正在生成，请等待本章完成后删除")
+                identity = (
+                    state.request.book_id,
+                    state.request.voice,
+                    state.request.speed,
+                )
+                deleted_bytes = state.file_size
+                self.jobs.pop(job_id)
+                self._delete_job_files(state)
+            self._invalidate_package(*identity)
+        return {"deleted_count": 1, "deleted_bytes": deleted_bytes}
+
+    def delete_book(self, book_id: str, voice: str, speed: float) -> dict[str, Any]:
+        with self.package_lock:
+            with self.lock:
+                jobs = self._book_jobs(book_id, voice, speed)
+                if not jobs:
+                    raise ProtocolError("找不到这本书的生成记录")
+                if any(job.status == "running" for job in jobs):
+                    raise ProtocolError("这本书仍有章节正在生成，请等待当前章完成后删除")
+                deleted_bytes = sum(job.file_size for job in jobs)
+                for state in jobs:
+                    self.jobs.pop(state.job_id, None)
+                    self._delete_job_files(state)
+            self._invalidate_package(book_id, voice, speed)
+        return {"deleted_count": len(jobs), "deleted_bytes": deleted_bytes}
+
     def discard_superseded_pending(self, request: JobRequest) -> int:
         with self.lock:
             discarded_ids = [
@@ -335,6 +369,24 @@ class JobManager:
     def create_package(self, book_id: str, voice: str, speed: float) -> Path:
         with self.package_lock:
             return self._create_package(book_id, voice, speed)
+
+    def _delete_job_files(self, state: JobState) -> None:
+        audio_path = self.audio_dir / f"{state.job_id}.m4a"
+        if audio_path.is_file():
+            audio_path.unlink()
+        metadata_path = self.jobs_dir / f"{state.job_id}.json"
+        if metadata_path.is_file():
+            metadata_path.unlink()
+
+    def _invalidate_package(self, book_id: str, voice: str, speed: float) -> None:
+        package_key = hashlib.sha256(
+            f"{book_id}\n{voice}\n{speed:.2f}".encode("utf-8")
+        ).hexdigest()[:24]
+        for target in self.packages_dir.glob(f"*-{package_key}.qraudio"):
+            target.unlink()
+        marker = self.packages_dir / f"{package_key}.sha256"
+        if marker.is_file():
+            marker.unlink()
 
     def _create_package(self, book_id: str, voice: str, speed: float) -> Path:
         with self.lock:
@@ -701,6 +753,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path == "/":
             self._send_pairing_page()
             return
+        if path == "/v1/pairing/qr":
+            self._send_pairing_qr()
+            return
         if path == "/v1/health":
             if not self._authorized():
                 return
@@ -726,7 +781,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         if path == "/v1/dashboard":
-            self._send_json(HTTPStatus.OK, self.server.manager.dashboard_status())
+            payload = self.server.manager.dashboard_status()
+            payload["public_url"] = self._current_public_url()
+            self._send_json(HTTPStatus.OK, payload)
             return
         if path in {"/v1/books/status", "/v1/books/package"}:
             try:
@@ -788,6 +845,29 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.BAD_REQUEST, "请求 JSON 无效")
         except ValueError as error:
             self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if not self._authorized():
+            return
+        try:
+            if path.startswith("/v1/jobs/"):
+                parts = [part for part in path.split("/") if part]
+                if len(parts) != 3:
+                    raise ProtocolError("请求地址不存在")
+                result = self.server.manager.delete_job(parts[2])
+            elif path == "/v1/books/tasks":
+                book_id, voice, speed = self._book_query(parsed.query)
+                result = self.server.manager.delete_book(book_id, voice, speed)
+            else:
+                self._send_error(HTTPStatus.NOT_FOUND, "请求地址不存在")
+                return
+            self._send_json(HTTPStatus.OK, result)
+        except ProtocolError as error:
+            self._send_error(HTTPStatus.CONFLICT, str(error))
+        except OSError as error:
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, f"删除文件失败：{error}")
 
     def _submit_batch(self, payload: dict[str, Any]) -> None:
         if payload.get("protocol_version") != PROTOCOL_VERSION:
@@ -869,9 +949,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
 
     def _send_pairing_page(self) -> None:
+        public_url = self._current_public_url()
         pairing_uri = (
             "quietreader://audiobook-pair?url="
-            f"{quote(self.server.public_url, safe='')}&token={quote(self.server.pairing_token, safe='')}"
+            f"{quote(public_url, safe='')}&token={quote(self.server.pairing_token, safe='')}"
         )
         qr_html = ""
         try:
@@ -881,14 +962,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
             encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-            qr_html = f'<img alt="配对二维码" src="data:image/png;base64,{encoded}" width="280" height="280">'
+            qr_html = f'<img id="pairing-qr" alt="配对二维码" src="data:image/png;base64,{encoded}" width="280" height="280">'
         except ImportError:
             qr_html = "<p>安装 requirements.txt 后可显示二维码。</p>"
         template_path = Path(__file__).resolve().with_name("dashboard.html")
         html = template_path.read_text(encoding="utf-8")
         html = html.replace("__QR_HTML__", qr_html)
         replacements = {
-            "__PUBLIC_URL_JSON__": json.dumps(self.server.public_url, ensure_ascii=False),
+            "__PUBLIC_URL_JSON__": json.dumps(public_url, ensure_ascii=False),
             "__PAIRING_TOKEN_JSON__": json.dumps(self.server.pairing_token, ensure_ascii=False),
             "__PAIRING_URI_JSON__": json.dumps(pairing_uri, ensure_ascii=False),
             "__ENGINE_NAME_JSON__": json.dumps(
@@ -904,6 +985,31 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_pairing_qr(self) -> None:
+        try:
+            import qrcode
+
+            public_url = self._current_public_url()
+            pairing_uri = (
+                "quietreader://audiobook-pair?url="
+                f"{quote(public_url, safe='')}&token={quote(self.server.pairing_token, safe='')}"
+            )
+            image = qrcode.make(pairing_uri)
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            data = buffer.getvalue()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except ImportError:
+            self._send_error(HTTPStatus.SERVICE_UNAVAILABLE, "二维码组件尚未安装")
+
+    def _current_public_url(self) -> str:
+        return f"http://{local_ipv4()}:{self.server.server_port}"
 
     def _send_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")

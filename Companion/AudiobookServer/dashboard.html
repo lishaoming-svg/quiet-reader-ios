@@ -137,15 +137,19 @@
     .book-progress { height: 6px; margin: 19px 0 9px; overflow: hidden; border-radius: 10px; background: rgba(24,48,57,0.09); }
     .book-progress i { display: block; height: 100%; background: var(--jade); }
     .book-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-soft); font-size: 13px; }
-    .download { padding: 8px 11px; color: var(--red); border: 0; border-radius: 9px; background: var(--red-pale); }
+    .book-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+    .download, .delete { padding: 8px 11px; border: 0; border-radius: 9px; }
+    .download { color: var(--red); background: var(--red-pale); }
     .download:disabled { color: #999; background: #eee9df; cursor: default; }
+    .delete { color: #6f241e; background: #f2d8d2; }
+    .delete:disabled { color: #999; background: #eee9df; cursor: default; }
 
     .task-tools { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
     .search { flex: 1 1 260px; padding: 12px 15px; color: var(--ink); border: 1px solid var(--line); border-radius: 12px; outline: none; background: rgba(255,253,246,0.8); }
     .filter { padding: 10px 14px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 99px; background: transparent; }
     .filter.active { color: #fff; border-color: var(--jade); background: var(--jade); }
     .task-list { display: grid; gap: 10px; }
-    .task-row { display: grid; grid-template-columns: 110px minmax(160px, 1fr) minmax(190px, 1.2fr) 110px; gap: 16px; align-items: center; padding: 15px 17px; border: 1px solid rgba(255,255,255,0.62); border-radius: 15px; background: var(--card); }
+    .task-row { display: grid; grid-template-columns: 110px minmax(160px, 1fr) minmax(190px, 1.2fr) 90px 74px; gap: 16px; align-items: center; padding: 15px 17px; border: 1px solid rgba(255,255,255,0.62); border-radius: 15px; background: var(--card); }
     .status { width: fit-content; padding: 5px 9px; border-radius: 99px; font-size: 12px; }
     .status.completed { color: var(--jade); background: var(--jade-pale); }
     .status.running { color: #8a5b0a; background: #f4e5bc; }
@@ -272,15 +276,18 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const publicURL = __PUBLIC_URL_JSON__;
+    let publicURL = __PUBLIC_URL_JSON__;
     const pairingToken = __PAIRING_TOKEN_JSON__;
-    const pairingURI = __PAIRING_URI_JSON__;
+    let pairingURI = __PAIRING_URI_JSON__;
     const initialEngineName = __ENGINE_NAME_JSON__;
     const headers = { Authorization: `Bearer ${pairingToken}` };
     const titles = { overview: "生成概览", tasks: "章节任务", connect: "连接手机" };
     const statusNames = { completed: "已完成", running: "生成中", queued: "排队", failed: "失败" };
     let state = { jobs: [], books: [], queue: {} };
     let activeStatus = "all";
+    let stateSignature = "";
+    let refreshTimer = null;
+    let refreshRunning = false;
 
     const byId = (id) => document.getElementById(id);
     const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -318,16 +325,47 @@
       return response;
     }
 
-    async function refresh() {
+    function scheduleRefresh() {
+      window.clearTimeout(refreshTimer);
+      if (document.hidden) return;
+      const active = (state.jobs || []).some((job) => job.status === "running" || job.status === "queued");
+      refreshTimer = window.setTimeout(refresh, active ? 5000 : 30000);
+    }
+
+    function updateConnection(nextURL) {
+      if (!nextURL || nextURL === publicURL) return;
+      publicURL = nextURL;
+      pairingURI = `quietreader://audiobook-pair?url=${encodeURIComponent(publicURL)}&token=${encodeURIComponent(pairingToken)}`;
+      byId("public-url").textContent = publicURL;
+      const image = byId("pairing-qr");
+      if (image) image.src = `/v1/pairing/qr?network=${encodeURIComponent(publicURL)}`;
+      toast("检测到网络变化，配对地址和二维码已更新");
+    }
+
+    async function refresh(manual = false) {
+      window.clearTimeout(refreshTimer);
+      if (refreshRunning) return;
+      refreshRunning = true;
       try {
         const response = await api("/v1/dashboard");
-        state = await response.json();
-        render();
+        const nextState = await response.json();
+        const nextSignature = JSON.stringify(nextState);
+        if (nextSignature !== stateSignature) {
+          state = nextState;
+          stateSignature = nextSignature;
+          render();
+          updateConnection(state.public_url);
+          byId("last-updated").textContent = `状态同步 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+        } else if (manual) {
+          byId("last-updated").textContent = `状态已是最新 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+        }
         byId("online-label").textContent = `服务运行中 · v${state.server_version}`;
-        byId("last-updated").textContent = `自动刷新 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
       } catch (error) {
         byId("online-label").textContent = "状态读取失败";
         byId("last-updated").textContent = error.message;
+      } finally {
+        refreshRunning = false;
+        scheduleRefresh();
       }
     }
 
@@ -370,7 +408,7 @@
       byId("book-grid").innerHTML = books.length ? books.map((book, index) => {
         const ratio = book.total_count ? book.completed_count / book.total_count : 0;
         const active = book.running_count > 0 ? "生成中" : book.queued_count > 0 ? "等待中" : book.failed_count > 0 ? "有失败" : "已完成";
-        return `<article class="book-card" style="animation:reveal .35s ease ${index * 45}ms both">
+        return `<article class="book-card">
           <div class="book-title">
             <div><h3>${escapeHTML(book.book_title)}</h3><p>${escapeHTML(book.author || "作者未知")} · ${escapeHTML(voiceName(book.voice))} · ${book.speed} 倍</p></div>
             <span class="pill">${active}</span>
@@ -378,12 +416,18 @@
           <div class="book-progress"><i style="width:${percent(ratio)}"></i></div>
           <div class="book-foot">
             <span>${book.completed_count}/${book.total_count} 章 · ${formatBytes(book.completed_bytes)}</span>
-            <button class="download" ${book.completed_count ? "" : "disabled"} data-download="${index}">下载伴读包</button>
+            <span class="book-actions">
+              <button class="download" ${book.completed_count ? "" : "disabled"} data-download="${index}">下载伴读包</button>
+              <button class="delete" ${book.running_count ? "disabled" : ""} data-delete-book="${index}">${book.running_count ? "生成中" : "删除记录"}</button>
+            </span>
           </div>
         </article>`;
       }).join("") : '<div class="empty">手机提交章节后，书籍进度会显示在这里。</div>';
       document.querySelectorAll("[data-download]").forEach((button) => {
         button.addEventListener("click", () => downloadPackage(books[Number(button.dataset.download)], button));
+      });
+      document.querySelectorAll("[data-delete-book]").forEach((button) => {
+        button.addEventListener("click", () => deleteBook(books[Number(button.dataset.deleteBook)]));
       });
     }
 
@@ -402,7 +446,41 @@
         <div class="task-book">${escapeHTML(job.book_title)}<small>${escapeHTML(voiceName(job.voice))}</small></div>
         <div class="task-chapter">${escapeHTML(job.chapter_title)}<small>目录第 ${job.chapter_index + 1} 项${job.error ? ` · ${escapeHTML(job.error)}` : ""}</small></div>
         <div class="task-size">${job.status === "running" ? percent(job.progress) : formatBytes(job.file_size)}</div>
+        <button class="delete" ${job.status === "running" ? "disabled" : ""} data-delete-job="${escapeHTML(job.job_id)}">${job.status === "running" ? "生成中" : "删除"}</button>
       </article>`).join("") : '<div class="empty">当前筛选条件下没有章节任务。</div>';
+      document.querySelectorAll("[data-delete-job]").forEach((button) => {
+        button.addEventListener("click", () => deleteJob(button.dataset.deleteJob));
+      });
+    }
+
+    async function deleteJob(jobID) {
+      const job = (state.jobs || []).find((item) => item.job_id === jobID);
+      if (!job || !window.confirm(`删除《${job.book_title}》${job.chapter_title}的任务和电脑音频？`)) return;
+      try {
+        const response = await api(`/v1/jobs/${encodeURIComponent(jobID)}`, { method: "DELETE" });
+        const result = await response.json();
+        toast(`已删除 ${result.deleted_count} 章记录`);
+        await refresh(true);
+      } catch (error) {
+        toast(error.message);
+      }
+    }
+
+    async function deleteBook(book) {
+      if (!window.confirm(`删除《${book.book_title}》当前音色下的 ${book.total_count} 章任务、音频和伴读包？`)) return;
+      try {
+        const query = new URLSearchParams({
+          book_id: book.book_id,
+          voice: book.voice,
+          speed: Number(book.speed).toFixed(2)
+        });
+        const response = await api(`/v1/books/tasks?${query}`, { method: "DELETE" });
+        const result = await response.json();
+        toast(`已删除 ${result.deleted_count} 章记录`);
+        await refresh(true);
+      } catch (error) {
+        toast(error.message);
+      }
     }
 
     async function downloadPackage(book, button) {
@@ -447,7 +525,7 @@
       });
     });
     byId("task-search").addEventListener("input", renderTasks);
-    byId("refresh-button").addEventListener("click", () => refresh().then(() => toast("状态已刷新")));
+    byId("refresh-button").addEventListener("click", () => refresh(true).then(() => toast("状态已刷新")));
     byId("copy-button").addEventListener("click", async () => {
       const text = `服务器地址：${publicURL}\n配对码：${pairingToken}\n${pairingURI}`;
       try {
@@ -477,7 +555,13 @@
     byId("pairing-token").textContent = pairingToken;
     byId("engine-label").textContent = initialEngineName;
     refresh();
-    window.setInterval(refresh, 2000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        window.clearTimeout(refreshTimer);
+      } else {
+        refresh();
+      }
+    });
   </script>
 </body>
 </html>

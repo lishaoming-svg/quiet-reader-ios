@@ -163,7 +163,8 @@ class HTTPServerTests(unittest.TestCase):
                 self.assertEqual(book_status["jobs"][0]["status"], "completed")
                 self.assertEqual(book_status["jobs"][0]["file_size"], status["file_size"])
                 dashboard = self._json_request(f"{base_url}/v1/dashboard")
-                self.assertEqual(dashboard["server_version"], "0.5.0")
+                self.assertEqual(dashboard["server_version"], "0.5.1")
+                self.assertTrue(dashboard["public_url"].endswith(f":{server.server_port}"))
                 self.assertEqual(dashboard["books"][0]["book_title"], "测试书")
                 self.assertEqual(dashboard["books"][0]["completed_count"], 1)
                 self.assertEqual(dashboard["jobs"][0]["chapter_title"], "第一章")
@@ -187,6 +188,17 @@ class HTTPServerTests(unittest.TestCase):
                     audio = response.read()
                     self.assertEqual(response.headers.get_content_type(), "audio/mp4")
                 self.assertGreater(len(audio), 512)
+
+                deleted = self._json_request(
+                    f"{base_url}/v1/jobs/{submitted['job_id']}",
+                    method="DELETE",
+                )
+                self.assertEqual(deleted["deleted_count"], 1)
+                self.assertGreater(deleted["deleted_bytes"], 512)
+                dashboard = self._json_request(f"{base_url}/v1/dashboard")
+                self.assertEqual(dashboard["jobs"], [])
+                self.assertEqual(list(manager.audio_dir.glob("*.m4a")), [])
+                self.assertEqual(list(manager.packages_dir.glob("*.qraudio")), [])
             finally:
                 server.shutdown()
                 server.server_close()
@@ -198,6 +210,7 @@ class HTTPServerTests(unittest.TestCase):
         url: str,
         data: bytes | None = None,
         token: str = "test-pairing-token-123456",
+        method: str | None = None,
     ):
         request = urllib.request.Request(
             url,
@@ -206,7 +219,7 @@ class HTTPServerTests(unittest.TestCase):
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json; charset=utf-8",
             },
-            method="POST" if data is not None else "GET",
+            method=method or ("POST" if data is not None else "GET"),
         )
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))

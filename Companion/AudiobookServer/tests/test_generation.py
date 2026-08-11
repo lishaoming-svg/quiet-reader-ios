@@ -25,6 +25,34 @@ class GenerationTests(unittest.TestCase):
     def test_timeline_offsets_use_ios_utf16_units(self):
         self.assertEqual(_utf16_offset("甲😀乙", 2), 3)
 
+    def test_delete_book_removes_queued_jobs_and_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = JobManager(ToneTestBackend(), Path(directory))
+            manager.shutdown()
+            for index in range(2):
+                text = f"第{index + 1}章正文。"
+                manager.submit(
+                    JobRequest(
+                        book_id="delete-book",
+                        book_title="删除测试",
+                        author="作者",
+                        chapter_id=f"chapter-{index}",
+                        chapter_url=f"https://example.test/delete/{index}",
+                        chapter_index=index,
+                        chapter_title=f"第{index + 1}章",
+                        text=text,
+                        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                        voice="multi-role",
+                        speed=1.0,
+                    )
+                )
+
+            result = manager.delete_book("delete-book", "multi-role", 1.0)
+
+            self.assertEqual(result["deleted_count"], 2)
+            self.assertEqual(manager.jobs, {})
+            self.assertEqual(list(manager.jobs_dir.glob("*.json")), [])
+
     def test_new_voice_discards_same_chapter_old_pending_job(self):
         text = "同一章节只保留最新音色的未完成任务。"
         common = {
