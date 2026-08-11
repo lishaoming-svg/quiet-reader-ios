@@ -298,14 +298,23 @@ struct AudiobookView: View {
                 )
 
                 Button {
-                    startCachedChapterGeneration()
+                    cacheFullBookAndSubmit()
                 } label: {
-                    Label("提交全部已缓存章节", systemImage: "desktopcomputer.and.arrow.down")
+                    Label("缓存全书并提交电脑", systemImage: "books.vertical.fill")
                 }
-                .disabled(
-                    configuration == nil
-                        || cachedTargets.isEmpty
-                )
+                .disabled(configuration == nil || readableChapters.isEmpty)
+
+                if !cachedTargets.isEmpty {
+                    Button {
+                        startCachedChapterGeneration()
+                    } label: {
+                        Label(
+                            "只提交已有缓存（\(cachedTargets.count) 章）",
+                            systemImage: "desktopcomputer.and.arrow.down"
+                        )
+                    }
+                    .disabled(configuration == nil)
+                }
 
                 if let remoteBookStatus {
                     LabeledContent(
@@ -345,7 +354,7 @@ struct AudiobookView: View {
                     Label("导入 .qraudio 伴读包", systemImage: "cable.connector")
                 }
 
-                Text("已缓存正文 \(cachedTargets.count) 章。先缓存全书，再快速提交给电脑；提交结束后电脑可以独立生成。")
+                Text("已缓存正文 \(cachedTargets.count)/\(readableChapters.count) 章。主按钮会自动下载缺失正文并逐章提交，提交结束后电脑可以独立生成。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
                 Text("数据线传输时，在 Windows Apple Devices 的“文件”中把 .qraudio 添加到墨阅，再从这里导入。")
@@ -423,6 +432,10 @@ struct AudiobookView: View {
         }
     }
 
+    private var readableChapters: [BookChapter] {
+        chapters.filter { !$0.isVolume }
+    }
+
     private func startCurrentChapterGeneration() {
         guard chapters.indices.contains(currentIndex) else { return }
         startGeneration([(chapters[currentIndex], currentText)])
@@ -430,6 +443,88 @@ struct AudiobookView: View {
 
     private func startCachedChapterGeneration() {
         submitCachedChapters()
+    }
+
+    private func cacheFullBookAndSubmit() {
+        guard let configuration else { return }
+        let targets = readableChapters
+        guard !targets.isEmpty else { return }
+        let generationVoice = selectedVoice
+        let requestedSpeed = generationSpeed
+        if coordinator.isManaging(bookID: book.id) {
+            coordinator.cancelAutomaticGeneration()
+        }
+        workTask?.cancel()
+        workError = nil
+        workMessage = nil
+        completedCount = 0
+        targetCount = targets.count
+        currentTaskProgress = 0
+        isWorking = true
+        workTask = Task {
+            defer { isWorking = false }
+            let client = AudiobookServerClient(configuration: configuration)
+            var cachedContent = cachedContentByURL()
+            var submitted = 0
+            var failed = 0
+            do {
+                for chapter in targets {
+                    try Task.checkCancellation()
+                    currentTaskTitle = "读取 \(chapter.title)"
+                    let text: String
+                    if let cached = cachedContent[chapter.url]?.nilIfBlank {
+                        text = cached
+                    } else {
+                        do {
+                            let loaded = try await SourceEngine().loadContent(
+                                chapter: chapter,
+                                source: source
+                            )
+                            let normalized = ReadableTextNormalizer.normalize(loaded)
+                            guard let value = normalized.nilIfBlank else {
+                                throw AudiobookClientError.generation("\(chapter.title) 没有可缓存的正文")
+                            }
+                            try saveChapterCache(chapter, content: value)
+                            cachedContent[chapter.url] = value
+                            text = value
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            failed += 1
+                            completedCount += 1
+                            continue
+                        }
+                    }
+
+                    currentTaskTitle = "提交 \(chapter.title)"
+                    let request = AudiobookJobRequest(
+                        book: book,
+                        chapter: chapter,
+                        text: text,
+                        voice: generationVoice,
+                        speed: requestedSpeed
+                    )
+                    _ = try await client.submit(request)
+                    submitted += 1
+                    completedCount += 1
+                }
+                remoteBookStatus = try await client.bookStatus(
+                    bookID: book.id,
+                    voice: generationVoice,
+                    speed: requestedSpeed
+                )
+                if failed == 0 {
+                    workMessage = "全书 \(submitted) 章已交给电脑，可以离开听书页面。"
+                } else {
+                    workMessage = "已提交 \(submitted) 章，\(failed) 章正文下载失败；再次点击会继续补齐。"
+                }
+                refreshLocalState()
+            } catch is CancellationError {
+                workError = "全文缓存和提交已暂停，电脑会继续处理已经收到的章节。"
+            } catch {
+                workError = error.localizedDescription
+            }
+        }
     }
 
     private func submitCachedChapters() {
@@ -478,6 +573,36 @@ struct AudiobookView: View {
                 workError = error.localizedDescription
             }
         }
+    }
+
+    private func cachedContentByURL() -> [String: String] {
+        let bookID = book.id
+        let descriptor = FetchDescriptor<ChapterCacheRecord>(
+            predicate: #Predicate { $0.bookID == bookID }
+        )
+        let records = (try? modelContext.fetch(descriptor)) ?? []
+        return Dictionary(uniqueKeysWithValues: records.map { ($0.chapterURL, $0.content) })
+    }
+
+    private func saveChapterCache(_ chapter: BookChapter, content: String) throws {
+        let cacheKey = "\(source.id)::\(chapter.url)"
+        let descriptor = FetchDescriptor<ChapterCacheRecord>(
+            predicate: #Predicate { $0.cacheKey == cacheKey }
+        )
+        if let existing = try modelContext.fetch(descriptor).first {
+            existing.content = content
+            existing.cachedAt = .now
+        } else {
+            modelContext.insert(
+                ChapterCacheRecord(
+                    sourceID: source.id,
+                    bookID: book.id,
+                    chapter: chapter,
+                    content: content
+                )
+            )
+        }
+        try modelContext.save()
     }
 
     private func syncCompletedPackage() {

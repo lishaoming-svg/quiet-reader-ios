@@ -346,7 +346,7 @@ enum AudiobookClientError: LocalizedError {
         switch self {
         case .invalidResponse: "听书生成器返回了无法识别的数据"
         case let .server(code, message): "生成器错误（\(code)）：\(message)"
-        case .protocolMismatch: "App 与听书生成器的协议版本不一致"
+        case .protocolMismatch: "电脑仍在运行旧版生成器。请关闭旧的听书窗口，再双击桌面的“启动墨阅听书”"
         case let .credentials(message): message
         case let .generation(message): message
         case .audioUnavailable: "章节音频尚未生成完成"
