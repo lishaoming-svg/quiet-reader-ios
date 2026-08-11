@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('sapi', 'cosyvoice', 'tone')][string]$Engine = 'sapi',
     [int]$Port = 8765,
     [string]$PromptAudio = $env:QUIETREADER_PROMPT_AUDIO,
@@ -25,4 +25,3 @@ if ($Engine -eq 'cosyvoice') {
 } else {
     python server.py --engine $Engine --port $Port
 }
-

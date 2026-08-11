@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$TextPath,
     [Parameter(Mandatory = $true)][string]$OutputPath,
     [string]$Voice = 'Microsoft Huihui Desktop',
@@ -19,4 +19,3 @@ try {
 } finally {
     $speaker.Dispose()
 }
-
