@@ -272,7 +272,8 @@ struct ReaderView: View {
                 .frame(height: ReaderTypography.pageFooterHeight)
                 .padding(.top, ReaderTypography.pageFooterTopSpacing)
         }
-        .frame(width: readerContentWidth, maxHeight: .infinity)
+        .frame(width: readerContentWidth)
+        .frame(maxHeight: .infinity)
         .padding(.vertical, ReaderTypography.pageVerticalPadding)
         .frame(maxWidth: .infinity)
     }
