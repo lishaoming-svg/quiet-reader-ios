@@ -30,7 +30,7 @@ struct AudiobookView: View {
     @State private var workError: String?
     @State private var workMessage: String?
     @State private var remoteBookStatus: AudiobookBookStatus?
-    @State private var downloadedCount = 0
+    @State private var downloadedChapters: [LocalAudiobookChapter] = []
     @State private var storageSize: Int64 = 0
 
     var body: some View {
@@ -255,6 +255,39 @@ struct AudiobookView: View {
                         "电脑生成进度",
                         value: "\(remoteBookStatus.completedCount)/\(remoteBookStatus.totalCount) 章"
                     )
+                    if let runningJob = remoteBookStatus.runningJobs.first {
+                        LabeledContent("正在生成") {
+                            VStack(alignment: .trailing, spacing: 3) {
+                                Text(runningJob.chapterTitle)
+                                    .foregroundStyle(AppTheme.ink)
+                                Text("\(Int((runningJob.progress * 100).rounded()))%")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(AppTheme.inkSoft)
+                            }
+                        }
+                    }
+                    if !remoteBookStatus.completedJobs.isEmpty {
+                        DisclosureGroup {
+                            ForEach(remoteBookStatus.completedJobs) { job in
+                                chapterStatusRow(
+                                    title: job.chapterTitle,
+                                    chapterIndex: job.chapterIndex,
+                                    detail: AudiobookStorage.formatByteCount(job.fileSize),
+                                    symbol: "checkmark.circle.fill",
+                                    color: AppTheme.jade
+                                )
+                            }
+                        } label: {
+                            Label(
+                                "查看电脑已完成章节（\(remoteBookStatus.completedJobs.count)）",
+                                systemImage: "list.bullet.rectangle"
+                            )
+                        }
+                    } else if remoteBookStatus.completedCount > 0, remoteBookStatus.jobs == nil {
+                        Text("重启新版电脑生成器后，可在这里查看已完成的具体章节。")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.inkSoft)
+                    }
                     if remoteBookStatus.runningCount + remoteBookStatus.queuedCount > 0 {
                         Text("电脑仍在生成 \(remoteBookStatus.runningCount + remoteBookStatus.queuedCount) 章，可以关闭手机页面。")
                             .font(.caption)
@@ -340,11 +373,78 @@ struct AudiobookView: View {
         Section("本地音频") {
             LabeledContent("已下载", value: "\(downloadedCount) 章")
             LabeledContent("占用空间", value: AudiobookStorage.formatByteCount(storageSize))
+            if !downloadedChapters.isEmpty {
+                DisclosureGroup {
+                    ForEach(downloadedChapters) { chapter in
+                        chapterStatusRow(
+                            title: chapter.chapterTitle,
+                            chapterIndex: chapter.chapterIndex,
+                            detail: localChapterDetail(chapter),
+                            symbol: chapter.chapterURL == currentChapterURL
+                                ? "play.circle.fill"
+                                : "waveform.circle.fill",
+                            color: chapter.chapterURL == currentChapterURL
+                                ? AppTheme.vermilion
+                                : AppTheme.jade
+                        )
+                    }
+                } label: {
+                    Label("查看已下载章节", systemImage: "list.bullet.rectangle")
+                }
+            }
             if downloadedCount > 0 {
                 Button("删除本书全部音频", role: .destructive) {
                     showingDeleteConfirmation = true
                 }
             }
+        }
+    }
+
+    private var downloadedCount: Int {
+        downloadedChapters.count
+    }
+
+    private var currentChapterURL: String? {
+        chapters.indices.contains(currentIndex) ? chapters[currentIndex].url : nil
+    }
+
+    private func chapterStatusRow(
+        title: String,
+        chapterIndex: Int,
+        detail: String,
+        symbol: String,
+        color: Color
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .foregroundStyle(AppTheme.ink)
+                Text("目录第 \(chapterIndex + 1) 项 · \(detail)")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.inkSoft)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private func localChapterDetail(_ chapter: LocalAudiobookChapter) -> String {
+        let size = AudiobookStorage.chapterFileSize(bookID: book.id, chapter: chapter)
+        let date = chapter.downloadedAt.formatted(date: .numeric, time: .shortened)
+        return "\(voiceName(chapter.voice)) · \(AudiobookStorage.formatByteCount(size)) · \(date)"
+    }
+
+    private func voiceName(_ voiceID: String) -> String {
+        if let name = health?.voices.first(where: { $0.id == voiceID })?.name {
+            return name
+        }
+        switch voiceID {
+        case "multi-role": return "多角色对话"
+        case "narrator": return "沉稳旁白"
+        case "female": return "自然女声"
+        default: return voiceID
         }
     }
 
@@ -736,7 +836,7 @@ struct AudiobookView: View {
     }
 
     private func refreshLocalState() {
-        downloadedCount = AudiobookStorage.downloadedCount(bookID: book.id)
+        downloadedChapters = AudiobookStorage.downloadedChapters(bookID: book.id)
         storageSize = AudiobookStorage.storageSize(bookID: book.id)
     }
 

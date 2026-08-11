@@ -103,11 +103,27 @@ enum AudiobookStorage {
     }
 
     static func downloadedCount(bookID: String) -> Int {
-        loadManifest(bookID: bookID)?.chapters.filter {
+        downloadedChapters(bookID: bookID).count
+    }
+
+    static func downloadedChapters(bookID: String) -> [LocalAudiobookChapter] {
+        let directory = bookDirectory(bookID: bookID)
+        return loadManifest(bookID: bookID)?.chapters.filter {
             FileManager.default.fileExists(
-                atPath: bookDirectory(bookID: bookID).appending(path: $0.fileName).path
+                atPath: directory.appending(path: $0.fileName).path
             )
-        }.count ?? 0
+        }.sorted {
+            if $0.chapterIndex == $1.chapterIndex {
+                return $0.chapterTitle.localizedStandardCompare($1.chapterTitle) == .orderedAscending
+            }
+            return $0.chapterIndex < $1.chapterIndex
+        } ?? []
+    }
+
+    static func chapterFileSize(bookID: String, chapter: LocalAudiobookChapter) -> Int64 {
+        let url = bookDirectory(bookID: bookID).appending(path: chapter.fileName)
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return Int64(values?.fileSize ?? 0)
     }
 
     static func timedSegments(bookID: String, chapterURL: String) -> [AudiobookTimedSegment] {

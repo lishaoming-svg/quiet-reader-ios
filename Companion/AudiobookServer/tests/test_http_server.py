@@ -37,7 +37,7 @@ class HTTPServerTests(unittest.TestCase):
         payload = {
             "protocol_version": 4,
             "service": "墨阅听书生成器",
-            "server_version": "0.4.2",
+            "server_version": "0.4.3",
             "status": "ready",
             "engine": "cosyvoice3",
             "engine_name": "CosyVoice 3",
@@ -61,7 +61,7 @@ class HTTPServerTests(unittest.TestCase):
                     if time.time() >= deadline:
                         raise
                     time.sleep(0.05)
-            self.assertEqual(value["server_version"], "0.4.2")
+            self.assertEqual(value["server_version"], "0.4.3")
             self.assertTrue(process.is_alive())
         finally:
             process.terminate()
@@ -73,7 +73,7 @@ class HTTPServerTests(unittest.TestCase):
         server.health_payload = {
             "protocol_version": 4,
             "service": "墨阅听书生成器",
-            "server_version": "0.4.2",
+            "server_version": "0.4.3",
             "status": "ready",
             "engine": "cosyvoice3",
             "engine_name": "CosyVoice 3",
@@ -153,6 +153,10 @@ class HTTPServerTests(unittest.TestCase):
                 )
                 book_status = self._json_request(f"{base_url}/v1/books/status?{query}")
                 self.assertEqual(book_status["completed_count"], 1)
+                self.assertEqual(len(book_status["jobs"]), 1)
+                self.assertEqual(book_status["jobs"][0]["chapter_title"], "第一章")
+                self.assertEqual(book_status["jobs"][0]["status"], "completed")
+                self.assertEqual(book_status["jobs"][0]["file_size"], status["file_size"])
                 package_request = urllib.request.Request(
                     f"{base_url}/v1/books/package?{query}",
                     headers={"Authorization": "Bearer test-pairing-token-123456"},

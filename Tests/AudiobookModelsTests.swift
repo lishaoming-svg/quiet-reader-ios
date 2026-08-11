@@ -134,6 +134,73 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual(health.queue?.pendingCount, 55)
     }
 
+    func testBookStatusDecodesChapterDetails() throws {
+        let data = Data(
+            """
+            {
+              "protocol_version": 4,
+              "book_id": "book",
+              "voice": "multi-role",
+              "generation_speed": 1,
+              "total_count": 2,
+              "completed_count": 1,
+              "running_count": 1,
+              "queued_count": 0,
+              "failed_count": 0,
+              "completed_bytes": 5242880,
+              "jobs": [
+                {
+                  "job_id": "completed-job",
+                  "chapter_id": "chapter-8",
+                  "chapter_index": 7,
+                  "chapter_title": "第八章",
+                  "status": "completed",
+                  "progress": 1,
+                  "file_size": 5242880
+                },
+                {
+                  "job_id": "running-job",
+                  "chapter_id": "chapter-9",
+                  "chapter_index": 8,
+                  "chapter_title": "第九章",
+                  "status": "running",
+                  "progress": 0.4,
+                  "file_size": 0
+                }
+              ]
+            }
+            """.utf8
+        )
+
+        let status = try JSONDecoder().decode(AudiobookBookStatus.self, from: data)
+        XCTAssertEqual(status.completedJobs.map(\.chapterTitle), ["第八章"])
+        XCTAssertEqual(status.runningJobs.first?.chapterTitle, "第九章")
+        XCTAssertEqual(status.runningJobs.first?.progress, 0.4)
+    }
+
+    func testBookStatusKeepsCompatibilityWithOlderGenerator() throws {
+        let data = Data(
+            """
+            {
+              "protocol_version": 4,
+              "book_id": "book",
+              "voice": "multi-role",
+              "generation_speed": 1,
+              "total_count": 1,
+              "completed_count": 1,
+              "running_count": 0,
+              "queued_count": 0,
+              "failed_count": 0,
+              "completed_bytes": 1024
+            }
+            """.utf8
+        )
+
+        let status = try JSONDecoder().decode(AudiobookBookStatus.self, from: data)
+        XCTAssertNil(status.jobs)
+        XCTAssertTrue(status.completedJobs.isEmpty)
+    }
+
     func testPlaybackQueueKeepsThreeReadableChaptersAhead() {
         let chapters = [
             BookChapter(title: "第一章", url: "chapter-1", index: 0),

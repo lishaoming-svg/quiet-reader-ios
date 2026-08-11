@@ -178,6 +178,7 @@ struct AudiobookBookStatus: Decodable {
     let queuedCount: Int
     let failedCount: Int
     let completedBytes: Int64
+    let jobs: [AudiobookBookJobSummary]?
 
     enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocol_version"
@@ -190,10 +191,42 @@ struct AudiobookBookStatus: Decodable {
         case queuedCount = "queued_count"
         case failedCount = "failed_count"
         case completedBytes = "completed_bytes"
+        case jobs
     }
 
     var hasCompletedAudio: Bool { completedCount > 0 }
     var isComplete: Bool { totalCount > 0 && completedCount == totalCount }
+    var completedJobs: [AudiobookBookJobSummary] {
+        (jobs ?? []).filter { $0.status == "completed" }
+    }
+    var runningJobs: [AudiobookBookJobSummary] {
+        (jobs ?? []).filter { $0.status == "running" }
+    }
+    var failedJobs: [AudiobookBookJobSummary] {
+        (jobs ?? []).filter { $0.status == "failed" }
+    }
+}
+
+struct AudiobookBookJobSummary: Decodable, Identifiable {
+    let jobID: String
+    let chapterID: String
+    let chapterIndex: Int
+    let chapterTitle: String
+    let status: String
+    let progress: Double
+    let fileSize: Int64
+
+    var id: String { jobID }
+
+    enum CodingKeys: String, CodingKey {
+        case jobID = "job_id"
+        case chapterID = "chapter_id"
+        case chapterIndex = "chapter_index"
+        case chapterTitle = "chapter_title"
+        case status
+        case progress
+        case fileSize = "file_size"
+    }
 }
 
 struct AudiobookJobStatus: Decodable {

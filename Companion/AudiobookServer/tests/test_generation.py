@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
@@ -54,6 +55,49 @@ class GenerationTests(unittest.TestCase):
             self.assertIsNone(manager.get(old_job.job_id))
             self.assertEqual(old_job.status, "superseded")
             self.assertFalse(old_file.exists())
+
+    def test_restored_queue_keeps_original_submission_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            manager = JobManager(ToneTestBackend(), data_dir)
+            manager.shutdown()
+            persisted_files = []
+            for index in range(3):
+                text = f"第{index + 1}章正文。"
+                request = JobRequest(
+                    book_id="ordered-book",
+                    book_title="顺序测试",
+                    author="作者",
+                    chapter_id=f"chapter-{index}",
+                    chapter_url=f"https://example.test/ordered/{index}",
+                    chapter_index=index,
+                    chapter_title=f"第{index + 1}章",
+                    text=text,
+                    text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    voice="multi-role",
+                    speed=1.0,
+                )
+                job = manager.submit(request)
+                target = manager.jobs_dir / f"{job.job_id}.json"
+                payload = json.loads(target.read_text(encoding="utf-8"))
+                payload["created_at"] = f"2026-08-11T00:00:0{index}+00:00"
+                target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                persisted_files.append(target)
+
+            for order, target in enumerate(reversed(persisted_files)):
+                target.rename(manager.jobs_dir / f"restore-{order}.json")
+
+            restored = object.__new__(JobManager)
+            restored.jobs_dir = manager.jobs_dir
+            restored.audio_dir = manager.audio_dir
+            restored.jobs = {}
+            restored.lock = threading.RLock()
+            pending = restored._restore_jobs()
+
+            self.assertEqual(
+                [restored.jobs[job_id].request.chapter_index for job_id in pending],
+                [0, 1, 2],
+            )
 
     def test_failed_job_can_be_retried_with_same_identifier(self):
         class FailsOnceBackend(ToneTestBackend):

@@ -39,7 +39,7 @@ from protocol import (
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.4.2"
+SERVER_VERSION = "0.4.3"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
 HEALTH_PORT_OFFSET = 1
@@ -230,6 +230,7 @@ class JobManager:
     def book_status(self, book_id: str, voice: str, speed: float) -> dict[str, Any]:
         with self.lock:
             jobs = self._book_jobs(book_id, voice, speed)
+            jobs.sort(key=lambda job: (job.request.chapter_index, job.request.chapter_id))
             counts = {
                 status: sum(job.status == status for job in jobs)
                 for status in ("completed", "running", "queued", "failed")
@@ -247,6 +248,18 @@ class JobManager:
                 "completed_bytes": sum(
                     job.file_size for job in jobs if job.status == "completed"
                 ),
+                "jobs": [
+                    {
+                        "job_id": job.job_id,
+                        "chapter_id": job.request.chapter_id,
+                        "chapter_index": job.request.chapter_index,
+                        "chapter_title": job.request.chapter_title,
+                        "status": job.status,
+                        "progress": job.progress,
+                        "file_size": job.file_size,
+                    }
+                    for job in jobs
+                ],
             }
 
     def create_package(self, book_id: str, voice: str, speed: float) -> Path:
@@ -344,7 +357,7 @@ class JobManager:
         temporary.replace(target)
 
     def _restore_jobs(self) -> list[str]:
-        pending: list[str] = []
+        pending: list[tuple[str, int, str]] = []
         for target in sorted(self.jobs_dir.glob("*.json")):
             try:
                 payload = json.loads(target.read_text(encoding="utf-8"))
@@ -352,6 +365,7 @@ class JobManager:
                 job_id = str(payload["job_id"])
                 audio_path = self.audio_dir / f"{job_id}.m4a"
                 status = str(payload.get("status", "failed"))
+                is_pending = False
                 if status == "completed" and not audio_path.is_file():
                     status = "failed"
                 if status == "completed" and not payload.get("segments"):
@@ -359,7 +373,7 @@ class JobManager:
                 if status in {"queued", "running"}:
                     if request.text:
                         status = "queued"
-                        pending.append(job_id)
+                        is_pending = True
                     else:
                         status = "failed"
                 state = JobState(
@@ -379,9 +393,11 @@ class JobManager:
                 if status == "failed" and not state.error:
                     state.error = "服务重启后缺少可恢复的正文，请从手机重新提交"
                 self.jobs[job_id] = state
+                if is_pending:
+                    pending.append((state.created_at, request.chapter_index, job_id))
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 continue
-        return pending
+        return [job_id for _, _, job_id in sorted(pending)]
 
     def _book_jobs(self, book_id: str, voice: str, speed: float) -> list[JobState]:
         return [
