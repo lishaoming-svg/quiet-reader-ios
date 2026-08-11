@@ -131,8 +131,7 @@ struct ReaderView: View {
                 book: book,
                 chapters: chapters,
                 source: source,
-                currentIndex: currentIndex,
-                currentText: content
+                currentIndex: currentIndex
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)

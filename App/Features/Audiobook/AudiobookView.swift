@@ -6,15 +6,14 @@ struct AudiobookView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @ObservedObject private var player = AudiobookPlayer.shared
-    @ObservedObject private var coordinator = AudiobookGenerationCoordinator.shared
-    @AppStorage("audiobook.voice") private var selectedVoice = "reference"
+    @AppStorage("audiobook.voice") private var selectedVoice = "multi-role"
     @AppStorage("audiobook.generationSpeed") private var generationSpeed = 1.0
+    @AppStorage("audiobook.didMigrateMultiRoleDefault") private var didMigrateMultiRoleDefault = false
 
     let book: SearchBook
     let chapters: [BookChapter]
     let source: BookSourceDefinition
     let currentIndex: Int
-    let currentText: String
 
     @State private var configuration = AudiobookCredentialsStore.load()
     @State private var health: AudiobookServerHealth?
@@ -54,44 +53,36 @@ struct AudiobookView: View {
             }
             .task {
                 refreshLocalState()
-                if currentChapterHasAudio {
-                    beginAutomaticListening(allowComputer: false)
+                if !didMigrateMultiRoleDefault {
+                    selectedVoice = "multi-role"
+                    didMigrateMultiRoleDefault = true
                 }
                 if configuration != nil {
                     await testConnection()
-                    beginAutomaticListening(allowComputer: health != nil)
-                } else {
-                    if !currentChapterHasAudio {
-                        beginAutomaticListening(allowComputer: false)
-                        showingPairing = true
-                    }
+                } else if !currentChapterHasAudio {
+                    showingPairing = true
                 }
-            }
-            .onChange(of: coordinator.downloadedRevision) { _, _ in
-                refreshLocalState()
             }
             .onChange(of: selectedVoice) { oldVoice, newVoice in
                 guard oldVoice != newVoice,
                       health?.voices.contains(where: { $0.id == newVoice }) == true else { return }
                 workTask?.cancel()
                 player.stop(bookID: book.id)
-                beginAutomaticListening(allowComputer: true)
                 Task { await refreshRemoteBookStatus() }
             }
             .onChange(of: generationSpeed) { oldSpeed, newSpeed in
                 guard oldSpeed != newSpeed, health != nil else { return }
                 workTask?.cancel()
                 player.stop(bookID: book.id)
-                beginAutomaticListening(allowComputer: true)
                 Task { await refreshRemoteBookStatus() }
             }
             .sheet(isPresented: $showingPairing) {
                 AudiobookPairingView { newConfiguration, newHealth in
                     configuration = newConfiguration
                     health = newHealth
-                    selectedVoice = newHealth.voices.first?.id ?? "reference"
+                    selectedVoice = preferredVoice(in: newHealth.voices)
                     connectionError = nil
-                    beginAutomaticListening(allowComputer: true)
+                    Task { await refreshRemoteBookStatus() }
                 }
             }
             .confirmationDialog(
@@ -194,7 +185,7 @@ struct AudiobookView: View {
                     }
                 }
                 if player.isWaitingForNextChapter {
-                    Label("下一章正在生成，完成后自动续播", systemImage: "hourglass")
+                    Label("本地缺少下一章音频，请同步最新伴读包", systemImage: "arrow.down.doc")
                         .font(.caption)
                         .foregroundStyle(AppTheme.inkSoft)
                 }
@@ -216,17 +207,11 @@ struct AudiobookView: View {
                 } label: {
                     Label("从本章开始播放", systemImage: "play.fill")
                 }
-            } else if coordinator.activeBookID == book.id && coordinator.isWorking {
-                ContentUnavailableView(
-                    "正在生成本章",
-                    systemImage: "waveform",
-                    description: Text("生成完成后会自动开始播放")
-                )
             } else {
                 ContentUnavailableView(
                     "本章还没有音频",
                     systemImage: "headphones",
-                    description: Text("连接电脑生成器后即可下载到本机")
+                    description: Text("先在电脑生成整本伴读包，再同步到本机")
                 )
             }
         }
@@ -234,43 +219,6 @@ struct AudiobookView: View {
 
     @ViewBuilder
     private var generationSection: some View {
-        Section("一键连续听书") {
-            if coordinator.activeBookID == book.id {
-                if coordinator.isWorking {
-                    ProgressView(value: coordinator.currentTaskProgress)
-                        .tint(AppTheme.vermilion)
-                    Text("正在处理：\(coordinator.currentTaskTitle)")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.inkSoft)
-                }
-                if !coordinator.statusMessage.isEmpty {
-                    Text(coordinator.statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.inkSoft)
-                }
-                LabeledContent("已提前准备", value: "后续 \(coordinator.preparedAheadCount) 章")
-                if let error = coordinator.errorMessage {
-                    InlineErrorView(message: error)
-                    Button("重试自动听书") {
-                        beginAutomaticListening(allowComputer: health != nil)
-                    }
-                }
-                Button("停止自动预生成", role: .destructive) {
-                    coordinator.cancelAutomaticGeneration()
-                }
-            } else {
-                Button {
-                    beginAutomaticListening(allowComputer: health != nil)
-                } label: {
-                    Label("开始一键听书", systemImage: "headphones")
-                }
-            }
-
-            Text("播放时自动保持当前章之后 3 章已生成。关闭此面板后任务仍会继续。")
-                .font(.caption)
-                .foregroundStyle(AppTheme.inkSoft)
-        }
-
         Section("电脑预生成与同步") {
             if isWorking {
                 ProgressView(
@@ -283,20 +231,6 @@ struct AudiobookView: View {
                     .foregroundStyle(AppTheme.inkSoft)
                 Button("取消本次传输", role: .destructive) { workTask?.cancel() }
             } else {
-                Button {
-                    startCurrentChapterGeneration()
-                } label: {
-                    Label(
-                        currentChapterHasAudio ? "重新生成本章" : "生成并下载本章",
-                        systemImage: "waveform.badge.plus"
-                    )
-                }
-                .disabled(
-                    configuration == nil
-                        || currentText.nilIfBlank == nil
-                        || coordinator.isManaging(bookID: book.id)
-                )
-
                 Button {
                     cacheFullBookAndSubmit()
                 } label: {
@@ -354,7 +288,7 @@ struct AudiobookView: View {
                     Label("导入 .qraudio 伴读包", systemImage: "cable.connector")
                 }
 
-                Text("已缓存正文 \(cachedTargets.count)/\(readableChapters.count) 章。主按钮会自动下载缺失正文并逐章提交，提交结束后电脑可以独立生成。")
+                Text("已缓存正文 \(cachedTargets.count)/\(readableChapters.count) 章。主按钮会自动补齐正文并一次提交全书任务，提交结束后电脑可以独立生成。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
                 Text("数据线传输时，在 Windows Apple Devices 的“文件”中把 .qraudio 添加到墨阅，再从这里导入。")
@@ -436,11 +370,6 @@ struct AudiobookView: View {
         chapters.filter { !$0.isVolume }
     }
 
-    private func startCurrentChapterGeneration() {
-        guard chapters.indices.contains(currentIndex) else { return }
-        startGeneration([(chapters[currentIndex], currentText)])
-    }
-
     private func startCachedChapterGeneration() {
         submitCachedChapters()
     }
@@ -451,9 +380,6 @@ struct AudiobookView: View {
         guard !targets.isEmpty else { return }
         let generationVoice = selectedVoice
         let requestedSpeed = generationSpeed
-        if coordinator.isManaging(bookID: book.id) {
-            coordinator.cancelAutomaticGeneration()
-        }
         workTask?.cancel()
         workError = nil
         workMessage = nil
@@ -533,9 +459,6 @@ struct AudiobookView: View {
         guard !targets.isEmpty else { return }
         let generationVoice = selectedVoice
         let requestedSpeed = generationSpeed
-        if coordinator.isManaging(bookID: book.id) {
-            coordinator.cancelAutomaticGeneration()
-        }
         workTask?.cancel()
         workError = nil
         workMessage = nil
@@ -609,9 +532,6 @@ struct AudiobookView: View {
         guard let configuration else { return }
         let generationVoice = selectedVoice
         let requestedSpeed = generationSpeed
-        if coordinator.isManaging(bookID: book.id) {
-            coordinator.cancelAutomaticGeneration()
-        }
         let temporary = FileManager.default.temporaryDirectory.appending(
             path: "\(UUID().uuidString).qraudio"
         )
@@ -662,9 +582,6 @@ struct AudiobookView: View {
     }
 
     private func importPackage(at url: URL) {
-        if coordinator.isManaging(bookID: book.id) {
-            coordinator.cancelAutomaticGeneration()
-        }
         workTask?.cancel()
         workError = nil
         workMessage = nil
@@ -695,72 +612,6 @@ struct AudiobookView: View {
         }
     }
 
-    private func startGeneration(_ targets: [(chapter: BookChapter, text: String)]) {
-        guard let configuration, !targets.isEmpty else { return }
-        let generationVoice = selectedVoice
-        let requestedSpeed = generationSpeed
-        workTask?.cancel()
-        workError = nil
-        completedCount = 0
-        targetCount = targets.count
-        currentTaskProgress = 0
-        isWorking = true
-        workTask = Task {
-            defer { isWorking = false }
-            let client = AudiobookServerClient(configuration: configuration)
-            do {
-                for target in targets {
-                    try Task.checkCancellation()
-                    currentTaskTitle = target.chapter.title
-                    currentTaskProgress = 0
-                    let request = AudiobookJobRequest(
-                        book: book,
-                        chapter: target.chapter,
-                        text: target.text,
-                        voice: generationVoice,
-                        speed: requestedSpeed
-                    )
-                    var job = try await client.submit(request)
-                    while !job.isFinished {
-                        try Task.checkCancellation()
-                        currentTaskProgress = job.progress
-                        try await Task.sleep(for: .seconds(1))
-                        job = try await client.status(jobID: job.jobID)
-                    }
-                    if job.status == "failed" {
-                        throw AudiobookClientError.generation(job.error ?? "生成失败")
-                    }
-                    let destination = AudiobookStorage.chapterFileURL(
-                        bookID: book.id,
-                        chapterURL: target.chapter.url
-                    )
-                    try await client.download(jobID: job.jobID, to: destination)
-                    try AudiobookStorage.saveChapter(
-                        book: book,
-                        chapter: target.chapter,
-                        textSHA256: request.textSHA256,
-                        voice: generationVoice,
-                        generationSpeed: requestedSpeed,
-                        segments: job.segments ?? []
-                    )
-                    player.extendQueue(
-                        book: book,
-                        chapters: chapters,
-                        matchingVoice: generationVoice,
-                        matchingSpeed: requestedSpeed
-                    )
-                    completedCount += 1
-                    currentTaskProgress = 0
-                    refreshLocalState()
-                }
-            } catch is CancellationError {
-                workError = "本次传输已取消，电脑上已完成的任务会保留，重新提交时可直接复用。"
-            } catch {
-                workError = error.localizedDescription
-            }
-        }
-    }
-
     private func testConnection() async {
         guard let configuration else { return }
         do {
@@ -768,7 +619,7 @@ struct AudiobookView: View {
             health = value
             connectionError = nil
             if !value.voices.contains(where: { $0.id == selectedVoice }) {
-                selectedVoice = value.voices.first?.id ?? "default"
+                selectedVoice = preferredVoice(in: value.voices)
             }
             await refreshRemoteBookStatus()
         } catch {
@@ -776,6 +627,12 @@ struct AudiobookView: View {
             remoteBookStatus = nil
             connectionError = error.localizedDescription
         }
+    }
+
+    private func preferredVoice(in voices: [AudiobookVoice]) -> String {
+        voices.first(where: { $0.id == "multi-role" })?.id
+            ?? voices.first?.id
+            ?? "multi-role"
     }
 
     private func refreshRemoteBookStatus() async {
@@ -803,24 +660,7 @@ struct AudiobookView: View {
         }
     }
 
-    private func beginAutomaticListening(allowComputer: Bool) {
-        coordinator.startAutomaticListening(
-            book: book,
-            chapters: chapters,
-            source: source,
-            currentIndex: currentIndex,
-            currentText: currentText,
-            modelContext: modelContext,
-            configuration: allowComputer ? configuration : nil,
-            voice: selectedVoice,
-            generationSpeed: generationSpeed
-        )
-    }
-
     private func deleteBookAudio() {
-        if coordinator.isManaging(bookID: book.id) {
-            coordinator.cancelAutomaticGeneration()
-        }
         player.stop(bookID: book.id)
         do {
             try AudiobookStorage.deleteBook(bookID: book.id)
