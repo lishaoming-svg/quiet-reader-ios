@@ -73,20 +73,57 @@ class CosyVoiceBackend(TTSBackend):
         self._torchaudio = __import__("torchaudio")
         self.model = AutoModel(model_dir=str(model_dir))
         self.prompt_audio = prompt_audio
+        bundled_narrator = home / "asset" / "cross_lingual_prompt.wav"
+        self.narrator_audio = bundled_narrator if bundled_narrator.is_file() else prompt_audio
         cleaned_prompt = prompt_text.strip()
         if "<|endofprompt|>" not in cleaned_prompt:
             cleaned_prompt = f"You are a helpful assistant.<|endofprompt|>{cleaned_prompt}"
         self.prompt_text = cleaned_prompt
 
     def synthesize(self, text: str, output_path: Path, voice: str, speed: float) -> None:
-        outputs = list(
-            self.model.inference_zero_shot(
-                text,
-                self.prompt_text,
-                str(self.prompt_audio),
-                stream=False,
+        if voice in {"narrator", "role-narrator"}:
+            prepared = text
+            if "<|endofprompt|>" not in prepared:
+                prepared = f"You are a helpful assistant.<|endofprompt|>{prepared}"
+            outputs = list(
+                self.model.inference_cross_lingual(
+                    prepared,
+                    str(self.narrator_audio),
+                    stream=False,
+                    speed=speed,
+                )
             )
-        )
+        elif voice.startswith("role-"):
+            instructions = {
+                "role-protagonist": "请用清晰、有情绪起伏的青年主角语气朗读。",
+                "role-male": "请用沉稳自然的成年男性角色语气朗读。",
+                "role-female": "请用自然清晰的女性角色语气朗读。",
+            }
+            instruction = (
+                "You are a helpful assistant. "
+                f"{instructions.get(voice, '请用自然的有声书角色语气朗读。')}"
+                "<|endofprompt|>"
+            )
+            role_audio = self.narrator_audio if voice == "role-male" else self.prompt_audio
+            outputs = list(
+                self.model.inference_instruct2(
+                    text,
+                    instruction,
+                    str(role_audio),
+                    stream=False,
+                    speed=speed,
+                )
+            )
+        else:
+            outputs = list(
+                self.model.inference_zero_shot(
+                    text,
+                    self.prompt_text,
+                    str(self.prompt_audio),
+                    stream=False,
+                    speed=speed,
+                )
+            )
         if not outputs:
             raise RuntimeError("CosyVoice 没有返回音频")
         tensors = [item["tts_speech"] for item in outputs]
@@ -101,7 +138,11 @@ class CosyVoiceBackend(TTSBackend):
         )
 
     def voices(self) -> list[dict[str, str]]:
-        return [{"id": "reference", "name": "参考音色"}]
+        return [
+            {"id": "reference", "name": "自然女声"},
+            {"id": "narrator", "name": "沉稳旁白"},
+            {"id": "multi-role", "name": "多角色对话（旁白/主角/男/女）"},
+        ]
 
 
 class ToneTestBackend(TTSBackend):

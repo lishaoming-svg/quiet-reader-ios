@@ -175,9 +175,10 @@ enum ReaderPageTextStyle {
         fontSize: CGFloat,
         lineSpacing: CGFloat,
         usesSerif: Bool,
-        textColor: UIColor = .label
+        textColor: UIColor = .label,
+        highlightedText: String? = nil
     ) -> NSAttributedString {
-        NSAttributedString(
+        let result = NSMutableAttributedString(
             string: text,
             attributes: attributes(
                 fontSize: fontSize,
@@ -186,6 +187,20 @@ enum ReaderPageTextStyle {
                 textColor: textColor
             )
         )
+        if let highlightedText,
+           !highlightedText.isEmpty {
+            let range = (text as NSString).range(of: highlightedText)
+            if range.location != NSNotFound {
+                result.addAttributes(
+                    [
+                        .backgroundColor: UIColor.systemYellow.withAlphaComponent(0.22),
+                        .foregroundColor: UIColor.label,
+                    ],
+                    range: range
+                )
+            }
+        }
+        return result
     }
 }
 
@@ -195,6 +210,23 @@ struct ReaderPageTextView: UIViewRepresentable {
     let lineSpacing: CGFloat
     let usesSerif: Bool
     let textColor: UIColor
+    let highlightedText: String?
+
+    init(
+        text: String,
+        fontSize: CGFloat,
+        lineSpacing: CGFloat,
+        usesSerif: Bool,
+        textColor: UIColor,
+        highlightedText: String? = nil
+    ) {
+        self.text = text
+        self.fontSize = fontSize
+        self.lineSpacing = lineSpacing
+        self.usesSerif = usesSerif
+        self.textColor = textColor
+        self.highlightedText = highlightedText
+    }
 
     func makeUIView(context: Context) -> ReaderPageTextCanvas {
         ReaderPageTextCanvas()
@@ -207,7 +239,8 @@ struct ReaderPageTextView: UIViewRepresentable {
                 fontSize: fontSize,
                 lineSpacing: lineSpacing,
                 usesSerif: usesSerif,
-                textColor: textColor
+                textColor: textColor,
+                highlightedText: highlightedText
             )
         )
     }

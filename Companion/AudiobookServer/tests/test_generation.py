@@ -14,11 +14,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from protocol import JobRequest
-from server import JobManager
+from server import JobManager, _utf16_offset
 from tts_backends import CosyVoiceBackend, ToneTestBackend, WindowsSAPIBackend
 
 
 class GenerationTests(unittest.TestCase):
+    def test_timeline_offsets_use_ios_utf16_units(self):
+        self.assertEqual(_utf16_offset("甲😀乙", 2), 3)
+
     def test_failed_job_can_be_retried_with_same_identifier(self):
         class FailsOnceBackend(ToneTestBackend):
             def __init__(self):
@@ -126,6 +129,37 @@ class GenerationTests(unittest.TestCase):
                 self.assertIsNotNone(job.audio_path)
                 self.assertGreater(job.file_size, 512)
                 self.assertEqual(job.completed_segments, job.total_segments)
+                self.assertGreater(len(job.segments), 0)
+                self.assertEqual(job.segments[0]["start_offset"], 0)
+                self.assertEqual(job.segments[-1]["end_offset"], len(text))
+            finally:
+                manager.shutdown()
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "需要 FFmpeg 验证多角色时间轴")
+    def test_multi_role_job_exposes_distinct_roles_and_continuous_offsets(self):
+        text = "夜色很深。林舟说：“我们走。”女孩问：“现在吗？”风吹过长街。"
+        request = JobRequest(
+            book_id="roles-book",
+            book_title="角色测试",
+            author="作者",
+            chapter_id="roles-chapter",
+            chapter_index=0,
+            chapter_title="第一章",
+            text=text,
+            text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            voice="multi-role",
+            speed=1.0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manager = JobManager(ToneTestBackend(), Path(directory))
+            try:
+                job = manager.submit(request)
+                deadline = time.time() + 15
+                while job.status in ("queued", "running") and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertEqual(job.status, "completed", job.error)
+                self.assertEqual("".join(segment["text"] for segment in job.segments), text)
+                self.assertGreater(len({segment["role"] for segment in job.segments}), 1)
             finally:
                 manager.shutdown()
 

@@ -72,6 +72,8 @@ final class AudiobookGenerationCoordinator: ObservableObject {
         let replacingPlan = plan?.book.id != book.id
             || plan?.source.id != source.id
             || plan?.playbackStartIndex != playbackStartIndex
+            || plan?.voice != voice
+            || plan?.generationSpeed != generationSpeed
         if replacingPlan {
             stopWorker()
             desiredIndices.removeAll()
@@ -100,13 +102,29 @@ final class AudiobookGenerationCoordinator: ObservableObject {
         refreshQueueState()
 
         let startChapter = chapters[playbackStartIndex]
-        if AudiobookStorage.hasAudio(bookID: book.id, chapterURL: startChapter.url) {
+        if AudiobookStorage.hasAudio(
+            bookID: book.id,
+            chapterURL: startChapter.url,
+            matchingVoice: voice,
+            matchingSpeed: generationSpeed
+        ) {
             if player.currentBookID == book.id,
                player.currentChapterIndex == playbackStartIndex {
-                player.extendQueue(book: book, chapters: chapters)
+                player.extendQueue(
+                    book: book,
+                    chapters: chapters,
+                    matchingVoice: voice,
+                    matchingSpeed: generationSpeed
+                )
             } else {
                 do {
-                    try player.play(book: book, chapters: chapters, startingAt: playbackStartIndex)
+                    try player.play(
+                        book: book,
+                        chapters: chapters,
+                        startingAt: playbackStartIndex,
+                        matchingVoice: voice,
+                        matchingSpeed: generationSpeed
+                    )
                 } catch {
                     errorMessage = error.localizedDescription
                 }
@@ -220,11 +238,18 @@ final class AudiobookGenerationCoordinator: ObservableObject {
                     book: plan.book,
                     chapter: chapter,
                     textSHA256: request.textSHA256,
-                    voice: plan.voice
+                    voice: plan.voice,
+                    generationSpeed: plan.generationSpeed,
+                    segments: job.segments ?? []
                 )
                 downloadedRevision += 1
                 currentTaskProgress = 1
-                player.extendQueue(book: plan.book, chapters: plan.chapters)
+                player.extendQueue(
+                    book: plan.book,
+                    chapters: plan.chapters,
+                    matchingVoice: plan.voice,
+                    matchingSpeed: plan.generationSpeed
+                )
                 startPlaybackIfPending(plan: plan)
                 refreshQueueState()
             }
@@ -280,14 +305,21 @@ final class AudiobookGenerationCoordinator: ObservableObject {
     private func startPlaybackIfPending(plan: Plan) {
         guard autoplayPending else { return }
         let chapter = plan.chapters[plan.playbackStartIndex]
-        guard AudiobookStorage.hasAudio(bookID: plan.book.id, chapterURL: chapter.url) else {
+        guard AudiobookStorage.hasAudio(
+            bookID: plan.book.id,
+            chapterURL: chapter.url,
+            matchingVoice: plan.voice,
+            matchingSpeed: plan.generationSpeed
+        ) else {
             return
         }
         do {
             try player.play(
                 book: plan.book,
                 chapters: plan.chapters,
-                startingAt: plan.playbackStartIndex
+                startingAt: plan.playbackStartIndex,
+                matchingVoice: plan.voice,
+                matchingSpeed: plan.generationSpeed
             )
             autoplayPending = false
             errorMessage = nil
@@ -302,7 +334,9 @@ final class AudiobookGenerationCoordinator: ObservableObject {
                 && !plan.chapters[index].isVolume
                 && !AudiobookStorage.hasAudio(
                     bookID: plan.book.id,
-                    chapterURL: plan.chapters[index].url
+                    chapterURL: plan.chapters[index].url,
+                    matchingVoice: plan.voice,
+                    matchingSpeed: plan.generationSpeed
                 )
         }
     }
@@ -313,7 +347,9 @@ final class AudiobookGenerationCoordinator: ObservableObject {
             plan.chapters.indices.contains(index)
                 && AudiobookStorage.hasAudio(
                     bookID: plan.book.id,
-                    chapterURL: plan.chapters[index].url
+                    chapterURL: plan.chapters[index].url,
+                    matchingVoice: plan.voice,
+                    matchingSpeed: plan.generationSpeed
                 )
         }.count
         targetCount = desiredIndices.count
@@ -328,7 +364,9 @@ final class AudiobookGenerationCoordinator: ObservableObject {
         preparedAheadCount = upcoming.prefix { index in
             AudiobookStorage.hasAudio(
                 bookID: plan.book.id,
-                chapterURL: plan.chapters[index].url
+                chapterURL: plan.chapters[index].url,
+                matchingVoice: plan.voice,
+                matchingSpeed: plan.generationSpeed
             )
         }.count
         if nextMissingIndex(in: plan) == nil, !isWorking {

@@ -82,4 +82,61 @@ final class AudiobookModelsTests: XCTestCase {
             [4, 5]
         )
     }
+
+    func testTimelineResolverMovesAcrossRoleSegments() {
+        let timeline = [
+            AudiobookTimedSegment(
+                text: "夜色渐深。",
+                role: "narrator",
+                startTime: 0,
+                endTime: 2.5,
+                startOffset: 0,
+                endOffset: 6
+            ),
+            AudiobookTimedSegment(
+                text: "“我们走。”",
+                role: "protagonist",
+                startTime: 2.5,
+                endTime: 4.8,
+                startOffset: 6,
+                endOffset: 12
+            )
+        ]
+
+        XCTAssertEqual(AudiobookTimelineResolver.segment(at: 0.5, in: timeline)?.role, "narrator")
+        XCTAssertEqual(AudiobookTimelineResolver.segment(at: 3, in: timeline)?.role, "protagonist")
+        XCTAssertEqual(AudiobookTimelineResolver.segment(at: 8, in: timeline)?.startOffset, 6)
+    }
+
+    func testJobStatusDecodesMultiRoleTimeline() throws {
+        let data = Data(
+            """
+            {
+              "protocol_version": 1,
+              "job_id": "job",
+              "status": "completed",
+              "progress": 1,
+              "completed_segments": 1,
+              "total_segments": 1,
+              "error": null,
+              "file_size": 1000,
+              "chapter_index": 0,
+              "chapter_id": "chapter",
+              "chapter_title": "第一章",
+              "audio_path": "/audio",
+              "segments": [{
+                "text": "你好。",
+                "role": "female",
+                "start_time": 0,
+                "end_time": 1.2,
+                "start_offset": 0,
+                "end_offset": 3
+              }]
+            }
+            """.utf8
+        )
+        let status = try JSONDecoder().decode(AudiobookJobStatus.self, from: data)
+        XCTAssertEqual(status.segments?.first?.roleName, "女性角色")
+        XCTAssertEqual(status.segments?.first?.endOffset, 3)
+    }
 }

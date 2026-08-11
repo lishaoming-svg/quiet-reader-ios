@@ -13,6 +13,8 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     @Published private(set) var isWaitingForNextChapter = false
     @Published private(set) var elapsed: Double = 0
     @Published private(set) var duration: Double = 0
+    @Published private(set) var currentSegment: AudiobookTimedSegment?
+    @Published private(set) var currentLocatorOffset: Int?
     @Published var playbackRate: Double = 1 {
         didSet {
             playbackRate = min(max(playbackRate, 0.5), 2)
@@ -28,6 +30,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         let chapterIndex: Int
         let chapterTitle: String
         let fileURL: URL
+        let segments: [AudiobookTimedSegment]
     }
 
     private let player = AVPlayer()
@@ -50,26 +53,43 @@ final class AudiobookPlayer: NSObject, ObservableObject {
                 elapsed = max(0, time.seconds.isFinite ? time.seconds : 0)
                 let itemDuration = player.currentItem?.duration.seconds ?? 0
                 duration = itemDuration.isFinite ? max(0, itemDuration) : 0
+                updateCurrentSegment()
                 updateNowPlaying()
             }
         }
     }
 
-    func play(book: SearchBook, chapters: [BookChapter], startingAt startIndex: Int) throws {
+    func play(
+        book: SearchBook,
+        chapters: [BookChapter],
+        startingAt startIndex: Int,
+        matchingVoice voice: String? = nil,
+        matchingSpeed speed: Double? = nil
+    ) throws {
         let targetIndices = AudiobookQueuePlanner.targetIndices(
             chapters: chapters,
             currentIndex: startIndex,
             lookAhead: chapters.count
         )
         guard let firstIndex = targetIndices.first,
-              AudiobookStorage.hasAudio(bookID: book.id, chapterURL: chapters[firstIndex].url) else {
+              AudiobookStorage.hasAudio(
+                bookID: book.id,
+                chapterURL: chapters[firstIndex].url,
+                matchingVoice: voice,
+                matchingSpeed: speed
+              ) else {
             throw AudiobookClientError.audioUnavailable
         }
 
         var playable: [Entry] = []
         for index in targetIndices {
             let chapter = chapters[index]
-            guard AudiobookStorage.hasAudio(bookID: book.id, chapterURL: chapter.url) else {
+            guard AudiobookStorage.hasAudio(
+                bookID: book.id,
+                chapterURL: chapter.url,
+                matchingVoice: voice,
+                matchingSpeed: speed
+            ) else {
                 break
             }
             playable.append(
@@ -82,6 +102,10 @@ final class AudiobookPlayer: NSObject, ObservableObject {
                     fileURL: AudiobookStorage.chapterFileURL(
                         bookID: book.id,
                         chapterURL: chapter.url
+                    ),
+                    segments: AudiobookStorage.timedSegments(
+                        bookID: book.id,
+                        chapterURL: chapter.url
                     )
                 )
             )
@@ -92,7 +116,12 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         loadCurrentEntry(autoplay: true)
     }
 
-    func extendQueue(book: SearchBook, chapters: [BookChapter]) {
+    func extendQueue(
+        book: SearchBook,
+        chapters: [BookChapter],
+        matchingVoice voice: String? = nil,
+        matchingSpeed speed: Double? = nil
+    ) {
         guard currentBookID == book.id,
               let currentChapterIndex,
               !entries.isEmpty else { return }
@@ -100,7 +129,12 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         let existingIndices = Set(entries.map(\.chapterIndex))
         for index in chapters.indices where index > lastIndex && !chapters[index].isVolume {
             let chapter = chapters[index]
-            guard AudiobookStorage.hasAudio(bookID: book.id, chapterURL: chapter.url) else {
+            guard AudiobookStorage.hasAudio(
+                bookID: book.id,
+                chapterURL: chapter.url,
+                matchingVoice: voice,
+                matchingSpeed: speed
+            ) else {
                 break
             }
             guard !existingIndices.contains(index) else { continue }
@@ -112,6 +146,10 @@ final class AudiobookPlayer: NSObject, ObservableObject {
                     chapterIndex: index,
                     chapterTitle: chapter.title,
                     fileURL: AudiobookStorage.chapterFileURL(
+                        bookID: book.id,
+                        chapterURL: chapter.url
+                    ),
+                    segments: AudiobookStorage.timedSegments(
                         bookID: book.id,
                         chapterURL: chapter.url
                     )
@@ -189,6 +227,8 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         currentChapterTitle = ""
         elapsed = 0
         duration = 0
+        currentSegment = nil
+        currentLocatorOffset = nil
         isPlaying = false
         isWaitingForNextChapter = false
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -215,6 +255,8 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         isWaitingForNextChapter = false
         elapsed = 0
         duration = 0
+        currentSegment = nil
+        currentLocatorOffset = entry.segments.first?.startOffset
         updateNowPlaying()
         if autoplay { resume() }
     }
@@ -226,6 +268,24 @@ final class AudiobookPlayer: NSObject, ObservableObject {
             mode: .spokenAudio,
             options: [.allowAirPlay, .allowBluetoothA2DP]
         )
+    }
+
+    private func updateCurrentSegment() {
+        guard entries.indices.contains(entryPosition) else {
+            currentSegment = nil
+            currentLocatorOffset = nil
+            return
+        }
+        let timeline = entries[entryPosition].segments
+        guard !timeline.isEmpty else {
+            currentSegment = nil
+            currentLocatorOffset = nil
+            return
+        }
+        let matched = AudiobookTimelineResolver.segment(at: elapsed, in: timeline)
+        guard matched != currentSegment else { return }
+        currentSegment = matched
+        currentLocatorOffset = matched?.startOffset
     }
 
     private func configureRemoteCommands() {

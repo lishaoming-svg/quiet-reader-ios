@@ -6,7 +6,7 @@ struct AudiobookView: View {
     @Environment(\.modelContext) private var modelContext
     @ObservedObject private var player = AudiobookPlayer.shared
     @ObservedObject private var coordinator = AudiobookGenerationCoordinator.shared
-    @AppStorage("audiobook.voice") private var selectedVoice = "default"
+    @AppStorage("audiobook.voice") private var selectedVoice = "reference"
     @AppStorage("audiobook.generationSpeed") private var generationSpeed = 1.0
 
     let book: SearchBook
@@ -34,6 +34,7 @@ struct AudiobookView: View {
         NavigationStack {
             Form {
                 playerSection
+                voiceSection
                 generationSection
                 connectionSection
                 storageSection
@@ -66,11 +67,24 @@ struct AudiobookView: View {
             .onChange(of: coordinator.downloadedRevision) { _, _ in
                 refreshLocalState()
             }
+            .onChange(of: selectedVoice) { oldVoice, newVoice in
+                guard oldVoice != newVoice,
+                      health?.voices.contains(where: { $0.id == newVoice }) == true else { return }
+                workTask?.cancel()
+                player.stop(bookID: book.id)
+                beginAutomaticListening(allowComputer: true)
+            }
+            .onChange(of: generationSpeed) { oldSpeed, newSpeed in
+                guard oldSpeed != newSpeed, health != nil else { return }
+                workTask?.cancel()
+                player.stop(bookID: book.id)
+                beginAutomaticListening(allowComputer: true)
+            }
             .sheet(isPresented: $showingPairing) {
                 AudiobookPairingView { newConfiguration, newHealth in
                     configuration = newConfiguration
                     health = newHealth
-                    selectedVoice = newHealth.voices.first?.id ?? "default"
+                    selectedVoice = newHealth.voices.first?.id ?? "reference"
                     connectionError = nil
                     beginAutomaticListening(allowComputer: true)
                 }
@@ -81,6 +95,32 @@ struct AudiobookView: View {
                 titleVisibility: .visible
             ) {
                 Button("删除全部音频", role: .destructive) { deleteBookAudio() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var voiceSection: some View {
+        Section("声音与角色") {
+            if let health, !health.voices.isEmpty {
+                Picker("朗读模式", selection: $selectedVoice) {
+                    ForEach(health.voices) { voice in
+                        Text(voice.name).tag(voice.id)
+                    }
+                }
+                if selectedVoice == "multi-role" {
+                    Text("自动识别引号内台词，并为旁白、主角、男性和女性角色分配不同表达。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.inkSoft)
+                }
+            } else {
+                LabeledContent("朗读模式", value: "连接生成器后可切换")
+                    .foregroundStyle(AppTheme.inkSoft)
+            }
+            Picker("生成语速", selection: $generationSpeed) {
+                ForEach([0.8, 1.0, 1.2], id: \.self) { speed in
+                    Text("\(speed, specifier: "%g") 倍").tag(speed)
+                }
             }
         }
     }
@@ -140,6 +180,18 @@ struct AudiobookView: View {
                     Label("下一章正在生成，完成后自动续播", systemImage: "hourglass")
                         .font(.caption)
                         .foregroundStyle(AppTheme.inkSoft)
+                }
+                if let segment = player.currentSegment {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(segment.roleName)
+                            .font(.caption.bold())
+                            .foregroundStyle(AppTheme.vermilion)
+                        Text(segment.text)
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.ink)
+                            .lineLimit(3)
+                    }
+                    .padding(.vertical, 4)
                 }
             } else if currentChapterHasAudio {
                 Button {
@@ -247,18 +299,6 @@ struct AudiobookView: View {
             if let workError {
                 InlineErrorView(message: workError)
             }
-            if let health, !health.voices.isEmpty {
-                Picker("生成音色", selection: $selectedVoice) {
-                    ForEach(health.voices) { voice in
-                        Text(voice.name).tag(voice.id)
-                    }
-                }
-            }
-            Picker("生成语速", selection: $generationSpeed) {
-                ForEach([0.8, 1.0, 1.2], id: \.self) { speed in
-                    Text("\(speed, specifier: "%g") 倍").tag(speed)
-                }
-            }
         }
     }
 
@@ -300,7 +340,12 @@ struct AudiobookView: View {
 
     private var currentChapterHasAudio: Bool {
         guard chapters.indices.contains(currentIndex) else { return false }
-        return AudiobookStorage.hasAudio(bookID: book.id, chapterURL: chapters[currentIndex].url)
+        return AudiobookStorage.hasAudio(
+            bookID: book.id,
+            chapterURL: chapters[currentIndex].url,
+            matchingVoice: selectedVoice,
+            matchingSpeed: generationSpeed
+        )
     }
 
     private var cachedTargets: [(chapter: BookChapter, text: String)] {
@@ -327,6 +372,8 @@ struct AudiobookView: View {
 
     private func startGeneration(_ targets: [(chapter: BookChapter, text: String)]) {
         guard let configuration, !targets.isEmpty else { return }
+        let generationVoice = selectedVoice
+        let requestedSpeed = generationSpeed
         workTask?.cancel()
         workError = nil
         completedCount = 0
@@ -345,8 +392,8 @@ struct AudiobookView: View {
                         book: book,
                         chapter: target.chapter,
                         text: target.text,
-                        voice: selectedVoice,
-                        speed: generationSpeed
+                        voice: generationVoice,
+                        speed: requestedSpeed
                     )
                     var job = try await client.submit(request)
                     while !job.isFinished {
@@ -367,9 +414,16 @@ struct AudiobookView: View {
                         book: book,
                         chapter: target.chapter,
                         textSHA256: request.textSHA256,
-                        voice: selectedVoice
+                        voice: generationVoice,
+                        generationSpeed: requestedSpeed,
+                        segments: job.segments ?? []
                     )
-                    player.extendQueue(book: book, chapters: chapters)
+                    player.extendQueue(
+                        book: book,
+                        chapters: chapters,
+                        matchingVoice: generationVoice,
+                        matchingSpeed: requestedSpeed
+                    )
                     completedCount += 1
                     currentTaskProgress = 0
                     refreshLocalState()
@@ -399,7 +453,13 @@ struct AudiobookView: View {
 
     private func startPlayback() {
         do {
-            try player.play(book: book, chapters: chapters, startingAt: currentIndex)
+            try player.play(
+                book: book,
+                chapters: chapters,
+                startingAt: currentIndex,
+                matchingVoice: selectedVoice,
+                matchingSpeed: generationSpeed
+            )
             workError = nil
         } catch {
             workError = error.localizedDescription

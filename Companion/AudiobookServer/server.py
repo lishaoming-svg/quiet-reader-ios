@@ -22,12 +22,20 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
 
-from protocol import JobRequest, ProtocolError, split_narration_text
+from protocol import (
+    MULTI_ROLE_VOICE,
+    JobRequest,
+    NarrationChunk,
+    ProtocolError,
+    split_narration_chunks,
+    timing_ranges,
+)
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.1.1"
+SERVER_VERSION = "0.2.0"
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
+SEGMENT_PAUSE_SECONDS = 0.12
 
 
 def utc_now() -> str:
@@ -85,6 +93,7 @@ class JobState:
     error: str | None = None
     audio_path: Path | None = None
     file_size: int = 0
+    segments: list[dict[str, Any]] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
 
@@ -98,6 +107,7 @@ class JobState:
             "total_segments": self.total_segments,
             "error": self.error,
             "file_size": self.file_size,
+            "segments": self.segments,
             "chapter_index": self.request.chapter_index,
             "chapter_id": self.request.chapter_id,
             "chapter_title": self.request.chapter_title,
@@ -133,6 +143,7 @@ class JobManager:
                     existing.completed_segments = 0
                     existing.total_segments = 0
                     existing.error = None
+                    existing.segments = []
                     existing.updated_at = utc_now()
                     self._persist(existing)
                     self.work_queue.put(job_id)
@@ -186,36 +197,53 @@ class JobManager:
                 self._update(state, status="failed", error=str(error), progress=0.0)
 
     def _generate(self, state: JobState) -> None:
-        chunks = split_narration_text(state.request.text)
-        if not chunks or "".join(chunks) != state.request.text:
+        chunks = split_narration_chunks(state.request.text, state.request.voice)
+        if not chunks or "".join(chunk.text for chunk in chunks) != state.request.text:
             raise RuntimeError("正文分段完整性校验失败")
-        self._update(state, status="running", total_segments=len(chunks), error=None)
+        self._update(
+            state,
+            status="running",
+            total_segments=len(chunks),
+            error=None,
+            segments=[],
+        )
 
         with tempfile.TemporaryDirectory(prefix=f"quietreader-{state.job_id}-") as raw_temp:
             temp_dir = Path(raw_temp)
             wave_paths: list[Path] = []
+            timeline: list[dict[str, Any]] = []
+            elapsed = 0.0
             for index, chunk in enumerate(chunks):
                 segment_path = temp_dir / f"segment-{index:04d}.wav"
+                synthesis_voice = _synthesis_voice(state.request.voice, chunk)
                 self.backend.synthesize(
-                    chunk,
+                    chunk.text,
                     segment_path,
-                    state.request.voice,
+                    synthesis_voice,
                     state.request.speed,
                 )
                 if not segment_path.is_file() or segment_path.stat().st_size < 256:
                     raise RuntimeError(f"第 {index + 1} 个语音分段生成失败")
-                if audio_duration(segment_path) <= 0.03:
+                duration = audio_duration(segment_path)
+                if duration <= 0.03:
                     raise RuntimeError(f"第 {index + 1} 个语音分段时长异常")
+                if index > 0:
+                    elapsed += SEGMENT_PAUSE_SECONDS
+                timeline.extend(
+                    _timeline_for_chunk(chunk, elapsed, duration, state.request.text)
+                )
+                elapsed += duration
                 wave_paths.append(segment_path)
                 completed = index + 1
                 self._update(
                     state,
                     completed_segments=completed,
                     progress=completed / len(chunks) * 0.9,
+                    segments=list(timeline),
                 )
 
             merged_wave = temp_dir / "chapter.wav"
-            merge_wave_files(wave_paths, merged_wave)
+            merge_wave_files(wave_paths, merged_wave, pause_seconds=SEGMENT_PAUSE_SECONDS)
             final_path = self.audio_dir / f"{state.job_id}.m4a"
             temporary_m4a = temp_dir / "chapter.m4a"
             subprocess.run(
@@ -249,7 +277,48 @@ class JobManager:
             completed_segments=len(chunks),
             audio_path=final_path,
             file_size=final_path.stat().st_size,
+            segments=timeline,
         )
+
+
+def _synthesis_voice(requested_voice: str, chunk: NarrationChunk) -> str:
+    if requested_voice == MULTI_ROLE_VOICE:
+        return f"role-{chunk.role}"
+    return requested_voice
+
+
+def _timeline_for_chunk(
+    chunk: NarrationChunk,
+    start_time: float,
+    duration: float,
+    full_text: str,
+) -> list[dict[str, Any]]:
+    ranges = timing_ranges(chunk.text)
+    if not ranges:
+        ranges = [(0, len(chunk.text))]
+    total_characters = max(1, sum(end - start for start, end in ranges))
+    result: list[dict[str, Any]] = []
+    cursor = start_time
+    for index, (start, end) in enumerate(ranges):
+        ratio = (end - start) / total_characters
+        unit_duration = duration * ratio
+        unit_end = start_time + duration if index == len(ranges) - 1 else cursor + unit_duration
+        result.append(
+            {
+                "text": chunk.text[start:end],
+                "role": chunk.role,
+                "start_time": round(cursor, 3),
+                "end_time": round(unit_end, 3),
+                "start_offset": _utf16_offset(full_text, chunk.start_offset + start),
+                "end_offset": _utf16_offset(full_text, chunk.start_offset + end),
+            }
+        )
+        cursor = unit_end
+    return result
+
+
+def _utf16_offset(text: str, codepoint_offset: int) -> int:
+    return len(text[:codepoint_offset].encode("utf-16-le")) // 2
 
 
 class AudiobookHTTPServer(ThreadingHTTPServer):

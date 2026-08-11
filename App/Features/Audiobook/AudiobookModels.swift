@@ -12,6 +12,52 @@ struct AudiobookVoice: Codable, Hashable, Identifiable {
     let name: String
 }
 
+struct AudiobookTimedSegment: Codable, Hashable, Identifiable {
+    let text: String
+    let role: String
+    let startTime: Double
+    let endTime: Double
+    let startOffset: Int
+    let endOffset: Int
+
+    var id: String { "\(startOffset)-\(endOffset)-\(role)" }
+
+    var roleName: String {
+        switch role {
+        case "protagonist": "主角"
+        case "male": "男性角色"
+        case "female": "女性角色"
+        default: "旁白"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case role
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case startOffset = "start_offset"
+        case endOffset = "end_offset"
+    }
+}
+
+enum AudiobookTimelineResolver {
+    static func segment(
+        at elapsed: Double,
+        in timeline: [AudiobookTimedSegment]
+    ) -> AudiobookTimedSegment? {
+        guard !timeline.isEmpty else { return nil }
+        if let active = timeline.last(where: { segment in
+            segment.startTime <= elapsed && elapsed < segment.endTime
+        }) {
+            return active
+        }
+        return elapsed >= (timeline.last?.endTime ?? .infinity)
+            ? timeline.last
+            : timeline.first
+    }
+}
+
 struct AudiobookServerHealth: Decodable {
     let protocolVersion: Int
     let service: String
@@ -93,6 +139,7 @@ struct AudiobookJobStatus: Decodable {
     let chapterID: String
     let chapterTitle: String
     let audioPath: String?
+    let segments: [AudiobookTimedSegment]?
 
     enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocol_version"
@@ -107,6 +154,7 @@ struct AudiobookJobStatus: Decodable {
         case chapterID = "chapter_id"
         case chapterTitle = "chapter_title"
         case audioPath = "audio_path"
+        case segments
     }
 
     var isFinished: Bool { status == "completed" || status == "failed" }

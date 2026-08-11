@@ -8,6 +8,8 @@ struct LocalAudiobookChapter: Codable, Hashable, Identifiable {
     let fileName: String
     let textSHA256: String
     let voice: String
+    let generationSpeed: Double?
+    let segments: [AudiobookTimedSegment]?
     let downloadedAt: Date
 
     var id: String { chapterID }
@@ -35,15 +37,31 @@ enum AudiobookStorage {
             .appending(path: "\(AudiobookIdentifier.chapterID(for: chapterURL)).m4a")
     }
 
-    static func hasAudio(bookID: String, chapterURL: String) -> Bool {
-        FileManager.default.fileExists(atPath: chapterFileURL(bookID: bookID, chapterURL: chapterURL).path)
+    static func hasAudio(
+        bookID: String,
+        chapterURL: String,
+        matchingVoice voice: String? = nil,
+        matchingSpeed speed: Double? = nil
+    ) -> Bool {
+        guard FileManager.default.fileExists(
+            atPath: chapterFileURL(bookID: bookID, chapterURL: chapterURL).path
+        ) else { return false }
+        guard voice != nil || speed != nil else { return true }
+        guard let local = loadManifest(bookID: bookID)?.chapters.first(where: {
+            $0.chapterURL == chapterURL
+        }) else { return false }
+        if let voice, local.voice != voice { return false }
+        if let speed, abs((local.generationSpeed ?? 1) - speed) > 0.001 { return false }
+        return true
     }
 
     static func saveChapter(
         book: SearchBook,
         chapter: BookChapter,
         textSHA256: String,
-        voice: String
+        voice: String,
+        generationSpeed: Double = 1,
+        segments: [AudiobookTimedSegment] = []
     ) throws {
         let directory = bookDirectory(bookID: book.id)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -55,6 +73,8 @@ enum AudiobookStorage {
             fileName: chapterFileURL(bookID: book.id, chapterURL: chapter.url).lastPathComponent,
             textSHA256: textSHA256,
             voice: voice,
+            generationSpeed: generationSpeed,
+            segments: segments,
             downloadedAt: .now
         )
         var manifest = loadManifest(bookID: book.id) ?? LocalAudiobookManifest(
@@ -87,6 +107,12 @@ enum AudiobookStorage {
                 atPath: bookDirectory(bookID: bookID).appending(path: $0.fileName).path
             )
         }.count ?? 0
+    }
+
+    static func timedSegments(bookID: String, chapterURL: String) -> [AudiobookTimedSegment] {
+        loadManifest(bookID: bookID)?.chapters.first {
+            $0.chapterURL == chapterURL
+        }?.segments ?? []
     }
 
     static func storageSize(bookID: String) -> Int64 {

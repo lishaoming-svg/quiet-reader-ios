@@ -70,6 +70,15 @@ struct ReaderView: View {
             margin: readerMargin
         )
     }
+    private var activeAudiobookSegment: AudiobookTimedSegment? {
+        guard audiobookPlayer.currentBookID == book.id,
+              audiobookPlayer.currentChapterIndex == currentIndex else { return nil }
+        return audiobookPlayer.currentSegment
+    }
+    private var activeAudiobookBlockID: Int? {
+        guard let locator = audiobookPlayer.currentLocatorOffset else { return nil }
+        return blocks.last(where: { $0.locatorOffset <= locator })?.id
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -125,6 +134,8 @@ struct ReaderView: View {
                 currentIndex: currentIndex,
                 currentText: content
             )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .task(id: currentIndex) { await loadChapter() }
         .task { await runSessionTimer() }
@@ -155,6 +166,9 @@ struct ReaderView: View {
                   chapters.indices.contains(targetIndex),
                   targetIndex != currentIndex else { return }
             goToChapter(targetIndex, locatorOffset: 0)
+        }
+        .onChange(of: audiobookPlayer.currentLocatorOffset) { _, _ in
+            followAudiobookText()
         }
     }
 
@@ -203,6 +217,17 @@ struct ReaderView: View {
                         .lineSpacing(lineSpacing)
                         .tracking(ReaderTypography.letterSpacing)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(
+                            block.id == activeAudiobookBlockID
+                                ? AppTheme.vermilion
+                                : paper.primaryText
+                        )
+                        .background(
+                            block.id == activeAudiobookBlockID
+                                ? AppTheme.vermilion.opacity(0.09)
+                                : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
                         .padding(
                             .top,
                             block.id > 0 && block.isParagraphStart
@@ -214,10 +239,10 @@ struct ReaderView: View {
                 chapterEnding
                     .padding(.top, 42)
             }
-            .foregroundStyle(paper.primaryText)
             .textSelection(.enabled)
             .scrollTargetLayout()
-            .frame(width: readerContentWidth, alignment: .leading)
+            .frame(maxWidth: readerMargin.maximumContentWidth, alignment: .leading)
+            .padding(.horizontal, readerMargin.horizontalPadding)
             .padding(.top, 36)
             .padding(.bottom, controlsVisible ? 36 : 84)
             .frame(maxWidth: .infinity)
@@ -280,7 +305,8 @@ struct ReaderView: View {
                 fontSize: fontSize,
                 lineSpacing: lineSpacing,
                 usesSerif: usesSerif,
-                textColor: UIColor(paper.primaryText)
+                textColor: UIColor(paper.primaryText),
+                highlightedText: activeAudiobookSegment?.text
             )
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -290,7 +316,8 @@ struct ReaderView: View {
                 .frame(height: ReaderTypography.pageFooterHeight)
                 .padding(.top, ReaderTypography.pageFooterTopSpacing)
         }
-        .frame(width: readerContentWidth)
+        .frame(maxWidth: readerMargin.maximumContentWidth)
+        .padding(.horizontal, readerMargin.horizontalPadding)
         .frame(maxHeight: .infinity)
         .padding(.vertical, ReaderTypography.pageVerticalPadding)
         .frame(maxWidth: .infinity)
@@ -604,6 +631,25 @@ struct ReaderView: View {
         }
     }
 
+    private func followAudiobookText() {
+        guard audiobookPlayer.currentBookID == book.id,
+              audiobookPlayer.currentChapterIndex == currentIndex,
+              let locator = audiobookPlayer.currentLocatorOffset,
+              !content.isEmpty else { return }
+        if readerMode.usesPages {
+            let target = ReaderPaginator.pageIndex(for: locator, in: pages)
+            guard pages.indices.contains(target), target != pageIndex else { return }
+            withAnimation(.easeInOut(duration: 0.28)) {
+                pageIndex = target
+            }
+        } else if let block = blocks.last(where: { $0.locatorOffset <= locator }),
+                  scrollBlockID != block.id {
+            withAnimation(.easeInOut(duration: 0.32)) {
+                scrollBlockID = block.id
+            }
+        }
+    }
+
     private func loadChapter(forceRefresh: Bool = false) async {
         prefetchTask?.cancel()
         let requestedIndex = currentIndex
@@ -688,7 +734,11 @@ struct ReaderView: View {
         }
 
         let targetLocator: Int
-        if let fraction = pendingChapterFraction {
+        if audiobookPlayer.currentBookID == book.id,
+           audiobookPlayer.currentChapterIndex == currentIndex,
+           let spokenLocator = audiobookPlayer.currentLocatorOffset {
+            targetLocator = spokenLocator
+        } else if let fraction = pendingChapterFraction {
             targetLocator = Int(fraction * Double((normalized as NSString).length))
         } else if let pendingLocatorOffset {
             targetLocator = pendingLocatorOffset

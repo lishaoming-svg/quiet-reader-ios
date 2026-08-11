@@ -7,7 +7,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from protocol import JobRequest, ProtocolError, normalize_narration_text, split_narration_text
+from protocol import (
+    ROLE_FEMALE,
+    ROLE_MALE,
+    ROLE_NARRATOR,
+    ROLE_PROTAGONIST,
+    JobRequest,
+    ProtocolError,
+    normalize_narration_text,
+    split_narration_chunks,
+    split_narration_text,
+)
 
 
 class ProtocolTests(unittest.TestCase):
@@ -52,7 +62,17 @@ class ProtocolTests(unittest.TestCase):
                 }
             )
 
+    def test_multi_role_chunks_preserve_text_and_assign_dialogue_roles(self):
+        text = "雨声越来越大。林舟说：“我们现在出发。”女孩问：“我也一起去吗？”窗外雷声滚过。"
+        chunks = split_narration_chunks(text, "multi-role", maximum=20, minimum=5)
+        self.assertEqual("".join(chunk.text for chunk in chunks), text)
+        roles = {chunk.role for chunk in chunks}
+        self.assertIn(ROLE_NARRATOR, roles)
+        self.assertIn(ROLE_PROTAGONIST, roles)
+        self.assertTrue(roles.intersection({ROLE_MALE, ROLE_FEMALE}))
+        self.assertEqual(chunks[0].start_offset, 0)
+        self.assertEqual(chunks[-1].end_offset, len(text))
+
 
 if __name__ == "__main__":
     unittest.main()
-
