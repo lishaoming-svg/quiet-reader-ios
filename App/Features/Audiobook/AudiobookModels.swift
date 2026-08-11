@@ -3,7 +3,7 @@ import Foundation
 import Security
 
 enum AudiobookProtocol {
-    static let version = 2
+    static let version = 3
     static let defaultPort = 8765
 }
 
@@ -84,6 +84,7 @@ struct AudiobookJobRequest: Encodable {
     let bookTitle: String
     let author: String
     let chapterID: String
+    let chapterURL: String
     let chapterIndex: Int
     let chapterTitle: String
     let text: String
@@ -103,6 +104,7 @@ struct AudiobookJobRequest: Encodable {
         bookTitle = book.name
         author = book.author
         chapterID = AudiobookIdentifier.chapterID(for: chapter.url)
+        chapterURL = chapter.url
         chapterIndex = chapter.index
         chapterTitle = chapter.title
         text = normalized
@@ -117,6 +119,7 @@ struct AudiobookJobRequest: Encodable {
         case bookTitle = "book_title"
         case author
         case chapterID = "chapter_id"
+        case chapterURL = "chapter_url"
         case chapterIndex = "chapter_index"
         case chapterTitle = "chapter_title"
         case text
@@ -124,6 +127,35 @@ struct AudiobookJobRequest: Encodable {
         case voice
         case speed
     }
+}
+
+struct AudiobookBookStatus: Decodable {
+    let protocolVersion: Int
+    let bookID: String
+    let voice: String
+    let generationSpeed: Double
+    let totalCount: Int
+    let completedCount: Int
+    let runningCount: Int
+    let queuedCount: Int
+    let failedCount: Int
+    let completedBytes: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case protocolVersion = "protocol_version"
+        case bookID = "book_id"
+        case voice
+        case generationSpeed = "generation_speed"
+        case totalCount = "total_count"
+        case completedCount = "completed_count"
+        case runningCount = "running_count"
+        case queuedCount = "queued_count"
+        case failedCount = "failed_count"
+        case completedBytes = "completed_bytes"
+    }
+
+    var hasCompletedAudio: Bool { completedCount > 0 }
+    var isComplete: Bool { totalCount > 0 && completedCount == totalCount }
 }
 
 struct AudiobookJobStatus: Decodable {

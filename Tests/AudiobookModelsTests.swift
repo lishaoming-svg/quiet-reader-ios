@@ -112,7 +112,7 @@ final class AudiobookModelsTests: XCTestCase {
         let data = Data(
             """
             {
-              "protocol_version": 2,
+              "protocol_version": 3,
               "job_id": "job",
               "status": "completed",
               "progress": 1,
@@ -122,6 +122,7 @@ final class AudiobookModelsTests: XCTestCase {
               "file_size": 1000,
               "chapter_index": 0,
               "chapter_id": "chapter",
+              "chapter_url": "https://example.test/chapter/1",
               "chapter_title": "第一章",
               "audio_path": "/audio",
               "segments": [{
@@ -138,5 +139,53 @@ final class AudiobookModelsTests: XCTestCase {
         let status = try JSONDecoder().decode(AudiobookJobStatus.self, from: data)
         XCTAssertEqual(status.segments?.first?.roleName, "女性角色")
         XCTAssertEqual(status.segments?.first?.endOffset, 3)
+    }
+
+    func testReadaloudPackageValidatorRequiresContinuousCompleteTimeline() throws {
+        let text = "第一段。\n第二段。"
+        let chapterURL = "https://example.test/chapter/1"
+        let chapter = AudiobookPackageChapter(
+            chapterID: AudiobookIdentifier.chapterID(for: chapterURL),
+            chapterURL: chapterURL,
+            chapterIndex: 0,
+            chapterTitle: "第一章",
+            fileName: "chapters/\(AudiobookIdentifier.chapterID(for: chapterURL)).m4a",
+            fileSize: 1024,
+            audioSHA256: String(repeating: "a", count: 64),
+            textSHA256: AudiobookIdentifier.sha256(text),
+            segments: [
+                AudiobookTimedSegment(
+                    text: "第一段。\n",
+                    role: "narrator",
+                    startTime: 0,
+                    endTime: 1,
+                    startOffset: 0,
+                    endOffset: 5
+                ),
+                AudiobookTimedSegment(
+                    text: "第二段。",
+                    role: "female",
+                    startTime: 1,
+                    endTime: 2,
+                    startOffset: 5,
+                    endOffset: 9
+                )
+            ]
+        )
+        let manifest = AudiobookPackageManifest(
+            format: "quietreader-readaloud",
+            formatVersion: 1,
+            protocolVersion: AudiobookProtocol.version,
+            createdAt: "2026-08-11T00:00:00Z",
+            bookID: "book",
+            bookTitle: "测试书",
+            author: "作者",
+            voice: "multi-role",
+            generationSpeed: 1,
+            chapterCount: 1,
+            packageFingerprint: String(repeating: "b", count: 64),
+            chapters: [chapter]
+        )
+        XCTAssertNoThrow(try AudiobookPackageValidator.validate(manifest, expectedBookID: "book"))
     }
 }

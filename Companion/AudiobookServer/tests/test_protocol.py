@@ -31,11 +31,12 @@ class ProtocolTests(unittest.TestCase):
     def test_request_validates_normalized_text_hash(self):
         text = normalize_narration_text(" 第一段。 \r\n\r\n 第二段。 ")
         payload = {
-            "protocol_version": 2,
+            "protocol_version": 3,
             "book_id": "book",
             "book_title": "测试书",
             "author": "作者",
             "chapter_id": "chapter-1",
+            "chapter_url": "https://example.test/chapter/1",
             "chapter_index": 0,
             "chapter_title": "第一章",
             "text": " 第一段。 \r\n\r\n 第二段。 ",
@@ -51,10 +52,11 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             JobRequest.from_dict(
                 {
-                    "protocol_version": 2,
+                    "protocol_version": 3,
                     "book_id": "book",
                     "book_title": "测试书",
                     "chapter_id": "chapter",
+                    "chapter_url": "https://example.test/chapter/1",
                     "chapter_index": 0,
                     "chapter_title": "第一章",
                     "text": "正文",

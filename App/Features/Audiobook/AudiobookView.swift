@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AudiobookView: View {
     @Environment(\.dismiss) private var dismiss
@@ -20,6 +21,7 @@ struct AudiobookView: View {
     @State private var connectionError: String?
     @State private var showingPairing = false
     @State private var showingDeleteConfirmation = false
+    @State private var showingPackageImporter = false
     @State private var isWorking = false
     @State private var workTask: Task<Void, Never>?
     @State private var completedCount = 0
@@ -27,6 +29,8 @@ struct AudiobookView: View {
     @State private var currentTaskTitle = ""
     @State private var currentTaskProgress = 0.0
     @State private var workError: String?
+    @State private var workMessage: String?
+    @State private var remoteBookStatus: AudiobookBookStatus?
     @State private var downloadedCount = 0
     @State private var storageSize: Int64 = 0
 
@@ -63,7 +67,6 @@ struct AudiobookView: View {
                     }
                 }
             }
-            .onDisappear { workTask?.cancel() }
             .onChange(of: coordinator.downloadedRevision) { _, _ in
                 refreshLocalState()
             }
@@ -73,12 +76,14 @@ struct AudiobookView: View {
                 workTask?.cancel()
                 player.stop(bookID: book.id)
                 beginAutomaticListening(allowComputer: true)
+                Task { await refreshRemoteBookStatus() }
             }
             .onChange(of: generationSpeed) { oldSpeed, newSpeed in
                 guard oldSpeed != newSpeed, health != nil else { return }
                 workTask?.cancel()
                 player.stop(bookID: book.id)
                 beginAutomaticListening(allowComputer: true)
+                Task { await refreshRemoteBookStatus() }
             }
             .sheet(isPresented: $showingPairing) {
                 AudiobookPairingView { newConfiguration, newHealth in
@@ -95,6 +100,18 @@ struct AudiobookView: View {
                 titleVisibility: .visible
             ) {
                 Button("删除全部音频", role: .destructive) { deleteBookAudio() }
+            }
+            .fileImporter(
+                isPresented: $showingPackageImporter,
+                allowedContentTypes: [UTType("com.quietreader.readaloud-package") ?? .zip],
+                allowsMultipleSelection: false
+            ) { result in
+                do {
+                    guard let url = try result.get().first else { return }
+                    importPackage(at: url)
+                } catch {
+                    workError = error.localizedDescription
+                }
             }
         }
     }
@@ -254,14 +271,14 @@ struct AudiobookView: View {
                 .foregroundStyle(AppTheme.inkSoft)
         }
 
-        Section("手工生成") {
+        Section("电脑预生成与同步") {
             if isWorking {
                 ProgressView(
                     value: Double(completedCount) + currentTaskProgress,
                     total: Double(max(targetCount, 1))
                 )
                 .tint(AppTheme.vermilion)
-                Text("正在处理 \(completedCount + 1)/\(targetCount)：\(currentTaskTitle)")
+                Text("正在处理 \(min(completedCount + 1, targetCount))/\(targetCount)：\(currentTaskTitle)")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
                 Button("取消本次传输", role: .destructive) { workTask?.cancel() }
@@ -283,19 +300,64 @@ struct AudiobookView: View {
                 Button {
                     startCachedChapterGeneration()
                 } label: {
-                    Label("生成已缓存章节", systemImage: "books.vertical")
+                    Label("提交全部已缓存章节", systemImage: "desktopcomputer.and.arrow.down")
                 }
                 .disabled(
                     configuration == nil
                         || cachedTargets.isEmpty
-                        || coordinator.isManaging(bookID: book.id)
                 )
 
-                Text("已缓存正文 \(cachedTargets.count) 章。需要整本生成时，先在书籍详情中选择“缓存全书”。")
+                if let remoteBookStatus {
+                    LabeledContent(
+                        "电脑生成进度",
+                        value: "\(remoteBookStatus.completedCount)/\(remoteBookStatus.totalCount) 章"
+                    )
+                    if remoteBookStatus.runningCount + remoteBookStatus.queuedCount > 0 {
+                        Text("电脑仍在生成 \(remoteBookStatus.runningCount + remoteBookStatus.queuedCount) 章，可以关闭手机页面。")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.inkSoft)
+                    }
+                    if remoteBookStatus.failedCount > 0 {
+                        Text("有 \(remoteBookStatus.failedCount) 章生成失败，重新提交会自动重试。")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.vermilion)
+                    }
+                }
+
+                Button("刷新电脑生成进度") {
+                    Task { await refreshRemoteBookStatus() }
+                }
+                .disabled(health == nil)
+
+                Button {
+                    syncCompletedPackage()
+                } label: {
+                    Label("同步电脑已完成伴读包", systemImage: "arrow.down.doc.fill")
+                }
+                .disabled(
+                    configuration == nil
+                        || remoteBookStatus?.hasCompletedAudio != true
+                )
+
+                Button {
+                    showingPackageImporter = true
+                } label: {
+                    Label("导入 .qraudio 伴读包", systemImage: "cable.connector")
+                }
+
+                Text("已缓存正文 \(cachedTargets.count) 章。先缓存全书，再快速提交给电脑；提交结束后电脑可以独立生成。")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.inkSoft)
+                Text("数据线传输时，在 Windows Apple Devices 的“文件”中把 .qraudio 添加到墨阅，再从这里导入。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
             }
 
+            if let workMessage {
+                Label(workMessage, systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.jade)
+            }
             if let workError {
                 InlineErrorView(message: workError)
             }
@@ -367,7 +429,145 @@ struct AudiobookView: View {
     }
 
     private func startCachedChapterGeneration() {
-        startGeneration(cachedTargets)
+        submitCachedChapters()
+    }
+
+    private func submitCachedChapters() {
+        guard let configuration else { return }
+        let targets = cachedTargets
+        guard !targets.isEmpty else { return }
+        let generationVoice = selectedVoice
+        let requestedSpeed = generationSpeed
+        if coordinator.isManaging(bookID: book.id) {
+            coordinator.cancelAutomaticGeneration()
+        }
+        workTask?.cancel()
+        workError = nil
+        workMessage = nil
+        completedCount = 0
+        targetCount = targets.count
+        currentTaskProgress = 0
+        isWorking = true
+        workTask = Task {
+            defer { isWorking = false }
+            let client = AudiobookServerClient(configuration: configuration)
+            do {
+                for target in targets {
+                    try Task.checkCancellation()
+                    currentTaskTitle = "提交 \(target.chapter.title)"
+                    let request = AudiobookJobRequest(
+                        book: book,
+                        chapter: target.chapter,
+                        text: target.text,
+                        voice: generationVoice,
+                        speed: requestedSpeed
+                    )
+                    _ = try await client.submit(request)
+                    completedCount += 1
+                    currentTaskProgress = 0
+                }
+                remoteBookStatus = try await client.bookStatus(
+                    bookID: book.id,
+                    voice: generationVoice,
+                    speed: requestedSpeed
+                )
+                workMessage = "已把 \(targets.count) 章交给电脑，后续生成无需停留在手机页面。"
+            } catch is CancellationError {
+                workError = "章节提交已暂停，电脑会继续处理已经收到的任务。"
+            } catch {
+                workError = error.localizedDescription
+            }
+        }
+    }
+
+    private func syncCompletedPackage() {
+        guard let configuration else { return }
+        let generationVoice = selectedVoice
+        let requestedSpeed = generationSpeed
+        if coordinator.isManaging(bookID: book.id) {
+            coordinator.cancelAutomaticGeneration()
+        }
+        let temporary = FileManager.default.temporaryDirectory.appending(
+            path: "\(UUID().uuidString).qraudio"
+        )
+        workTask?.cancel()
+        workError = nil
+        workMessage = nil
+        completedCount = 0
+        targetCount = max(remoteBookStatus?.completedCount ?? 1, 1)
+        currentTaskTitle = "下载并校验整本伴读包"
+        currentTaskProgress = 0
+        isWorking = true
+        workTask = Task {
+            defer {
+                isWorking = false
+                try? FileManager.default.removeItem(at: temporary)
+            }
+            do {
+                let client = AudiobookServerClient(configuration: configuration)
+                try await client.downloadPackage(
+                    bookID: book.id,
+                    voice: generationVoice,
+                    speed: requestedSpeed,
+                    to: temporary
+                )
+                let result = try await Task.detached {
+                    try AudiobookPackageImporter.importPackage(at: temporary, for: book)
+                }.value
+                completedCount = result.chapterCount
+                refreshLocalState()
+                player.extendQueue(
+                    book: book,
+                    chapters: chapters,
+                    matchingVoice: generationVoice,
+                    matchingSpeed: requestedSpeed
+                )
+                workMessage = "已同步《\(result.bookTitle)》\(result.chapterCount) 章，播放时会逐句高亮。"
+                remoteBookStatus = try? await client.bookStatus(
+                    bookID: book.id,
+                    voice: generationVoice,
+                    speed: requestedSpeed
+                )
+            } catch is CancellationError {
+                workError = "伴读包同步已取消，可以稍后重新同步。"
+            } catch {
+                workError = error.localizedDescription
+            }
+        }
+    }
+
+    private func importPackage(at url: URL) {
+        if coordinator.isManaging(bookID: book.id) {
+            coordinator.cancelAutomaticGeneration()
+        }
+        workTask?.cancel()
+        workError = nil
+        workMessage = nil
+        completedCount = 0
+        targetCount = 1
+        currentTaskTitle = "校验并导入伴读包"
+        isWorking = true
+        workTask = Task {
+            defer { isWorking = false }
+            do {
+                let result = try await Task.detached {
+                    try AudiobookPackageImporter.importPackage(at: url, for: book)
+                }.value
+                selectedVoice = result.voice
+                generationSpeed = result.generationSpeed
+                completedCount = result.chapterCount
+                refreshLocalState()
+                player.extendQueue(
+                    book: book,
+                    chapters: chapters,
+                    matchingVoice: result.voice,
+                    matchingSpeed: result.generationSpeed
+                )
+                workMessage = "已导入《\(result.bookTitle)》\(result.chapterCount) 章，播放时会逐句高亮。"
+            } catch {
+                workError = error.localizedDescription
+            }
+        }
     }
 
     private func startGeneration(_ targets: [(chapter: BookChapter, text: String)]) {
@@ -445,10 +645,22 @@ struct AudiobookView: View {
             if !value.voices.contains(where: { $0.id == selectedVoice }) {
                 selectedVoice = value.voices.first?.id ?? "default"
             }
+            await refreshRemoteBookStatus()
         } catch {
             health = nil
+            remoteBookStatus = nil
             connectionError = error.localizedDescription
         }
+    }
+
+    private func refreshRemoteBookStatus() async {
+        guard let configuration, health != nil else {
+            remoteBookStatus = nil
+            return
+        }
+        remoteBookStatus = try? await AudiobookServerClient(
+            configuration: configuration
+        ).bookStatus(bookID: book.id, voice: selectedVoice, speed: generationSpeed)
     }
 
     private func startPlayback() {

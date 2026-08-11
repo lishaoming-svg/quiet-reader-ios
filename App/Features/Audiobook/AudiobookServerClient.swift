@@ -25,8 +25,45 @@ struct AudiobookServerClient {
         return try decode(AudiobookJobStatus.self, data: data, response: response)
     }
 
+    func bookStatus(bookID: String, voice: String, speed: Double) async throws -> AudiobookBookStatus {
+        let request = authorizedBookRequest(
+            path: "v1/books/status",
+            bookID: bookID,
+            voice: voice,
+            speed: speed
+        )
+        let (data, response) = try await session.data(for: request)
+        return try decode(AudiobookBookStatus.self, data: data, response: response)
+    }
+
     func download(jobID: String, to destination: URL) async throws {
         let request = authorizedRequest(path: "v1/jobs/\(jobID)/audio")
+        let (temporaryURL, response) = try await session.download(for: request)
+        try validate(response: response, fallbackData: nil)
+        let manager = FileManager.default
+        try manager.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if manager.fileExists(atPath: destination.path) {
+            try manager.removeItem(at: destination)
+        }
+        try manager.moveItem(at: temporaryURL, to: destination)
+    }
+
+    func downloadPackage(
+        bookID: String,
+        voice: String,
+        speed: Double,
+        to destination: URL
+    ) async throws {
+        var request = authorizedBookRequest(
+            path: "v1/books/package",
+            bookID: bookID,
+            voice: voice,
+            speed: speed
+        )
+        request.timeoutInterval = 30 * 60
         let (temporaryURL, response) = try await session.download(for: request)
         try validate(response: response, fallbackData: nil)
         let manager = FileManager.default
@@ -48,6 +85,25 @@ struct AudiobookServerClient {
         return request
     }
 
+    private func authorizedBookRequest(
+        path: String,
+        bookID: String,
+        voice: String,
+        speed: Double
+    ) -> URLRequest {
+        let base = configuration.baseURL.appending(path: path)
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "book_id", value: bookID),
+            URLQueryItem(name: "voice", value: voice),
+            URLQueryItem(name: "speed", value: String(format: "%.2f", speed))
+        ]
+        var request = URLRequest(url: components?.url ?? base)
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(configuration.token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
     private func decode<T: Decodable>(
         _ type: T.Type,
         data: Data,
@@ -60,6 +116,10 @@ struct AudiobookServerClient {
             throw AudiobookClientError.protocolMismatch
         }
         if let status = value as? AudiobookJobStatus,
+           status.protocolVersion != AudiobookProtocol.version {
+            throw AudiobookClientError.protocolMismatch
+        }
+        if let status = value as? AudiobookBookStatus,
            status.protocolVersion != AudiobookProtocol.version {
             throw AudiobookClientError.protocolMismatch
         }
@@ -86,4 +146,3 @@ struct AudiobookServerClient {
 private struct ServerErrorPayload: Decodable {
     let error: String
 }
-

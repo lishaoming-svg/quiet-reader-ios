@@ -9,6 +9,13 @@
 
 墨阅没有复制 Legado 源码；书源数据结构仅实现公开可观察的常用字段兼容。
 
+## ZIPFoundation
+
+- 项目：https://github.com/weichsel/ZIPFoundation
+- 版本：0.9.20
+- 许可证：MIT License
+- 用途：在 iOS 本地校验和解包 `.qraudio` 逐句伴读包。
+
 ## 可选听书组件
 
 - CosyVoice：https://github.com/QwenAudio/CosyVoice

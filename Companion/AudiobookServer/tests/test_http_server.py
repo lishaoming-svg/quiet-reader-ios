@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -40,11 +41,12 @@ class HTTPServerTests(unittest.TestCase):
 
                 text = "第一段。第二段完整生成。"
                 payload = {
-                    "protocol_version": 2,
+                    "protocol_version": 3,
                     "book_id": "book",
                     "book_title": "测试书",
                     "author": "作者",
                     "chapter_id": "chapter",
+                    "chapter_url": "https://example.test/chapter/1",
                     "chapter_index": 0,
                     "chapter_title": "第一章",
                     "text": text,
@@ -62,6 +64,23 @@ class HTTPServerTests(unittest.TestCase):
                     time.sleep(0.05)
                     status = self._json_request(f"{base_url}/v1/jobs/{submitted['job_id']}")
                 self.assertEqual(status["status"], "completed", status.get("error"))
+
+                query = urllib.parse.urlencode(
+                    {"book_id": "book", "voice": "default", "speed": "1.00"}
+                )
+                book_status = self._json_request(f"{base_url}/v1/books/status?{query}")
+                self.assertEqual(book_status["completed_count"], 1)
+                package_request = urllib.request.Request(
+                    f"{base_url}/v1/books/package?{query}",
+                    headers={"Authorization": "Bearer test-pairing-token-123456"},
+                )
+                with urllib.request.urlopen(package_request, timeout=5) as response:
+                    package = response.read()
+                    self.assertEqual(
+                        response.headers.get_content_type(),
+                        "application/vnd.quietreader.readaloud+zip",
+                    )
+                self.assertGreater(len(package), 512)
 
                 request = urllib.request.Request(
                     f"{base_url}/v1/jobs/{submitted['job_id']}/audio",

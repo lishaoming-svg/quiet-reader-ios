@@ -137,6 +137,53 @@ enum AudiobookStorage {
         }
     }
 
+    static func installPackage(
+        _ package: AudiobookPackageManifest,
+        stagedIn stagingDirectory: URL,
+        for book: SearchBook
+    ) throws {
+        let manager = FileManager.default
+        let directory = bookDirectory(bookID: book.id)
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        var manifest = loadManifest(bookID: book.id) ?? LocalAudiobookManifest(
+            bookID: book.id,
+            bookTitle: book.name,
+            author: book.author,
+            chapters: [],
+            updatedAt: .now
+        )
+        let importedIDs = Set(package.chapters.map(\.chapterID))
+        manifest.chapters.removeAll { importedIDs.contains($0.chapterID) }
+
+        for chapter in package.chapters {
+            let staged = stagingDirectory.appending(path: "\(chapter.chapterID).m4a")
+            let destination = directory.appending(path: "\(chapter.chapterID).m4a")
+            if manager.fileExists(atPath: destination.path) {
+                try manager.removeItem(at: destination)
+            }
+            try manager.moveItem(at: staged, to: destination)
+            manifest.chapters.append(
+                LocalAudiobookChapter(
+                    chapterID: chapter.chapterID,
+                    chapterURL: chapter.chapterURL,
+                    chapterIndex: chapter.chapterIndex,
+                    chapterTitle: chapter.chapterTitle,
+                    fileName: destination.lastPathComponent,
+                    textSHA256: chapter.textSHA256,
+                    voice: package.voice,
+                    generationSpeed: package.generationSpeed,
+                    segments: chapter.segments,
+                    downloadedAt: .now
+                )
+            )
+        }
+        manifest.bookTitle = book.name
+        manifest.author = book.author
+        manifest.chapters.sort { $0.chapterIndex < $1.chapterIndex }
+        manifest.updatedAt = .now
+        try saveManifest(manifest)
+    }
+
     static func formatByteCount(_ count: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
     }

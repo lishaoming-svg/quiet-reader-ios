@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 MAX_CHAPTER_CHARACTERS = 100_000
 SENTENCE_ENDINGS = frozenset("。！？!?；;\n")
 SOFT_ENDINGS = frozenset("，,、：:")
@@ -211,6 +211,7 @@ class JobRequest:
     book_title: str
     author: str
     chapter_id: str
+    chapter_url: str
     chapter_index: int
     chapter_title: str
     text: str
@@ -241,6 +242,7 @@ class JobRequest:
             book_title=require_string(payload, "book_title", 256),
             author=str(payload.get("author", "")).strip()[:128],
             chapter_id=require_string(payload, "chapter_id", 128),
+            chapter_url=require_string(payload, "chapter_url", 4096),
             chapter_index=chapter_index,
             chapter_title=require_string(payload, "chapter_title", 256),
             text=text,
@@ -260,3 +262,26 @@ class JobRequest:
         value = asdict(self)
         value.pop("text")
         return value
+
+    def storage_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_storage_dict(cls, payload: dict[str, Any]) -> "JobRequest":
+        chapter_url = str(payload.get("chapter_url", "")).strip()
+        chapter_id = str(payload.get("chapter_id", "")).strip()
+        if not chapter_url:
+            chapter_url = f"quietreader-legacy://chapter/{chapter_id}"
+        return cls(
+            book_id=str(payload["book_id"]),
+            book_title=str(payload["book_title"]),
+            author=str(payload.get("author", "")),
+            chapter_id=chapter_id,
+            chapter_url=chapter_url,
+            chapter_index=int(payload["chapter_index"]),
+            chapter_title=str(payload["chapter_title"]),
+            text=str(payload.get("text", "")),
+            text_sha256=str(payload["text_sha256"]),
+            voice=str(payload.get("voice", "default")),
+            speed=float(payload.get("speed", 1.0)),
+        )

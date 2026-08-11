@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import io
 import json
 import os
 import queue
+import re
 import secrets
 import shutil
 import socket
@@ -15,13 +17,14 @@ import threading
 import time
 import webbrowser
 import wave
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from protocol import (
     MULTI_ROLE_VOICE,
@@ -35,7 +38,7 @@ from protocol import (
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 SEGMENT_PAUSE_SECONDS = 0.12
 
@@ -58,6 +61,19 @@ def local_ipv4() -> str:
 def audio_duration(path: Path) -> float:
     with wave.open(str(path), "rb") as source:
         return source.getnframes() / max(1, source.getframerate())
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_file_name(value: str) -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", value).strip(" .")
+    return cleaned[:60] or "墨阅伴读包"
 
 
 def merge_wave_files(paths: list[Path], output_path: Path, pause_seconds: float = 0.12) -> None:
@@ -126,29 +142,44 @@ class JobManager:
         self.ffmpeg = ffmpeg
         self.jobs_dir = data_dir / "jobs"
         self.audio_dir = data_dir / "audio"
+        self.packages_dir = data_dir / "packages"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.audio_dir.mkdir(parents=True, exist_ok=True)
+        self.packages_dir.mkdir(parents=True, exist_ok=True)
         self.jobs: dict[str, JobState] = {}
         self.lock = threading.RLock()
+        self.package_lock = threading.Lock()
         self.work_queue: queue.Queue[str | None] = queue.Queue()
+        pending_jobs = self._restore_jobs()
         self.worker = threading.Thread(target=self._run_worker, name="audiobook-worker", daemon=True)
         self.worker.start()
+        for job_id in pending_jobs:
+            self.work_queue.put(job_id)
 
     def submit(self, request: JobRequest) -> JobState:
         job_id = request.stable_job_id
         with self.lock:
             existing = self.jobs.get(job_id)
             if existing:
-                if existing.status == "failed":
+                existing.request = request
+                if existing.status == "failed" or (
+                    existing.status == "completed" and not existing.segments
+                ):
+                    if existing.audio_path is not None and existing.audio_path.is_file():
+                        existing.audio_path.unlink()
                     existing.status = "queued"
                     existing.progress = 0.0
                     existing.completed_segments = 0
                     existing.total_segments = 0
                     existing.error = None
+                    existing.audio_path = None
+                    existing.file_size = 0
                     existing.segments = []
                     existing.updated_at = utc_now()
                     self._persist(existing)
                     self.work_queue.put(job_id)
+                else:
+                    self._persist(existing)
                 return existing
             audio_path = self.audio_dir / f"{job_id}.m4a"
             state = JobState(job_id=job_id, request=request)
@@ -167,16 +198,169 @@ class JobManager:
         with self.lock:
             return self.jobs.get(job_id)
 
+    def book_status(self, book_id: str, voice: str, speed: float) -> dict[str, Any]:
+        with self.lock:
+            jobs = self._book_jobs(book_id, voice, speed)
+            counts = {
+                status: sum(job.status == status for job in jobs)
+                for status in ("completed", "running", "queued", "failed")
+            }
+            return {
+                "protocol_version": PROTOCOL_VERSION,
+                "book_id": book_id,
+                "voice": voice,
+                "generation_speed": speed,
+                "total_count": len(jobs),
+                "completed_count": counts["completed"],
+                "running_count": counts["running"],
+                "queued_count": counts["queued"],
+                "failed_count": counts["failed"],
+                "completed_bytes": sum(
+                    job.file_size for job in jobs if job.status == "completed"
+                ),
+            }
+
+    def create_package(self, book_id: str, voice: str, speed: float) -> Path:
+        with self.package_lock:
+            return self._create_package(book_id, voice, speed)
+
+    def _create_package(self, book_id: str, voice: str, speed: float) -> Path:
+        with self.lock:
+            jobs = [
+                job for job in self._book_jobs(book_id, voice, speed)
+                if job.status == "completed"
+                and job.audio_path is not None
+                and job.audio_path.is_file()
+                and job.segments
+            ]
+        if not jobs:
+            raise ProtocolError("这本书还没有已完成且带时间轴的章节")
+        jobs.sort(key=lambda job: (job.request.chapter_index, job.request.chapter_id))
+        first = jobs[0].request
+        fingerprint_source = "\n".join(
+            f"{job.job_id}:{job.file_size}:{job.updated_at}" for job in jobs
+        )
+        fingerprint = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+        package_key = hashlib.sha256(
+            f"{book_id}\n{voice}\n{speed:.2f}".encode("utf-8")
+        ).hexdigest()[:24]
+        safe_title = _safe_file_name(first.book_title)
+        target = self.packages_dir / f"{safe_title}-{package_key}.qraudio"
+        marker = self.packages_dir / f"{package_key}.sha256"
+        if (
+            target.is_file()
+            and target.stat().st_size > 0
+            and marker.is_file()
+            and marker.read_text(encoding="ascii").strip() == fingerprint
+        ):
+            return target
+
+        chapters: list[dict[str, Any]] = []
+        for job in jobs:
+            audio_path = job.audio_path
+            assert audio_path is not None
+            file_name = f"chapters/{job.request.chapter_id}.m4a"
+            chapters.append(
+                {
+                    "chapter_id": job.request.chapter_id,
+                    "chapter_url": job.request.chapter_url,
+                    "chapter_index": job.request.chapter_index,
+                    "chapter_title": job.request.chapter_title,
+                    "file_name": file_name,
+                    "file_size": audio_path.stat().st_size,
+                    "audio_sha256": _file_sha256(audio_path),
+                    "text_sha256": job.request.text_sha256,
+                    "segments": job.segments,
+                }
+            )
+        manifest = {
+            "format": "quietreader-readaloud",
+            "format_version": 1,
+            "protocol_version": PROTOCOL_VERSION,
+            "created_at": utc_now(),
+            "book_id": first.book_id,
+            "book_title": first.book_title,
+            "author": first.author,
+            "voice": voice,
+            "generation_speed": speed,
+            "chapter_count": len(chapters),
+            "package_fingerprint": fingerprint,
+            "chapters": chapters,
+        }
+        temporary = target.with_suffix(".tmp")
+        if temporary.exists():
+            temporary.unlink()
+        with zipfile.ZipFile(temporary, "w", allowZip64=True) as archive:
+            archive.writestr(
+                "manifest.json",
+                json.dumps(manifest, ensure_ascii=False, indent=2),
+                compress_type=zipfile.ZIP_DEFLATED,
+            )
+            for job, chapter in zip(jobs, chapters, strict=True):
+                assert job.audio_path is not None
+                archive.write(job.audio_path, chapter["file_name"], compress_type=zipfile.ZIP_STORED)
+        temporary.replace(target)
+        marker.write_text(fingerprint, encoding="ascii")
+        return target
+
     def shutdown(self) -> None:
         self.work_queue.put(None)
         self.worker.join(timeout=5)
 
     def _persist(self, state: JobState) -> None:
-        payload = state.public_dict() | {"request": state.request.public_dict()}
+        payload = state.public_dict() | {"request": state.request.storage_dict()}
         target = self.jobs_dir / f"{state.job_id}.json"
         temporary = target.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(target)
+
+    def _restore_jobs(self) -> list[str]:
+        pending: list[str] = []
+        for target in sorted(self.jobs_dir.glob("*.json")):
+            try:
+                payload = json.loads(target.read_text(encoding="utf-8"))
+                request = JobRequest.from_storage_dict(payload["request"])
+                job_id = str(payload["job_id"])
+                audio_path = self.audio_dir / f"{job_id}.m4a"
+                status = str(payload.get("status", "failed"))
+                if status == "completed" and not audio_path.is_file():
+                    status = "failed"
+                if status == "completed" and not payload.get("segments"):
+                    status = "failed"
+                if status in {"queued", "running"}:
+                    if request.text:
+                        status = "queued"
+                        pending.append(job_id)
+                    else:
+                        status = "failed"
+                state = JobState(
+                    job_id=job_id,
+                    request=request,
+                    status=status,
+                    progress=float(payload.get("progress", 0)),
+                    completed_segments=int(payload.get("completed_segments", 0)),
+                    total_segments=int(payload.get("total_segments", 0)),
+                    error=payload.get("error"),
+                    audio_path=audio_path if status == "completed" else None,
+                    file_size=audio_path.stat().st_size if status == "completed" else 0,
+                    segments=list(payload.get("segments", [])),
+                    created_at=str(payload.get("created_at", utc_now())),
+                    updated_at=str(payload.get("updated_at", utc_now())),
+                )
+                if status == "failed" and not state.error:
+                    state.error = "服务重启后缺少可恢复的正文，请从手机重新提交"
+                self.jobs[job_id] = state
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+        return pending
+
+    def _book_jobs(self, book_id: str, voice: str, speed: float) -> list[JobState]:
+        return [
+            job for job in self.jobs.values()
+            if job.request.book_id == book_id
+            and job.request.voice == voice
+            and abs(job.request.speed - speed) < 0.001
+        ]
 
     def _update(self, state: JobState, **values: Any) -> None:
         with self.lock:
@@ -197,6 +381,26 @@ class JobManager:
                 self._generate(state)
             except Exception as error:
                 self._update(state, status="failed", error=str(error), progress=0.0)
+            if self.work_queue.empty():
+                self._export_ready_packages()
+
+    def _export_ready_packages(self) -> None:
+        with self.lock:
+            combinations = {
+                (job.request.book_id, job.request.voice, job.request.speed)
+                for job in self.jobs.values()
+                if job.status == "completed"
+            }
+            active = {
+                (job.request.book_id, job.request.voice, job.request.speed)
+                for job in self.jobs.values()
+                if job.status in {"queued", "running"}
+            }
+        for book_id, voice, speed in combinations - active:
+            try:
+                self.create_package(book_id, voice, speed)
+            except (OSError, ProtocolError, zipfile.BadZipFile):
+                continue
 
     def _generate(self, state: JobState) -> None:
         chunks = split_narration_chunks(state.request.text, state.request.voice)
@@ -336,7 +540,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         print(f"[{self.log_date_time_string()}] {format_string % args}")
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/":
             self._send_pairing_page()
             return
@@ -353,10 +558,29 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "engine": self.server.manager.backend.engine_id,
                     "engine_name": self.server.manager.backend.display_name,
                     "voices": self.server.manager.backend.voices(),
+                    "capabilities": ["persistent-queue", "readaloud-package-v1"],
                 },
             )
             return
         if not self._authorized():
+            return
+        if path in {"/v1/books/status", "/v1/books/package"}:
+            try:
+                book_id, voice, speed = self._book_query(parsed.query)
+                if path == "/v1/books/status":
+                    self._send_json(
+                        HTTPStatus.OK,
+                        self.server.manager.book_status(book_id, voice, speed),
+                    )
+                else:
+                    package_path = self.server.manager.create_package(book_id, voice, speed)
+                    self._send_file(
+                        package_path,
+                        content_type="application/vnd.quietreader.readaloud+zip",
+                        download_name="QuietReader.qraudio",
+                    )
+            except ProtocolError as error:
+                self._send_error(HTTPStatus.CONFLICT, str(error))
             return
         if path.startswith("/v1/jobs/"):
             parts = [part for part in path.split("/") if part]
@@ -411,17 +635,41 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise ProtocolError("请求内容必须是 JSON 对象")
         return value
 
+    def _book_query(self, raw_query: str) -> tuple[str, str, float]:
+        query = parse_qs(raw_query)
+        book_id = query.get("book_id", [""])[0].strip()
+        voice = query.get("voice", [""])[0].strip()
+        try:
+            speed = float(query.get("speed", ["1"])[0])
+        except ValueError as error:
+            raise ProtocolError("生成语速无效") from error
+        if not book_id or len(book_id) > 512:
+            raise ProtocolError("书籍标识无效")
+        if not voice or len(voice) > 128:
+            raise ProtocolError("音色标识无效")
+        if not 0.5 <= speed <= 2.0:
+            raise ProtocolError("生成语速必须在 0.5 到 2.0 之间")
+        return book_id, voice, speed
+
     def _send_audio(self, job: JobState) -> None:
         if job.status != "completed" or job.audio_path is None or not job.audio_path.is_file():
             self._send_error(HTTPStatus.CONFLICT, "章节音频尚未生成完成")
             return
-        data = job.audio_path.read_bytes()
+        self._send_file(
+            job.audio_path,
+            content_type="audio/mp4",
+            download_name=f"{job.job_id}.m4a",
+        )
+
+    def _send_file(self, path: Path, content_type: str, download_name: str) -> None:
         self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "audio/mp4")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Disposition", f'attachment; filename="{job.job_id}.m4a"')
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(path.stat().st_size))
+        self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
         self.end_headers()
-        self.wfile.write(data)
+        with path.open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                self.wfile.write(chunk)
 
     def _send_pairing_page(self) -> None:
         pairing_uri = (
