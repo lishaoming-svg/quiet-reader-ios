@@ -1,8 +1,6 @@
 import hashlib
 import json
-import multiprocessing
 import shutil
-import socket
 import sys
 import tempfile
 import threading
@@ -19,80 +17,14 @@ sys.path.insert(0, str(ROOT))
 
 from server import (
     AudiobookHTTPServer,
-    HealthHTTPServer,
-    HealthRequestHandler,
     JobManager,
     RequestHandler,
-    serve_health_sidecar,
 )
 from tts_backends import ToneTestBackend
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "需要 FFmpeg 验证完整 HTTP 链路")
 class HTTPServerTests(unittest.TestCase):
-    def test_spawned_health_sidecar_responds_independently(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            port = reservation.getsockname()[1]
-        payload = {
-            "protocol_version": 4,
-            "service": "墨阅听书生成器",
-            "server_version": "0.4.3",
-            "status": "ready",
-            "engine": "cosyvoice3",
-            "engine_name": "CosyVoice 3",
-            "voices": [],
-        }
-        process = multiprocessing.get_context("spawn").Process(
-            target=serve_health_sidecar,
-            args=("127.0.0.1", port, "spawned-sidecar-token", payload),
-        )
-        process.start()
-        deadline = time.time() + 10
-        try:
-            while True:
-                try:
-                    value = self._json_request(
-                        f"http://127.0.0.1:{port}/v1/health",
-                        token="spawned-sidecar-token",
-                    )
-                    break
-                except urllib.error.URLError:
-                    if time.time() >= deadline:
-                        raise
-                    time.sleep(0.05)
-            self.assertEqual(value["server_version"], "0.4.3")
-            self.assertTrue(process.is_alive())
-        finally:
-            process.terminate()
-            process.join(timeout=3)
-
-    def test_health_sidecar_responds_without_job_manager(self):
-        server = HealthHTTPServer(("127.0.0.1", 0), HealthRequestHandler)
-        server.pairing_token = "sidecar-pairing-token"
-        server.health_payload = {
-            "protocol_version": 4,
-            "service": "墨阅听书生成器",
-            "server_version": "0.4.3",
-            "status": "ready",
-            "engine": "cosyvoice3",
-            "engine_name": "CosyVoice 3",
-            "voices": [],
-        }
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            value = self._json_request(
-                f"http://127.0.0.1:{server.server_port}/v1/health",
-                token="sidecar-pairing-token",
-            )
-            self.assertEqual(value["protocol_version"], 4)
-            self.assertEqual(value["engine"], "cosyvoice3")
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
-
     def test_authorized_job_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = JobManager(ToneTestBackend(), Path(directory))
@@ -163,7 +95,7 @@ class HTTPServerTests(unittest.TestCase):
                 self.assertEqual(book_status["jobs"][0]["status"], "completed")
                 self.assertEqual(book_status["jobs"][0]["file_size"], status["file_size"])
                 dashboard = self._json_request(f"{base_url}/v1/dashboard")
-                self.assertEqual(dashboard["server_version"], "0.5.1")
+                self.assertEqual(dashboard["server_version"], "0.5.2")
                 self.assertTrue(dashboard["public_url"].endswith(f":{server.server_port}"))
                 self.assertEqual(dashboard["books"][0]["book_title"], "测试书")
                 self.assertEqual(dashboard["books"][0]["completed_count"], 1)

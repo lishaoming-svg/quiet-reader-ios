@@ -5,17 +5,11 @@ struct AudiobookServerClient {
     var session: URLSession = .shared
 
     func health() async throws -> AudiobookServerHealth {
-        if let sidecarURL = healthSidecarURL {
-            do {
-                return try await fetchHealth(at: sidecarURL, timeout: 5)
-            } catch {
-                // Older generators expose health on the main service port.
-            }
-        }
-        return try await fetchHealth(
-            at: configuration.baseURL.appending(path: "v1/health"),
-            timeout: 60
-        )
+        try await fetchHealth(at: healthURL, timeout: 10)
+    }
+
+    var healthURL: URL {
+        configuration.baseURL.appending(path: "v1/health")
     }
 
     private func fetchHealth(at url: URL, timeout: TimeInterval) async throws -> AudiobookServerHealth {
@@ -29,7 +23,7 @@ struct AudiobookServerClient {
             switch error.code {
             case .timedOut:
                 throw AudiobookClientError.connection(
-                    "生成器连续忙碌超过 60 秒。请等待当前语音分段完成后重试连接。"
+                    "连接电脑超时。当前检查地址：\(url.absoluteString)"
                 )
             case .cannotConnectToHost, .cannotFindHost, .networkConnectionLost,
                  .notConnectedToInternet:
@@ -40,20 +34,6 @@ struct AudiobookServerClient {
                 throw error
             }
         }
-    }
-
-    private var healthSidecarURL: URL? {
-        guard var components = URLComponents(
-            url: configuration.baseURL,
-            resolvingAgainstBaseURL: false
-        ), let port = components.port, port < 65_535 else {
-            return nil
-        }
-        components.port = port + 1
-        components.path = "/v1/health"
-        components.query = nil
-        components.fragment = nil
-        return components.url
     }
 
     func submit(_ job: AudiobookJobRequest) async throws -> AudiobookJobStatus {

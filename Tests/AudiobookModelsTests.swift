@@ -25,6 +25,20 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual(parsed.baseURL.absoluteString, "http://192.168.1.20:8765")
     }
 
+    func testHealthCheckUsesPairedMainPort() throws {
+        let configuration = try XCTUnwrap(
+            AudiobookPairingConfiguration(
+                baseURLString: "http://192.168.31.251:8765",
+                token: "test-token"
+            )
+        )
+
+        let client = AudiobookServerClient(configuration: configuration)
+
+        XCTAssertEqual(client.healthURL.absoluteString, "http://192.168.31.251:8765/v1/health")
+        XCTAssertEqual(client.healthURL.port, 8765)
+    }
+
     func testChapterIdentifierIsStableAndFilesystemSafe() {
         let first = AudiobookIdentifier.chapterID(for: "https://example.test/book/第一章?id=1")
         let second = AudiobookIdentifier.chapterID(for: "https://example.test/book/第一章?id=1")

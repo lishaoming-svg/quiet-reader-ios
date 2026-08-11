@@ -889,7 +889,7 @@ private struct AudiobookPairingView: View {
                     InlineErrorView(message: errorMessage)
                 }
                 if isTesting {
-                    Text("正在检查 \(address)。连接检查使用独立通道，不会等待语音生成，也不会创建音频任务。")
+                    Text("正在检查 \(address)/v1/health。该请求只读取服务状态，不会创建音频任务。")
                         .font(.caption)
                         .foregroundStyle(AppTheme.inkSoft)
                 }
