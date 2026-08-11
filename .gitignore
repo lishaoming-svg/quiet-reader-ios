@@ -1,6 +1,10 @@
 .DS_Store
 .build/
 build/
+Companion/AudiobookServer/.runtime/
+Companion/AudiobookServer/data/
+Companion/AudiobookServer/__pycache__/
+Companion/AudiobookServer/tests/__pycache__/
 DerivedData/
 QuietReader.xcodeproj/
 *.xcuserstate

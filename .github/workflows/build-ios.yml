@@ -17,6 +17,9 @@ jobs:
       - name: 安装 XcodeGen
         run: brew install xcodegen
 
+      - name: 测试 Windows 听书协议
+        run: python3 -m unittest discover -s Companion/AudiobookServer/tests -v
+
       - name: 运行单元测试
         run: bash scripts/run-tests.sh
 

@@ -11,6 +11,7 @@ struct ReaderView: View {
     @AppStorage("reader.mode") private var modeValue = ReaderMode.scroll.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
+    @ObservedObject private var audiobookPlayer = AudiobookPlayer.shared
 
     let book: SearchBook
     let chapters: [BookChapter]
@@ -32,6 +33,7 @@ struct ReaderView: View {
     @State private var controlsVisible = true
     @State private var showingSettings = false
     @State private var showingBookmarks = false
+    @State private var showingAudiobook = false
     @State private var currentBookmarkID: String?
     @State private var scrubProgress = 0.0
     @State private var isScrubbing = false
@@ -115,6 +117,15 @@ struct ReaderView: View {
                 goToChapter(targetIndex, locatorOffset: bookmark.locatorOffset)
             }
         }
+        .sheet(isPresented: $showingAudiobook) {
+            AudiobookView(
+                book: book,
+                chapters: chapters,
+                source: source,
+                currentIndex: currentIndex,
+                currentText: content
+            )
+        }
         .task(id: currentIndex) { await loadChapter() }
         .task { await runSessionTimer() }
         .onDisappear {
@@ -138,6 +149,13 @@ struct ReaderView: View {
         .onChange(of: usesSerif) { _, _ in repaginateForSettingsChange() }
         .onChange(of: marginValue) { _, _ in repaginateForSettingsChange() }
         .onChange(of: paragraphIndent) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: audiobookPlayer.currentChapterIndex) { _, targetIndex in
+            guard audiobookPlayer.currentBookID == book.id,
+                  let targetIndex,
+                  chapters.indices.contains(targetIndex),
+                  targetIndex != currentIndex else { return }
+            goToChapter(targetIndex, locatorOffset: 0)
+        }
     }
 
     @ViewBuilder
@@ -368,6 +386,13 @@ struct ReaderView: View {
                 toggleBookmark()
             } label: {
                 Image(systemName: currentBookmarkID == nil ? "bookmark" : "bookmark.fill")
+            }
+            Button {
+                showingAudiobook = true
+            } label: {
+                Image(systemName: audiobookPlayer.currentBookID == book.id && audiobookPlayer.isPlaying
+                    ? "headphones.circle.fill"
+                    : "headphones")
             }
             Button {
                 showingSettings = true
