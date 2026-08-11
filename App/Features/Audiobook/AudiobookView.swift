@@ -49,12 +49,17 @@ struct AudiobookView: View {
             }
             .task {
                 refreshLocalState()
+                if currentChapterHasAudio {
+                    beginAutomaticListening(allowComputer: false)
+                }
                 if configuration != nil {
                     await testConnection()
                     beginAutomaticListening(allowComputer: health != nil)
                 } else {
-                    beginAutomaticListening(allowComputer: false)
-                    if !currentChapterHasAudio { showingPairing = true }
+                    if !currentChapterHasAudio {
+                        beginAutomaticListening(allowComputer: false)
+                        showingPairing = true
+                    }
                 }
             }
             .onDisappear { workTask?.cancel() }

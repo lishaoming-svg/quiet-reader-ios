@@ -26,7 +26,7 @@ from protocol import JobRequest, ProtocolError, split_narration_text
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 
 
@@ -127,6 +127,15 @@ class JobManager:
         with self.lock:
             existing = self.jobs.get(job_id)
             if existing:
+                if existing.status == "failed":
+                    existing.status = "queued"
+                    existing.progress = 0.0
+                    existing.completed_segments = 0
+                    existing.total_segments = 0
+                    existing.error = None
+                    existing.updated_at = utc_now()
+                    self._persist(existing)
+                    self.work_queue.put(job_id)
                 return existing
             audio_path = self.audio_dir / f"{job_id}.m4a"
             state = JobState(job_id=job_id, request=request)

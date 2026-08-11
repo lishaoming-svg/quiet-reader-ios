@@ -19,6 +19,50 @@ from tts_backends import CosyVoiceBackend, ToneTestBackend, WindowsSAPIBackend
 
 
 class GenerationTests(unittest.TestCase):
+    def test_failed_job_can_be_retried_with_same_identifier(self):
+        class FailsOnceBackend(ToneTestBackend):
+            def __init__(self):
+                self.attempts = 0
+
+            def synthesize(self, text, output_path, voice, speed):
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise RuntimeError("首次生成失败")
+                super().synthesize(text, output_path, voice, speed)
+
+        text = "失败后使用同一个任务标识重试。"
+        request = JobRequest(
+            book_id="retry-book",
+            book_title="重试测试",
+            author="作者",
+            chapter_id="retry-chapter",
+            chapter_index=0,
+            chapter_title="第一章",
+            text=text,
+            text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            voice="default",
+            speed=1.0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            backend = FailsOnceBackend()
+            manager = JobManager(backend, Path(directory))
+            try:
+                first = manager.submit(request)
+                deadline = time.time() + 5
+                while first.status in ("queued", "running") and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertEqual(first.status, "failed")
+
+                retried = manager.submit(request)
+                deadline = time.time() + 10
+                while retried.status in ("queued", "running") and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertEqual(retried.status, "completed", retried.error)
+                self.assertEqual(retried.job_id, first.job_id)
+                self.assertEqual(backend.attempts, 2)
+            finally:
+                manager.shutdown()
+
     def test_cosyvoice_writes_standard_pcm_wave(self):
         class FakeAudio:
             def cpu(self):
