@@ -40,7 +40,8 @@ struct AudiobookServerClient {
         guard !jobs.isEmpty else {
             return AudiobookBatchSubmission(
                 protocolVersion: AudiobookProtocol.version,
-                acceptedCount: 0
+                acceptedCount: 0,
+                discardedCount: 0
             )
         }
         var request = authorizedRequest(path: "v1/jobs/batch")

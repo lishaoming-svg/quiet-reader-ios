@@ -158,10 +158,12 @@ struct AudiobookBatchJobRequest: Encodable {
 struct AudiobookBatchSubmission: Decodable {
     let protocolVersion: Int
     let acceptedCount: Int
+    let discardedCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocol_version"
         case acceptedCount = "accepted_count"
+        case discardedCount = "discarded_count"
     }
 }
 

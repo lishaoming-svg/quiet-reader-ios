@@ -439,9 +439,16 @@ struct AudiobookView: View {
                     speed: requestedSpeed
                 )
                 if failed == 0 {
-                    workMessage = "未读 \(submission.acceptedCount) 章已一次上传，可以离开听书页面。"
+                    workMessage = submissionMessage(
+                        acceptedCount: submission.acceptedCount,
+                        discardedCount: submission.discardedCount ?? 0,
+                        prefix: "未读"
+                    )
                 } else {
-                    workMessage = "已上传 \(submission.acceptedCount) 章，\(failed) 章正文下载失败；再次点击会继续补齐。"
+                    let cleanup = (submission.discardedCount ?? 0) > 0
+                        ? "，清理 \(submission.discardedCount ?? 0) 个旧任务"
+                        : ""
+                    workMessage = "已上传 \(submission.acceptedCount) 章\(cleanup)，\(failed) 章正文下载失败；再次点击会继续补齐。"
                 }
                 refreshLocalState()
             } catch is CancellationError {
@@ -534,7 +541,11 @@ struct AudiobookView: View {
                     voice: generationVoice,
                     speed: requestedSpeed
                 )
-                workMessage = "已一次上传 \(submission.acceptedCount) 章，后续生成无需停留在手机页面。"
+                workMessage = submissionMessage(
+                    acceptedCount: submission.acceptedCount,
+                    discardedCount: submission.discardedCount ?? 0,
+                    prefix: "已缓存"
+                )
             } catch is CancellationError {
                 workError = "章节提交已暂停，电脑会继续处理已经收到的任务。"
             } catch {
@@ -550,6 +561,15 @@ struct AudiobookView: View {
         )
         let records = (try? modelContext.fetch(descriptor)) ?? []
         return Dictionary(uniqueKeysWithValues: records.map { ($0.chapterURL, $0.content) })
+    }
+
+    private func submissionMessage(
+        acceptedCount: Int,
+        discardedCount: Int,
+        prefix: String
+    ) -> String {
+        let cleanup = discardedCount > 0 ? "，已清理 \(discardedCount) 个同章节旧任务" : ""
+        return "\(prefix) \(acceptedCount) 章已一次上传\(cleanup)，可以离开听书页面。"
     }
 
     private func saveChapterCache(_ chapter: BookChapter, content: String) throws {

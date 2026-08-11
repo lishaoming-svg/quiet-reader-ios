@@ -38,7 +38,7 @@ from protocol import (
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.4.1"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
 SEGMENT_PAUSE_SECONDS = 0.12
@@ -198,6 +198,24 @@ class JobManager:
     def get(self, job_id: str) -> JobState | None:
         with self.lock:
             return self.jobs.get(job_id)
+
+    def discard_superseded_pending(self, request: JobRequest) -> int:
+        with self.lock:
+            discarded_ids = [
+                job_id
+                for job_id, job in self.jobs.items()
+                if job_id != request.stable_job_id
+                and job.request.book_id == request.book_id
+                and job.request.chapter_id == request.chapter_id
+                and job.status in {"queued", "failed"}
+            ]
+            for job_id in discarded_ids:
+                state = self.jobs.pop(job_id)
+                state.status = "superseded"
+                target = self.jobs_dir / f"{job_id}.json"
+                if target.is_file():
+                    target.unlink()
+            return len(discarded_ids)
 
     def queue_summary(self) -> dict[str, int]:
         with self.lock:
@@ -384,7 +402,7 @@ class JobManager:
             if job_id is None:
                 return
             state = self.get(job_id)
-            if state is None:
+            if state is None or state.status != "queued":
                 continue
             try:
                 self._generate(state)
@@ -623,6 +641,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             payload = self._read_json()
             if path == "/v1/jobs":
                 request = JobRequest.from_dict(payload)
+                self.server.manager.discard_superseded_pending(request)
                 job = self.server.manager.submit(request)
                 self._send_json(HTTPStatus.ACCEPTED, job.public_dict())
             else:
@@ -645,12 +664,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not all(isinstance(value, dict) for value in values):
             raise ProtocolError("批量任务格式无效")
         requests = [JobRequest.from_dict(value) for value in values]
+        discarded_count = sum(
+            self.server.manager.discard_superseded_pending(request)
+            for request in requests
+        )
         jobs = [self.server.manager.submit(request) for request in requests]
         self._send_json(
             HTTPStatus.ACCEPTED,
             {
                 "protocol_version": PROTOCOL_VERSION,
                 "accepted_count": len(jobs),
+                "discarded_count": discarded_count,
             },
         )
 

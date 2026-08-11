@@ -95,6 +95,17 @@ final class AudiobookModelsTests: XCTestCase {
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(payload["protocol_version"] as? Int, 4)
         XCTAssertEqual((payload["jobs"] as? [[String: Any]])?.count, 3)
+
+        let response = try JSONDecoder().decode(
+            AudiobookBatchSubmission.self,
+            from: Data(
+                """
+                {"protocol_version":4,"accepted_count":3,"discarded_count":2}
+                """.utf8
+            )
+        )
+        XCTAssertEqual(response.acceptedCount, 3)
+        XCTAssertEqual(response.discardedCount, 2)
     }
 
     func testServerHealthDecodesRestoredQueueSummary() throws {

@@ -24,6 +24,37 @@ class GenerationTests(unittest.TestCase):
     def test_timeline_offsets_use_ios_utf16_units(self):
         self.assertEqual(_utf16_offset("甲😀乙", 2), 3)
 
+    def test_new_voice_discards_same_chapter_old_pending_job(self):
+        text = "同一章节只保留最新音色的未完成任务。"
+        common = {
+            "book_id": "dedupe-book",
+            "book_title": "去重测试",
+            "author": "作者",
+            "chapter_id": "same-chapter",
+            "chapter_url": "https://example.test/dedupe/1",
+            "chapter_index": 0,
+            "chapter_title": "第一章",
+            "text": text,
+            "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "speed": 1.0,
+        }
+        old_request = JobRequest(voice="reference", **common)
+        new_request = JobRequest(voice="multi-role", **common)
+
+        with tempfile.TemporaryDirectory() as directory:
+            manager = JobManager(ToneTestBackend(), Path(directory))
+            manager.shutdown()
+            old_job = manager.submit(old_request)
+            old_file = manager.jobs_dir / f"{old_job.job_id}.json"
+            self.assertTrue(old_file.is_file())
+
+            discarded = manager.discard_superseded_pending(new_request)
+
+            self.assertEqual(discarded, 1)
+            self.assertIsNone(manager.get(old_job.job_id))
+            self.assertEqual(old_job.status, "superseded")
+            self.assertFalse(old_file.exists())
+
     def test_failed_job_can_be_retried_with_same_identifier(self):
         class FailsOnceBackend(ToneTestBackend):
             def __init__(self):

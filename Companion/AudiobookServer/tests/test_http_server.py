@@ -68,6 +68,7 @@ class HTTPServerTests(unittest.TestCase):
                     ).encode("utf-8"),
                 )
                 self.assertEqual(batch["accepted_count"], 1)
+                self.assertEqual(batch["discarded_count"], 0)
                 deadline = time.time() + 10
                 status = submitted
                 while status["status"] in ("queued", "running") and time.time() < deadline:
