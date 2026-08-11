@@ -73,6 +73,36 @@ enum ReaderMargin: String, CaseIterable, Identifiable {
     }
 }
 
+enum ReaderLayoutMetrics {
+    static func contentWidth(containerWidth: CGFloat, margin: ReaderMargin) -> CGFloat {
+        let available = max(1, containerWidth - margin.horizontalPadding * 2)
+        return min(margin.maximumContentWidth, available)
+    }
+}
+
+enum ReaderResumeResolver {
+    static func chapterIndex(
+        in chapters: [BookChapter],
+        chapterURL: String?,
+        fallbackIndex: Int?
+    ) -> Int {
+        guard !chapters.isEmpty else { return 0 }
+        if let chapterURL,
+           let matched = chapters.firstIndex(where: { $0.url == chapterURL }) {
+            return matched
+        }
+        if let fallbackIndex, chapters.indices.contains(fallbackIndex) {
+            return fallbackIndex
+        }
+        return 0
+    }
+}
+
+enum ReaderLineBreakRules {
+    static let forbiddenLineStart = Set("，。！？；：、）》】」』〉〕］）,.!?;:%％…—")
+    static let forbiddenLineEnd = Set("《【「『〈〔［（")
+}
+
 enum ReaderTypography {
     static let letterSpacing: CGFloat = 0.18
     static let chapterHeadingHeight: CGFloat = 108
@@ -129,7 +159,8 @@ enum ReaderPageTextStyle {
     ) -> [NSAttributedString.Key: Any] {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
-        paragraphStyle.lineBreakMode = .byCharWrapping
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        paragraphStyle.lineBreakStrategy = [.pushOut]
 
         return [
             .font: ReaderTypography.bodyUIFont(size: fontSize, usesSerif: usesSerif),
@@ -208,7 +239,7 @@ final class ReaderPageTextCanvas: UIView {
         layoutManager.usesFontLeading = true
         textContainer.lineFragmentPadding = 0
         textContainer.maximumNumberOfLines = 0
-        textContainer.lineBreakMode = .byCharWrapping
+        textContainer.lineBreakMode = .byWordWrapping
         textStorage.addLayoutManager(layoutManager)
         layoutManager.addTextContainer(textContainer)
     }
@@ -231,6 +262,26 @@ final class ReaderPageTextCanvas: UIView {
         textContainer.size = CGSize(width: width, height: 100_000)
         layoutManager.ensureLayout(for: textContainer)
         return ceil(layoutManager.usedRect(for: textContainer).height)
+    }
+
+    func renderedLines(for width: CGFloat) -> [String] {
+        guard width > 0, textStorage.length > 0 else { return [] }
+        textContainer.size = CGSize(width: width, height: 100_000)
+        layoutManager.ensureLayout(for: textContainer)
+        let nsText = textStorage.string as NSString
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        var lines: [String] = []
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) {
+            _, _, _, lineGlyphRange, _ in
+            let characterRange = self.layoutManager.characterRange(
+                forGlyphRange: lineGlyphRange,
+                actualGlyphRange: nil
+            )
+            let line = nsText.substring(with: characterRange)
+                .trimmingCharacters(in: .newlines)
+            if !line.isEmpty { lines.append(line) }
+        }
+        return lines
     }
 
     override func layoutSubviews() {
@@ -465,7 +516,7 @@ enum ReaderPaginator {
             )
             container.lineFragmentPadding = 0
             container.maximumNumberOfLines = 0
-            container.lineBreakMode = .byCharWrapping
+            container.lineBreakMode = .byWordWrapping
             layoutManager.addTextContainer(container)
             layoutManager.ensureLayout(for: container)
 

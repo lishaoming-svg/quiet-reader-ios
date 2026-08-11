@@ -143,7 +143,7 @@ struct SearchBook: Hashable, Identifiable, Sendable {
     var id: String { "\(sourceID)::\(bookURL)" }
 }
 
-struct BookChapter: Hashable, Identifiable, Sendable {
+struct BookChapter: Codable, Hashable, Identifiable, Sendable {
     var title: String
     var url: String
     var index: Int

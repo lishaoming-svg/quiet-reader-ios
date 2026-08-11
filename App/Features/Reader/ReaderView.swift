@@ -35,6 +35,7 @@ struct ReaderView: View {
     @State private var currentBookmarkID: String?
     @State private var scrubProgress = 0.0
     @State private var isScrubbing = false
+    @State private var prefetchTask: Task<Void, Never>?
 
     @State private var sessionID: String?
     @State private var sessionStartedAt = Date.now
@@ -60,6 +61,12 @@ struct ReaderView: View {
     private var readerMode: ReaderMode { ReaderMode(rawValue: modeValue) ?? .scroll }
     private var readerMargin: ReaderMargin {
         ReaderMargin(rawValue: marginValue) ?? .comfortable
+    }
+    private var readerContentWidth: CGFloat {
+        ReaderLayoutMetrics.contentWidth(
+            containerWidth: layoutSize.width,
+            margin: readerMargin
+        )
     }
 
     var body: some View {
@@ -111,6 +118,7 @@ struct ReaderView: View {
         .task(id: currentIndex) { await loadChapter() }
         .task { await runSessionTimer() }
         .onDisappear {
+            prefetchTask?.cancel()
             tickSession()
             persistSession()
             saveProgress()
@@ -191,8 +199,7 @@ struct ReaderView: View {
             .foregroundStyle(paper.primaryText)
             .textSelection(.enabled)
             .scrollTargetLayout()
-            .frame(maxWidth: readerMargin.maximumContentWidth, alignment: .leading)
-            .padding(.horizontal, readerMargin.horizontalPadding)
+            .frame(width: readerContentWidth, alignment: .leading)
             .padding(.top, 36)
             .padding(.bottom, controlsVisible ? 36 : 84)
             .frame(maxWidth: .infinity)
@@ -265,8 +272,7 @@ struct ReaderView: View {
                 .frame(height: ReaderTypography.pageFooterHeight)
                 .padding(.top, ReaderTypography.pageFooterTopSpacing)
         }
-        .frame(maxWidth: readerMargin.maximumContentWidth, maxHeight: .infinity)
-        .padding(.horizontal, readerMargin.horizontalPadding)
+        .frame(width: readerContentWidth, maxHeight: .infinity)
         .padding(.vertical, ReaderTypography.pageVerticalPadding)
         .frame(maxWidth: .infinity)
     }
@@ -541,13 +547,7 @@ struct ReaderView: View {
     private func rebuildPages(keeping locatorOffset: Int) {
         guard !content.isEmpty else { return }
         let pageSize = CGSize(
-            width: max(
-                120,
-                min(
-                    readerMargin.maximumContentWidth,
-                    layoutSize.width - readerMargin.horizontalPadding * 2
-                )
-            ),
+            width: max(120, readerContentWidth),
             height: max(180, layoutSize.height - ReaderTypography.pageChromeHeight)
         )
         pages = ReaderPaginator.paginate(
@@ -579,6 +579,7 @@ struct ReaderView: View {
     }
 
     private func loadChapter(forceRefresh: Bool = false) async {
+        prefetchTask?.cancel()
         let requestedIndex = currentIndex
         let currentChapter = chapters[requestedIndex]
         isLoading = true
@@ -600,6 +601,7 @@ struct ReaderView: View {
                 guard !Task.isCancelled, currentIndex == requestedIndex else { return }
                 prepareDocument(cached.content, chapter: currentChapter)
                 isLoading = false
+                schedulePrefetch(after: requestedIndex)
                 return
             }
             modelContext.delete(cached)
@@ -611,6 +613,7 @@ struct ReaderView: View {
             guard !Task.isCancelled, currentIndex == requestedIndex else { return }
             cache(currentChapter, content: value)
             prepareDocument(value, chapter: currentChapter)
+            schedulePrefetch(after: requestedIndex)
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .cancelled {
@@ -622,6 +625,32 @@ struct ReaderView: View {
         }
         guard currentIndex == requestedIndex else { return }
         isLoading = false
+    }
+
+    private func schedulePrefetch(after index: Int) {
+        let targets = Array(chapters.dropFirst(index + 1).prefix(2))
+        guard !targets.isEmpty else { return }
+        prefetchTask?.cancel()
+        prefetchTask = Task {
+            for target in targets {
+                guard !Task.isCancelled else { return }
+                if cachedChapter(url: target.url) != nil { continue }
+                do {
+                    let value = try await SourceEngine().loadContent(
+                        chapter: target,
+                        source: source
+                    )
+                    guard !Task.isCancelled else { return }
+                    cache(target, content: ReadableTextNormalizer.normalize(value))
+                } catch is CancellationError {
+                    return
+                } catch let error as URLError where error.code == .cancelled {
+                    return
+                } catch {
+                    continue
+                }
+            }
+        }
     }
 
     private func prepareDocument(_ value: String, chapter: BookChapter) {

@@ -161,6 +161,61 @@ final class ChapterCacheRecord {
 }
 
 @Model
+final class ChapterListCacheRecord {
+    @Attribute(.unique) var bookID: String
+    var sourceID: String
+    @Attribute(.externalStorage) var rawChapters: Data
+    var cachedAt: Date
+
+    init(bookID: String, sourceID: String, chapters: [BookChapter]) throws {
+        self.bookID = bookID
+        self.sourceID = sourceID
+        rawChapters = try JSONEncoder().encode(chapters)
+        cachedAt = .now
+    }
+
+    var chapters: [BookChapter] {
+        (try? JSONDecoder().decode([BookChapter].self, from: rawChapters)) ?? []
+    }
+
+    func update(sourceID: String, chapters: [BookChapter]) throws {
+        self.sourceID = sourceID
+        rawChapters = try JSONEncoder().encode(chapters)
+        cachedAt = .now
+    }
+}
+
+enum ChapterListCacheStore {
+    static func record(bookID: String, in context: ModelContext) -> ChapterListCacheRecord? {
+        let descriptor = FetchDescriptor<ChapterListCacheRecord>(
+            predicate: #Predicate { $0.bookID == bookID }
+        )
+        return try? context.fetch(descriptor).first
+    }
+
+    static func save(
+        chapters: [BookChapter],
+        bookID: String,
+        sourceID: String,
+        in context: ModelContext
+    ) throws {
+        guard !chapters.isEmpty else { return }
+        if let existing = record(bookID: bookID, in: context) {
+            try existing.update(sourceID: sourceID, chapters: chapters)
+        } else {
+            context.insert(
+                try ChapterListCacheRecord(
+                    bookID: bookID,
+                    sourceID: sourceID,
+                    chapters: chapters
+                )
+            )
+        }
+        try context.save()
+    }
+}
+
+@Model
 final class ReadingSessionRecord {
     @Attribute(.unique) var sessionID: String
     var bookID: String

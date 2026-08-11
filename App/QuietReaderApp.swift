@@ -12,6 +12,7 @@ struct QuietReaderApp: App {
                 BookRecord.self,
                 ReadingProgressRecord.self,
                 ChapterCacheRecord.self,
+                ChapterListCacheRecord.self,
                 ReadingSessionRecord.self,
                 BookmarkRecord.self,
                 SearchHistoryRecord.self

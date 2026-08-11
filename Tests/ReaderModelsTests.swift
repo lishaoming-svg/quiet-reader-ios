@@ -4,6 +4,49 @@ import XCTest
 @testable import QuietReader
 
 final class ReaderModelsTests: XCTestCase {
+    func testResumeResolverPrefersChapterURLAndFallsBackToIndex() {
+        let chapters = [
+            BookChapter(title: "第一章", url: "https://example.test/1", index: 0),
+            BookChapter(title: "第二章", url: "https://example.test/2", index: 1),
+            BookChapter(title: "第三章", url: "https://example.test/3", index: 2),
+        ]
+
+        XCTAssertEqual(
+            ReaderResumeResolver.chapterIndex(
+                in: chapters,
+                chapterURL: chapters[2].url,
+                fallbackIndex: 0
+            ),
+            2
+        )
+        XCTAssertEqual(
+            ReaderResumeResolver.chapterIndex(
+                in: chapters,
+                chapterURL: "https://example.test/missing",
+                fallbackIndex: 1
+            ),
+            1
+        )
+    }
+
+    func testReaderContentWidthProducesEqualSideMargins() {
+        let containerWidths: [CGFloat] = [320, 390, 430, 768, 1_024]
+        for containerWidth in containerWidths {
+            for margin in ReaderMargin.allCases {
+                let contentWidth = ReaderLayoutMetrics.contentWidth(
+                    containerWidth: containerWidth,
+                    margin: margin
+                )
+                let leading = (containerWidth - contentWidth) / 2
+                let trailing = containerWidth - contentWidth - leading
+
+                XCTAssertEqual(leading, trailing, accuracy: 0.001)
+                XCTAssertGreaterThanOrEqual(leading, margin.horizontalPadding - 0.001)
+                XCTAssertLessThanOrEqual(contentWidth, margin.maximumContentWidth)
+            }
+        }
+    }
+
     func testBlocksPreserveIncreasingLocatorsForLongContent() {
         let content = String(repeating: "山海之间有一座城。", count: 180) + "\n第二段"
         let blocks = ReaderDocumentBuilder.blocks(from: content, maximumUTF16Length: 120)
@@ -134,6 +177,65 @@ final class ReaderModelsTests: XCTestCase {
                     availableHeight + 0.5,
                     "字号 \(scenario.fontSize) 的第 \(page.id + 1) 页正文高度超出可视区域"
                 )
+            }
+        }
+    }
+
+    @MainActor
+    func testChinesePunctuationDoesNotOccupyForbiddenLineEdges() {
+        let canvas = ReaderPageTextCanvas()
+        canvas.setAttributedText(
+            ReaderPageTextStyle.attributedString(
+                text: String(
+                    repeating: "山窗听雨，灯下翻书。《旧城》里的人问：你还好吗？当然很好！",
+                    count: 24
+                ),
+                fontSize: 19,
+                lineSpacing: 9,
+                usesSerif: true
+            )
+        )
+
+        let widths = stride(from: CGFloat(86), through: CGFloat(190), by: CGFloat(7))
+        for width in widths {
+            let lines = canvas.renderedLines(for: width)
+            XCTAssertGreaterThan(lines.count, 2)
+            for line in lines {
+                if let first = line.first {
+                    XCTAssertFalse(
+                        ReaderLineBreakRules.forbiddenLineStart.contains(first),
+                        "宽度 \(width) 的行首出现禁排标点：\(line)"
+                    )
+                }
+                if let last = line.last {
+                    XCTAssertFalse(
+                        ReaderLineBreakRules.forbiddenLineEnd.contains(last),
+                        "宽度 \(width) 的行尾出现禁排标点：\(line)"
+                    )
+                }
+            }
+        }
+
+        let pagedText = String(
+            repeating: "长街尽头亮着灯，归人推开门。《旧城》里的故事还在继续！",
+            count: 80
+        )
+        let pages = ReaderPaginator.paginate(
+            chapterTitle: "标点分页",
+            content: pagedText,
+            size: CGSize(width: 180, height: 300),
+            fontSize: 19,
+            lineSpacing: 9,
+            usesSerif: true
+        )
+        XCTAssertGreaterThan(pages.count, 2)
+        for page in pages {
+            let visible = page.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let first = visible.first {
+                XCTAssertFalse(ReaderLineBreakRules.forbiddenLineStart.contains(first))
+            }
+            if let last = visible.last {
+                XCTAssertFalse(ReaderLineBreakRules.forbiddenLineEnd.contains(last))
             }
         }
     }
