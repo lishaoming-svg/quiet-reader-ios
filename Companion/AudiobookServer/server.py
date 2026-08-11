@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import webbrowser
 import wave
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -492,6 +493,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--prompt-audio", default=os.environ.get("QUIETREADER_PROMPT_AUDIO", ""))
     parser.add_argument("--prompt-text", default=os.environ.get("QUIETREADER_PROMPT_TEXT", ""))
+    parser.add_argument("--open-browser", action="store_true")
     return parser.parse_args()
 
 
@@ -513,6 +515,8 @@ def main() -> None:
     print(f"语音引擎：{backend.display_name}")
     print(f"配对页面：{public_url}")
     print("关闭窗口或按 Ctrl+C 可停止服务")
+    if args.open_browser:
+        webbrowser.open(public_url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

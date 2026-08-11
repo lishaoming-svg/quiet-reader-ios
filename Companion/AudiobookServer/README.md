@@ -4,6 +4,10 @@
 
 ## 立即启动
 
+CosyVoice 已安装后，双击 `启动墨阅听书.cmd` 即可。脚本会自动加载现有参考音频并打开配对网页；服务运行期间请保留启动窗口。
+
+也可以通过 PowerShell 手动选择引擎：
+
 ```powershell
 cd Companion\AudiobookServer
 python -m pip install -r requirements.txt
