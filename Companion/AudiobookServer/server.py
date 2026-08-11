@@ -39,7 +39,7 @@ from protocol import (
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.4.3"
+SERVER_VERSION = "0.5.0"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
 HEALTH_PORT_OFFSET = 1
@@ -225,6 +225,76 @@ class JobManager:
                 "running_count": sum(job.status == "running" for job in self.jobs.values()),
                 "queued_count": sum(job.status == "queued" for job in self.jobs.values()),
                 "failed_count": sum(job.status == "failed" for job in self.jobs.values()),
+            }
+
+    def dashboard_status(self) -> dict[str, Any]:
+        with self.lock:
+            jobs = sorted(
+                self.jobs.values(),
+                key=lambda job: (job.created_at, job.request.chapter_index, job.job_id),
+            )
+            book_groups: dict[tuple[str, str, float], dict[str, Any]] = {}
+            job_items: list[dict[str, Any]] = []
+            for job in jobs:
+                request = job.request
+                key = (request.book_id, request.voice, request.speed)
+                group = book_groups.setdefault(
+                    key,
+                    {
+                        "book_id": request.book_id,
+                        "book_title": request.book_title,
+                        "author": request.author,
+                        "voice": request.voice,
+                        "speed": request.speed,
+                        "total_count": 0,
+                        "completed_count": 0,
+                        "running_count": 0,
+                        "queued_count": 0,
+                        "failed_count": 0,
+                        "completed_bytes": 0,
+                        "updated_at": job.updated_at,
+                    },
+                )
+                group["total_count"] += 1
+                count_key = f"{job.status}_count"
+                if count_key in group:
+                    group[count_key] += 1
+                if job.status == "completed":
+                    group["completed_bytes"] += job.file_size
+                group["updated_at"] = max(group["updated_at"], job.updated_at)
+                job_items.append(
+                    {
+                        "job_id": job.job_id,
+                        "book_id": request.book_id,
+                        "book_title": request.book_title,
+                        "author": request.author,
+                        "chapter_index": request.chapter_index,
+                        "chapter_title": request.chapter_title,
+                        "voice": request.voice,
+                        "speed": request.speed,
+                        "status": job.status,
+                        "progress": job.progress,
+                        "completed_segments": job.completed_segments,
+                        "total_segments": job.total_segments,
+                        "file_size": job.file_size,
+                        "error": job.error,
+                        "updated_at": job.updated_at,
+                    }
+                )
+            books = sorted(
+                book_groups.values(),
+                key=lambda item: item["updated_at"],
+                reverse=True,
+            )
+            return {
+                "protocol_version": PROTOCOL_VERSION,
+                "server_version": SERVER_VERSION,
+                "engine": self.backend.engine_id,
+                "engine_name": self.backend.display_name,
+                "voices": self.backend.voices(),
+                "queue": self.queue_summary(),
+                "books": books,
+                "jobs": job_items,
             }
 
     def book_status(self, book_id: str, voice: str, speed: float) -> dict[str, Any]:
@@ -655,6 +725,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         if not self._authorized():
             return
+        if path == "/v1/dashboard":
+            self._send_json(HTTPStatus.OK, self.server.manager.dashboard_status())
+            return
         if path in {"/v1/books/status", "/v1/books/package"}:
             try:
                 book_id, voice, speed = self._book_query(parsed.query)
@@ -692,6 +765,10 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         if not self._authorized():
+            return
+        if path == "/v1/control/stop":
+            self._send_json(HTTPStatus.ACCEPTED, {"message": "生成器正在停止"})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
         if path not in {"/v1/jobs", "/v1/jobs/batch"}:
             self._send_error(HTTPStatus.NOT_FOUND, "请求地址不存在")
@@ -807,13 +884,20 @@ class RequestHandler(BaseHTTPRequestHandler):
             qr_html = f'<img alt="配对二维码" src="data:image/png;base64,{encoded}" width="280" height="280">'
         except ImportError:
             qr_html = "<p>安装 requirements.txt 后可显示二维码。</p>"
-        html = f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>墨阅听书生成器</title>
-<style>body{{font-family:serif;background:#f7f0dc;color:#172833;max-width:680px;margin:40px auto;padding:24px}}main{{background:#fffdf5;padding:28px;border-radius:22px;box-shadow:0 12px 40px #5a3d2520}}code{{word-break:break-all}}img{{display:block;margin:20px auto}}</style></head>
-<body><main><h1>墨阅听书生成器</h1><p>服务器已启动：{self.server.manager.backend.display_name}</p>
-{qr_html}<p>在 iPhone 墨阅的听书面板中扫描二维码，或手工填写：</p>
-<p>地址：<code>{self.server.public_url}</code></p><p>配对码：<code>{self.server.pairing_token}</code></p>
-<p>手机与电脑需要连接同一个局域网。音频下载完成后可以关闭电脑。</p></main></body></html>"""
+        template_path = Path(__file__).resolve().with_name("dashboard.html")
+        html = template_path.read_text(encoding="utf-8")
+        html = html.replace("__QR_HTML__", qr_html)
+        replacements = {
+            "__PUBLIC_URL_JSON__": json.dumps(self.server.public_url, ensure_ascii=False),
+            "__PAIRING_TOKEN_JSON__": json.dumps(self.server.pairing_token, ensure_ascii=False),
+            "__PAIRING_URI_JSON__": json.dumps(pairing_uri, ensure_ascii=False),
+            "__ENGINE_NAME_JSON__": json.dumps(
+                self.server.manager.backend.display_name,
+                ensure_ascii=False,
+            ),
+        }
+        for marker, value in replacements.items():
+            html = html.replace(marker, value.replace("</", "<\\/"))
         data = html.encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")

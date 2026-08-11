@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>墨阅桌面伴读台</title>
+  <style>
+    :root {
+      --paper: #f3eddd;
+      --paper-deep: #e5dbc5;
+      --card: rgba(255, 253, 246, 0.88);
+      --ink: #183039;
+      --ink-soft: #617077;
+      --jade: #237366;
+      --jade-pale: #d8e9df;
+      --red: #b43a2c;
+      --red-pale: #f2ddd5;
+      --line: rgba(24, 48, 57, 0.13);
+      --shadow: 0 18px 60px rgba(69, 53, 32, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(35, 115, 102, 0.16), transparent 28rem),
+        radial-gradient(circle at 94% 88%, rgba(180, 58, 44, 0.12), transparent 25rem),
+        linear-gradient(135deg, var(--paper), #faf6e9 54%, var(--paper-deep));
+      font-family: "FangSong", "STFangsong", "SimSun", serif;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .shell { display: grid; grid-template-columns: 244px 1fr; min-height: 100vh; }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 34px 22px;
+      border-right: 1px solid var(--line);
+      background: rgba(250, 246, 233, 0.67);
+      backdrop-filter: blur(18px);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 42px; }
+    .seal {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      color: #fff9ea;
+      background: var(--red);
+      border-radius: 13px 13px 13px 4px;
+      font-family: "STKaiti", "KaiTi", serif;
+      font-size: 22px;
+      box-shadow: 0 9px 24px rgba(180, 58, 44, 0.25);
+    }
+    .brand strong { display: block; font-size: 20px; letter-spacing: 0.08em; }
+    .brand small { color: var(--ink-soft); font-family: Georgia, serif; }
+    nav { display: grid; gap: 8px; }
+    .nav-button {
+      width: 100%;
+      padding: 13px 15px;
+      color: var(--ink-soft);
+      text-align: left;
+      border: 0;
+      border-radius: 13px;
+      background: transparent;
+    }
+    .nav-button.active { color: var(--ink); background: var(--card); box-shadow: 0 7px 24px rgba(69, 53, 32, 0.08); }
+    .aside-foot { position: absolute; right: 22px; bottom: 26px; left: 22px; }
+    .engine-label { color: var(--ink-soft); font-size: 13px; }
+    .online { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-weight: 700; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--jade); box-shadow: 0 0 0 5px var(--jade-pale); }
+
+    main { width: min(1240px, 100%); margin: 0 auto; padding: 42px 46px 64px; }
+    .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: clamp(30px, 4vw, 48px); font-weight: 700; letter-spacing: 0.06em; }
+    .subtitle { margin: 0; color: var(--ink-soft); }
+    .top-actions { display: flex; gap: 10px; }
+    .button {
+      padding: 11px 16px;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 253, 246, 0.72);
+    }
+    .button:hover { border-color: rgba(35, 115, 102, 0.45); transform: translateY(-1px); }
+    .button.danger { color: var(--red); }
+    .view { display: none; animation: reveal 0.35s ease both; }
+    .view.active { display: block; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(8px); } }
+
+    .hero-card {
+      position: relative;
+      overflow: hidden;
+      min-height: 210px;
+      padding: 30px;
+      color: #fdf8ea;
+      border-radius: 26px;
+      background: linear-gradient(125deg, #17363c, #285b58 66%, #537567);
+      box-shadow: var(--shadow);
+    }
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      right: -70px;
+      bottom: -90px;
+      width: 260px;
+      height: 260px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 50%;
+      box-shadow: 0 0 0 34px rgba(255, 255, 255, 0.04), 0 0 0 68px rgba(255, 255, 255, 0.025);
+    }
+    .eyebrow { color: rgba(255,255,255,0.65); font-size: 13px; letter-spacing: 0.12em; }
+    .hero-card h2 { position: relative; z-index: 1; margin: 18px 0 8px; font-size: clamp(24px, 4vw, 39px); }
+    .hero-meta { position: relative; z-index: 1; color: rgba(255,255,255,0.72); }
+    .progress-track { position: relative; z-index: 1; width: min(660px, 100%); height: 9px; margin-top: 28px; overflow: hidden; border-radius: 20px; background: rgba(255,255,255,0.14); }
+    .progress-fill { width: 0; height: 100%; border-radius: inherit; background: #f1c878; transition: width 0.4s ease; }
+    .progress-caption { position: relative; z-index: 1; margin-top: 10px; color: rgba(255,255,255,0.76); font: 13px Georgia, serif; }
+
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0 34px; }
+    .stat { padding: 18px 20px; border: 1px solid rgba(255,255,255,0.6); border-radius: 18px; background: var(--card); box-shadow: 0 8px 26px rgba(69,53,32,0.06); }
+    .stat span { color: var(--ink-soft); font-size: 13px; }
+    .stat strong { display: block; margin-top: 7px; font: 30px Georgia, serif; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; margin: 32px 0 14px; }
+    .section-head h2 { margin: 0; font-size: 23px; }
+    .section-head span { color: var(--ink-soft); font-size: 13px; }
+    .book-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .book-card { padding: 22px; border: 1px solid rgba(255,255,255,0.62); border-radius: 20px; background: var(--card); box-shadow: 0 10px 34px rgba(69,53,32,0.07); }
+    .book-title { display: flex; justify-content: space-between; gap: 16px; }
+    .book-title h3 { margin-bottom: 5px; font-size: 19px; }
+    .book-title p { margin: 0; color: var(--ink-soft); font-size: 13px; }
+    .pill { height: fit-content; padding: 5px 9px; color: var(--jade); border-radius: 99px; background: var(--jade-pale); font-size: 12px; white-space: nowrap; }
+    .book-progress { height: 6px; margin: 19px 0 9px; overflow: hidden; border-radius: 10px; background: rgba(24,48,57,0.09); }
+    .book-progress i { display: block; height: 100%; background: var(--jade); }
+    .book-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-soft); font-size: 13px; }
+    .download { padding: 8px 11px; color: var(--red); border: 0; border-radius: 9px; background: var(--red-pale); }
+    .download:disabled { color: #999; background: #eee9df; cursor: default; }
+
+    .task-tools { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .search { flex: 1 1 260px; padding: 12px 15px; color: var(--ink); border: 1px solid var(--line); border-radius: 12px; outline: none; background: rgba(255,253,246,0.8); }
+    .filter { padding: 10px 14px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 99px; background: transparent; }
+    .filter.active { color: #fff; border-color: var(--jade); background: var(--jade); }
+    .task-list { display: grid; gap: 10px; }
+    .task-row { display: grid; grid-template-columns: 110px minmax(160px, 1fr) minmax(190px, 1.2fr) 110px; gap: 16px; align-items: center; padding: 15px 17px; border: 1px solid rgba(255,255,255,0.62); border-radius: 15px; background: var(--card); }
+    .status { width: fit-content; padding: 5px 9px; border-radius: 99px; font-size: 12px; }
+    .status.completed { color: var(--jade); background: var(--jade-pale); }
+    .status.running { color: #8a5b0a; background: #f4e5bc; }
+    .status.queued { color: #53636a; background: #e5e8e5; }
+    .status.failed { color: var(--red); background: var(--red-pale); }
+    .task-book, .task-chapter { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-book small, .task-chapter small { display: block; margin-top: 3px; color: var(--ink-soft); }
+    .task-size { color: var(--ink-soft); text-align: right; font: 13px Georgia, serif; }
+
+    .connect-grid { display: grid; grid-template-columns: 360px 1fr; gap: 22px; }
+    .panel { padding: 26px; border: 1px solid rgba(255,255,255,0.62); border-radius: 22px; background: var(--card); box-shadow: var(--shadow); }
+    .qr { display: grid; place-items: center; min-height: 300px; padding: 10px; border-radius: 18px; background: #fff; }
+    .qr img { display: block; max-width: 100%; height: auto; }
+    code { display: block; margin: 8px 0 18px; padding: 11px; overflow-wrap: anywhere; color: var(--jade); border-radius: 10px; background: rgba(35,115,102,0.08); font: 13px Consolas, monospace; }
+    .empty { padding: 34px; color: var(--ink-soft); text-align: center; border: 1px dashed var(--line); border-radius: 17px; }
+    .toast { position: fixed; right: 28px; bottom: 28px; max-width: 360px; padding: 14px 18px; color: #fff; border-radius: 13px; background: var(--ink); box-shadow: var(--shadow); opacity: 0; transform: translateY(12px); pointer-events: none; transition: 0.25s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 900px) {
+      .shell { display: block; }
+      aside { position: static; width: 100%; height: auto; padding: 18px 20px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .brand { margin-bottom: 14px; }
+      nav { grid-template-columns: repeat(3, 1fr); }
+      .nav-button { text-align: center; }
+      .aside-foot { display: none; }
+      main { padding: 28px 20px 50px; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .book-grid, .connect-grid { grid-template-columns: 1fr; }
+      .task-row { grid-template-columns: 90px 1fr; }
+      .task-size { text-align: left; }
+    }
+    @media (max-width: 560px) {
+      .topbar { display: block; }
+      .top-actions { margin-top: 18px; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .book-grid { grid-template-columns: 1fr; }
+      .hero-card { padding: 23px; }
+    }
+  </style>
+</head>
+<body data-dashboard="quietreader">
+  <div class="shell">
+    <aside>
+      <div class="brand">
+        <div class="seal">墨</div>
+        <div><strong>墨阅伴读台</strong><small>LOCAL AUDIO STUDIO</small></div>
+      </div>
+      <nav>
+        <button class="nav-button active" data-view="overview">生成概览</button>
+        <button class="nav-button" data-view="tasks">章节任务</button>
+        <button class="nav-button" data-view="connect">连接手机</button>
+      </nav>
+      <div class="aside-foot">
+        <div class="engine-label" id="engine-label">正在读取语音引擎</div>
+        <div class="online"><span class="dot"></span><span id="online-label">本地服务运行中</span></div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">生成概览</h1>
+          <p class="subtitle" id="last-updated">等待第一次状态刷新</p>
+        </div>
+        <div class="top-actions">
+          <button class="button" id="refresh-button">立即刷新</button>
+          <button class="button danger" id="stop-button">停止服务</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-overview">
+        <article class="hero-card">
+          <div class="eyebrow">CURRENT CHAPTER · 当前生成</div>
+          <h2 id="current-title">等待手机提交章节</h2>
+          <p class="hero-meta" id="current-meta">队列为空时，可以从 iPhone 听书面板提交未读章节。</p>
+          <div class="progress-track"><div class="progress-fill" id="current-progress"></div></div>
+          <div class="progress-caption" id="current-caption">0%</div>
+        </article>
+
+        <div class="stats">
+          <div class="stat"><span>正在生成</span><strong id="stat-running">0</strong></div>
+          <div class="stat"><span>等待队列</span><strong id="stat-queued">0</strong></div>
+          <div class="stat"><span>已经完成</span><strong id="stat-completed">0</strong></div>
+          <div class="stat"><span>需要重试</span><strong id="stat-failed">0</strong></div>
+        </div>
+
+        <div class="section-head"><h2>书籍进度</h2><span id="book-count">0 本书</span></div>
+        <div class="book-grid" id="book-grid"></div>
+      </section>
+
+      <section class="view" id="view-tasks">
+        <div class="task-tools">
+          <input class="search" id="task-search" type="search" placeholder="搜索书名或章节">
+          <button class="filter active" data-status="all">全部</button>
+          <button class="filter" data-status="running">生成中</button>
+          <button class="filter" data-status="completed">已完成</button>
+          <button class="filter" data-status="queued">排队</button>
+          <button class="filter" data-status="failed">失败</button>
+        </div>
+        <div class="task-list" id="task-list"></div>
+      </section>
+
+      <section class="view" id="view-connect">
+        <div class="connect-grid">
+          <article class="panel">
+            <h2>扫描二维码</h2>
+            <p class="subtitle">在 iPhone 墨阅的听书面板中选择“更换或测试连接”。</p>
+            <div class="qr">__QR_HTML__</div>
+          </article>
+          <article class="panel">
+            <h2>手工连接</h2>
+            <p>手机和电脑连接同一个局域网后，填写下面的地址。</p>
+            <span>服务器地址</span>
+            <code id="public-url"></code>
+            <span>配对码</span>
+            <code id="pairing-token"></code>
+            <button class="button" id="copy-button">复制连接信息</button>
+            <p class="subtitle" style="margin-top:22px">任务提交后，电脑会独立生成。浏览器可以关闭，后台服务会继续运行。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const publicURL = __PUBLIC_URL_JSON__;
+    const pairingToken = __PAIRING_TOKEN_JSON__;
+    const pairingURI = __PAIRING_URI_JSON__;
+    const initialEngineName = __ENGINE_NAME_JSON__;
+    const headers = { Authorization: `Bearer ${pairingToken}` };
+    const titles = { overview: "生成概览", tasks: "章节任务", connect: "连接手机" };
+    const statusNames = { completed: "已完成", running: "生成中", queued: "排队", failed: "失败" };
+    let state = { jobs: [], books: [], queue: {} };
+    let activeStatus = "all";
+
+    const byId = (id) => document.getElementById(id);
+    const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[char]);
+    const formatBytes = (bytes) => {
+      if (!bytes) return "0 B";
+      const units = ["B", "KB", "MB", "GB"];
+      const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+      return `${(bytes / Math.pow(1024, index)).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
+    };
+    const voiceName = (id) => {
+      const voice = (state.voices || []).find((item) => item.id === id);
+      return voice?.name || ({ "multi-role": "多角色对话", narrator: "沉稳旁白", female: "自然女声" }[id] || id);
+    };
+    const percent = (value) => `${Math.max(0, Math.min(100, Math.round((value || 0) * 100)))}%`;
+
+    function toast(message) {
+      const node = byId("toast");
+      node.textContent = message;
+      node.classList.add("show");
+      window.clearTimeout(toast.timer);
+      toast.timer = window.setTimeout(() => node.classList.remove("show"), 2600);
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(`${window.location.origin}${path}`, {
+        ...options,
+        headers: { ...headers, ...(options.headers || {}) }
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `请求失败：${response.status}`);
+      }
+      return response;
+    }
+
+    async function refresh() {
+      try {
+        const response = await api("/v1/dashboard");
+        state = await response.json();
+        render();
+        byId("online-label").textContent = `服务运行中 · v${state.server_version}`;
+        byId("last-updated").textContent = `自动刷新 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+      } catch (error) {
+        byId("online-label").textContent = "状态读取失败";
+        byId("last-updated").textContent = error.message;
+      }
+    }
+
+    function render() {
+      const jobs = state.jobs || [];
+      const running = jobs.find((job) => job.status === "running");
+      const counts = jobs.reduce((result, job) => {
+        result[job.status] = (result[job.status] || 0) + 1;
+        return result;
+      }, {});
+      byId("engine-label").textContent = state.engine_name || initialEngineName;
+      byId("stat-running").textContent = counts.running || 0;
+      byId("stat-queued").textContent = counts.queued || 0;
+      byId("stat-completed").textContent = counts.completed || 0;
+      byId("stat-failed").textContent = counts.failed || 0;
+
+      if (running) {
+        byId("current-title").textContent = running.chapter_title;
+        byId("current-meta").textContent = `${running.book_title} · ${voiceName(running.voice)} · 目录第 ${running.chapter_index + 1} 项`;
+        byId("current-progress").style.width = percent(running.progress);
+        const segmentText = running.total_segments > 0
+          ? ` · ${running.completed_segments}/${running.total_segments} 个语音分段`
+          : "";
+        byId("current-caption").textContent = `${percent(running.progress)}${segmentText}`;
+      } else {
+        byId("current-title").textContent = counts.queued ? "准备下一章" : "等待手机提交章节";
+        byId("current-meta").textContent = counts.queued
+          ? `队列中还有 ${counts.queued} 章`
+          : "队列为空时，可以从 iPhone 听书面板提交未读章节。";
+        byId("current-progress").style.width = "0%";
+        byId("current-caption").textContent = "0%";
+      }
+      renderBooks();
+      renderTasks();
+    }
+
+    function renderBooks() {
+      const books = state.books || [];
+      byId("book-count").textContent = `${books.length} 个生成配置`;
+      byId("book-grid").innerHTML = books.length ? books.map((book, index) => {
+        const ratio = book.total_count ? book.completed_count / book.total_count : 0;
+        const active = book.running_count > 0 ? "生成中" : book.queued_count > 0 ? "等待中" : book.failed_count > 0 ? "有失败" : "已完成";
+        return `<article class="book-card" style="animation:reveal .35s ease ${index * 45}ms both">
+          <div class="book-title">
+            <div><h3>${escapeHTML(book.book_title)}</h3><p>${escapeHTML(book.author || "作者未知")} · ${escapeHTML(voiceName(book.voice))} · ${book.speed} 倍</p></div>
+            <span class="pill">${active}</span>
+          </div>
+          <div class="book-progress"><i style="width:${percent(ratio)}"></i></div>
+          <div class="book-foot">
+            <span>${book.completed_count}/${book.total_count} 章 · ${formatBytes(book.completed_bytes)}</span>
+            <button class="download" ${book.completed_count ? "" : "disabled"} data-download="${index}">下载伴读包</button>
+          </div>
+        </article>`;
+      }).join("") : '<div class="empty">手机提交章节后，书籍进度会显示在这里。</div>';
+      document.querySelectorAll("[data-download]").forEach((button) => {
+        button.addEventListener("click", () => downloadPackage(books[Number(button.dataset.download)], button));
+      });
+    }
+
+    function renderTasks() {
+      const query = byId("task-search").value.trim().toLowerCase();
+      const jobs = (state.jobs || []).filter((job) => {
+        const matchesStatus = activeStatus === "all" || job.status === activeStatus;
+        const text = `${job.book_title} ${job.chapter_title}`.toLowerCase();
+        return matchesStatus && (!query || text.includes(query));
+      }).sort((a, b) => {
+        const rank = { running: 0, failed: 1, completed: 2, queued: 3 };
+        return (rank[a.status] - rank[b.status]) || (a.chapter_index - b.chapter_index);
+      });
+      byId("task-list").innerHTML = jobs.length ? jobs.map((job) => `<article class="task-row">
+        <span class="status ${escapeHTML(job.status)}">${statusNames[job.status] || escapeHTML(job.status)}</span>
+        <div class="task-book">${escapeHTML(job.book_title)}<small>${escapeHTML(voiceName(job.voice))}</small></div>
+        <div class="task-chapter">${escapeHTML(job.chapter_title)}<small>目录第 ${job.chapter_index + 1} 项${job.error ? ` · ${escapeHTML(job.error)}` : ""}</small></div>
+        <div class="task-size">${job.status === "running" ? percent(job.progress) : formatBytes(job.file_size)}</div>
+      </article>`).join("") : '<div class="empty">当前筛选条件下没有章节任务。</div>';
+    }
+
+    async function downloadPackage(book, button) {
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "正在打包";
+      try {
+        const query = new URLSearchParams({
+          book_id: book.book_id,
+          voice: book.voice,
+          speed: Number(book.speed).toFixed(2)
+        });
+        const response = await api(`/v1/books/package?${query}`);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${book.book_title.replace(/[<>:"/\\|?*]/g, "_").slice(0, 50)}.qraudio`;
+        link.click();
+        URL.revokeObjectURL(url);
+        toast("伴读包已经保存到浏览器下载目录");
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+
+    document.querySelectorAll(".nav-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".nav-button").forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${button.dataset.view}`));
+        byId("page-title").textContent = titles[button.dataset.view];
+      });
+    });
+    document.querySelectorAll(".filter").forEach((button) => {
+      button.addEventListener("click", () => {
+        activeStatus = button.dataset.status;
+        document.querySelectorAll(".filter").forEach((item) => item.classList.toggle("active", item === button));
+        renderTasks();
+      });
+    });
+    byId("task-search").addEventListener("input", renderTasks);
+    byId("refresh-button").addEventListener("click", () => refresh().then(() => toast("状态已刷新")));
+    byId("copy-button").addEventListener("click", async () => {
+      const text = `服务器地址：${publicURL}\n配对码：${pairingToken}\n${pairingURI}`;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const field = document.createElement("textarea");
+        field.value = text;
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      }
+      toast("连接信息已复制");
+    });
+    byId("stop-button").addEventListener("click", async () => {
+      if (!window.confirm("停止后，当前章节会在下次启动时从头继续生成。确定停止服务吗？")) return;
+      try {
+        await api("/v1/control/stop", { method: "POST" });
+        toast("服务正在停止，可以关闭浏览器页面");
+        byId("online-label").textContent = "服务已停止";
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+
+    byId("public-url").textContent = publicURL;
+    byId("pairing-token").textContent = pairingToken;
+    byId("engine-label").textContent = initialEngineName;
+    refresh();
+    window.setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

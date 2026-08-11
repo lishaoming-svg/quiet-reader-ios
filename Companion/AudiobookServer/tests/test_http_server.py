@@ -104,6 +104,11 @@ class HTTPServerTests(unittest.TestCase):
             thread.start()
             base_url = server.public_url
             try:
+                with urllib.request.urlopen(base_url, timeout=2) as response:
+                    dashboard_html = response.read().decode("utf-8")
+                self.assertIn('data-dashboard="quietreader"', dashboard_html)
+                self.assertIn("墨阅桌面伴读台", dashboard_html)
+
                 with self.assertRaises(urllib.error.HTTPError) as unauthorized:
                     urllib.request.urlopen(f"{base_url}/v1/health", timeout=2)
                 self.assertEqual(unauthorized.exception.code, 401)
@@ -157,6 +162,11 @@ class HTTPServerTests(unittest.TestCase):
                 self.assertEqual(book_status["jobs"][0]["chapter_title"], "第一章")
                 self.assertEqual(book_status["jobs"][0]["status"], "completed")
                 self.assertEqual(book_status["jobs"][0]["file_size"], status["file_size"])
+                dashboard = self._json_request(f"{base_url}/v1/dashboard")
+                self.assertEqual(dashboard["server_version"], "0.5.0")
+                self.assertEqual(dashboard["books"][0]["book_title"], "测试书")
+                self.assertEqual(dashboard["books"][0]["completed_count"], 1)
+                self.assertEqual(dashboard["jobs"][0]["chapter_title"], "第一章")
                 package_request = urllib.request.Request(
                     f"{base_url}/v1/books/package?{query}",
                     headers={"Authorization": "Bearer test-pairing-token-123456"},
