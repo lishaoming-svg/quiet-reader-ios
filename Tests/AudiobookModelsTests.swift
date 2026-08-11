@@ -29,7 +29,7 @@ final class AudiobookModelsTests: XCTestCase {
         let configuration = try XCTUnwrap(
             AudiobookPairingConfiguration(
                 baseURLString: "http://192.168.31.251:8765",
-                token: "test-token"
+                token: "test-pairing-token-123456"
             )
         )
 
