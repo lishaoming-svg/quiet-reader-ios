@@ -64,7 +64,8 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         chapters: [BookChapter],
         startingAt startIndex: Int,
         matchingVoice voice: String? = nil,
-        matchingSpeed speed: Double? = nil
+        matchingSpeed speed: Double? = nil,
+        autoplay: Bool = true
     ) throws {
         let targetIndices = AudiobookQueuePlanner.targetIndices(
             chapters: chapters,
@@ -113,7 +114,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         guard !playable.isEmpty else { throw AudiobookClientError.audioUnavailable }
         entries = playable
         entryPosition = 0
-        loadCurrentEntry(autoplay: true)
+        loadCurrentEntry(autoplay: autoplay)
     }
 
     func extendQueue(
@@ -196,6 +197,25 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
     }
 
+    func seek(toTime seconds: Double, autoplay: Bool = true) {
+        guard player.currentItem != nil else { return }
+        let upperBound = duration > 0 ? duration : max(seconds, 0)
+        let target = min(max(seconds, 0), upperBound)
+        player.pause()
+        isPlaying = false
+        elapsed = target
+        updateCurrentSegment()
+        updateNowPlaying()
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        ) { [weak self] finished in
+            guard finished, autoplay else { return }
+            Task { @MainActor [weak self] in self?.resume() }
+        }
+    }
+
     func playNext() {
         guard entryPosition + 1 < entries.count else {
             pause()
@@ -257,6 +277,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         duration = 0
         currentSegment = nil
         currentLocatorOffset = entry.segments.first?.startOffset
+        isPlaying = false
         updateNowPlaying()
         if autoplay { resume() }
     }

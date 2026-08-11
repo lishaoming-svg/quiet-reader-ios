@@ -34,6 +34,9 @@ struct ReaderView: View {
     @State private var showingSettings = false
     @State private var showingBookmarks = false
     @State private var showingAudiobook = false
+    @State private var audiobookSegments: [AudiobookTimedSegment] = []
+    @State private var sentencePlaybackMode = false
+    @State private var playbackError: String?
     @State private var currentBookmarkID: String?
     @State private var scrubProgress = 0.0
     @State private var isScrubbing = false
@@ -109,7 +112,11 @@ struct ReaderView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { readerToolbar }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if controlsVisible { readerControls }
+            if sentencePlaybackMode, !audiobookSegments.isEmpty {
+                sentencePlaybackControls
+            } else if controlsVisible {
+                readerControls
+            }
         }
         .sheet(isPresented: $showingSettings) { ReaderSettingsView() }
         .sheet(isPresented: $showingSourceLogin) {
@@ -126,7 +133,9 @@ struct ReaderView: View {
                 goToChapter(targetIndex, locatorOffset: bookmark.locatorOffset)
             }
         }
-        .sheet(isPresented: $showingAudiobook) {
+        .sheet(isPresented: $showingAudiobook, onDismiss: {
+            refreshChapterAudiobook()
+        }) {
             AudiobookView(
                 book: book,
                 chapters: chapters,
@@ -162,9 +171,13 @@ struct ReaderView: View {
         .onChange(of: audiobookPlayer.currentChapterIndex) { _, targetIndex in
             guard audiobookPlayer.currentBookID == book.id,
                   let targetIndex,
-                  chapters.indices.contains(targetIndex),
-                  targetIndex != currentIndex else { return }
-            goToChapter(targetIndex, locatorOffset: 0)
+                  chapters.indices.contains(targetIndex) else { return }
+            sentencePlaybackMode = true
+            if targetIndex != currentIndex {
+                goToChapter(targetIndex, locatorOffset: 0)
+            } else {
+                refreshChapterAudiobook()
+            }
         }
         .onChange(of: audiobookPlayer.currentLocatorOffset) { _, _ in
             followAudiobookText()
@@ -198,6 +211,8 @@ struct ReaderView: View {
                 }
             }
             .padding(24)
+        } else if sentencePlaybackMode, !audiobookSegments.isEmpty {
+            sentencePlaybackReader
         } else if readerMode == .scroll {
             scrollingReader
         } else {
@@ -249,6 +264,93 @@ struct ReaderView: View {
         .onChange(of: scrollBlockID) { _, _ in
             recordActivity()
             locationDidChange()
+        }
+    }
+
+    private var sentencePlaybackReader: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("逐句点播")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .tracking(1)
+                                .foregroundStyle(AppTheme.vermilion)
+                            Text(chapter.title)
+                                .font(chapterTitleFont)
+                                .foregroundStyle(paper.primaryText)
+                        }
+                        Spacer(minLength: 16)
+                        Button("返回排版") { exitSentencePlaybackMode() }
+                            .font(.caption.bold())
+                            .foregroundStyle(AppTheme.vermilion)
+                    }
+                    .padding(.bottom, 24)
+
+                    if let playbackError {
+                        InlineErrorView(message: playbackError)
+                            .padding(.bottom, 14)
+                    }
+
+                    ForEach(audiobookSegments) { segment in
+                        let isActive = activeAudiobookSegment?.id == segment.id
+                        HStack(alignment: .top, spacing: 12) {
+                            Button {
+                                playSentence(segment)
+                            } label: {
+                                Image(systemName: isActive ? "play.circle.fill" : "play.circle")
+                                    .font(.system(size: 23, weight: .medium))
+                                    .foregroundStyle(
+                                        isActive ? AppTheme.vermilion : paper.secondaryText
+                                    )
+                                    .frame(width: 28, height: 32, alignment: .top)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("从这句话开始播放")
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(sentenceDisplayText(segment))
+                                    .font(readerFont)
+                                    .lineSpacing(lineSpacing)
+                                    .tracking(ReaderTypography.letterSpacing)
+                                    .foregroundStyle(
+                                        isActive ? AppTheme.vermilion : paper.primaryText
+                                    )
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(segment.roleName)
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                                    .tracking(0.6)
+                                    .foregroundStyle(paper.secondaryText.opacity(0.78))
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 11)
+                        .background(
+                            isActive ? AppTheme.vermilion.opacity(0.09) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                        .padding(.top, segment.text.hasPrefix("\n") ? 8 : 0)
+                        .id(segment.id)
+                    }
+                    chapterEnding.padding(.top, 36)
+                }
+                .textSelection(.enabled)
+                .frame(width: readerContentWidth, alignment: .leading)
+                .padding(.top, 28)
+                .padding(.bottom, 56)
+                .frame(maxWidth: .infinity)
+            }
+            .onAppear {
+                guard let id = activeAudiobookSegment?.id else { return }
+                DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
+            }
+            .onChange(of: activeAudiobookSegment?.id) { _, id in
+                guard let id else { return }
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
         }
     }
 
@@ -396,6 +498,89 @@ struct ReaderView: View {
         return block.text
     }
 
+    private func sentenceDisplayText(_ segment: AudiobookTimedSegment) -> String {
+        let trimmed = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? segment.text : trimmed
+    }
+
+    private func playSentence(_ segment: AudiobookTimedSegment) {
+        guard let metadata = AudiobookStorage.chapterMetadata(
+            bookID: book.id,
+            chapterURL: chapter.url
+        ) else {
+            playbackError = "本章音频文件已经移除，请重新同步电脑伴读包。"
+            return
+        }
+        playbackError = nil
+        sentencePlaybackMode = true
+        do {
+            let isCurrentChapter = audiobookPlayer.currentBookID == book.id
+                && audiobookPlayer.currentChapterIndex == currentIndex
+            if !isCurrentChapter {
+                try audiobookPlayer.play(
+                    book: book,
+                    chapters: chapters,
+                    startingAt: currentIndex,
+                    matchingVoice: metadata.voice,
+                    matchingSpeed: metadata.generationSpeed ?? 1,
+                    autoplay: false
+                )
+            }
+            audiobookPlayer.seek(toTime: segment.startTime, autoplay: true)
+        } catch {
+            playbackError = error.localizedDescription
+        }
+    }
+
+    private func toggleSentencePlayback() {
+        if audiobookPlayer.currentBookID == book.id,
+           audiobookPlayer.currentChapterIndex == currentIndex {
+            audiobookPlayer.togglePlayback()
+        } else if let first = audiobookSegments.first {
+            playSentence(first)
+        }
+    }
+
+    private func moveSentence(by amount: Int) {
+        let current = audiobookPlayer.currentBookID == book.id
+            && audiobookPlayer.currentChapterIndex == currentIndex
+            ? audiobookPlayer.currentSegment
+            : nil
+        guard let target = AudiobookSentenceNavigator.target(
+            from: current,
+            movingBy: amount,
+            in: audiobookSegments
+        ) else { return }
+        playSentence(target)
+    }
+
+    private func exitSentencePlaybackMode() {
+        sentencePlaybackMode = false
+        if audiobookPlayer.currentBookID == book.id,
+           audiobookPlayer.currentChapterIndex == currentIndex,
+           let locator = audiobookPlayer.currentLocatorOffset {
+            applyLocator(locator)
+        }
+    }
+
+    private func refreshChapterAudiobook() {
+        guard chapters.indices.contains(currentIndex) else {
+            audiobookSegments = []
+            sentencePlaybackMode = false
+            return
+        }
+        audiobookSegments = AudiobookStorage.timedSegments(
+            bookID: book.id,
+            chapterURL: chapter.url
+        )
+        if audiobookSegments.isEmpty {
+            sentencePlaybackMode = false
+        } else if audiobookPlayer.currentBookID == book.id,
+                  audiobookPlayer.currentChapterIndex == currentIndex {
+            sentencePlaybackMode = true
+        }
+    }
+
     @ToolbarContentBuilder
     private var readerToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
@@ -410,6 +595,20 @@ struct ReaderView: View {
                 toggleBookmark()
             } label: {
                 Image(systemName: currentBookmarkID == nil ? "bookmark" : "bookmark.fill")
+            }
+            if !audiobookSegments.isEmpty {
+                Button {
+                    if sentencePlaybackMode {
+                        exitSentencePlaybackMode()
+                    } else {
+                        sentencePlaybackMode = true
+                    }
+                } label: {
+                    Image(systemName: sentencePlaybackMode
+                        ? "list.bullet.circle.fill"
+                        : "list.bullet.circle")
+                }
+                .accessibilityLabel(sentencePlaybackMode ? "退出逐句点播" : "进入逐句点播")
             }
             Button {
                 showingAudiobook = true
@@ -479,6 +678,35 @@ struct ReaderView: View {
         .overlay(alignment: .top) { Divider() }
     }
 
+    private var sentencePlaybackControls: some View {
+        HStack(spacing: 28) {
+            Button { moveSentence(by: -1) } label: {
+                Image(systemName: "backward.end.fill")
+            }
+            Button { toggleSentencePlayback() } label: {
+                Image(systemName: audiobookPlayer.isPlaying
+                    ? "pause.circle.fill"
+                    : "play.circle.fill")
+                    .font(.system(size: 38))
+            }
+            Button { moveSentence(by: 1) } label: {
+                Image(systemName: "forward.end.fill")
+            }
+            Divider().frame(height: 26)
+            Button { exitSentencePlaybackMode() } label: {
+                Image(systemName: "textformat")
+            }
+            .accessibilityLabel("返回正常排版")
+        }
+        .font(.system(size: 19, weight: .semibold))
+        .foregroundStyle(AppTheme.vermilion)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+
     private var progressLabel: String {
         if readerMode.usesPages, !pages.isEmpty {
             return "\(pageIndex + 1)/\(pages.count)"
@@ -517,6 +745,7 @@ struct ReaderView: View {
 
     private func handleTap(at location: CGPoint, width: CGFloat) {
         recordActivity()
+        guard !sentencePlaybackMode else { return }
         let fraction = location.x / max(width, 1)
         if fraction < 0.28 {
             if readerMode == .scroll { moveScroll(by: -3) } else { turnPage(-1) }
@@ -633,6 +862,7 @@ struct ReaderView: View {
               audiobookPlayer.currentChapterIndex == currentIndex,
               let locator = audiobookPlayer.currentLocatorOffset,
               !content.isEmpty else { return }
+        guard !sentencePlaybackMode else { return }
         if readerMode.usesPages {
             let target = ReaderPaginator.pageIndex(for: locator, in: pages)
             guard pages.indices.contains(target), target != pageIndex else { return }
@@ -657,6 +887,8 @@ struct ReaderView: View {
         content = ""
         blocks = []
         pages = []
+        audiobookSegments = []
+        playbackError = nil
         pageIndex = 0
         scrollBlockID = nil
 
@@ -726,6 +958,7 @@ struct ReaderView: View {
         let normalized = ReadableTextNormalizer.normalize(value)
         content = normalized
         blocks = ReaderDocumentBuilder.blocks(from: normalized)
+        refreshChapterAudiobook()
         if normalized != value {
             cache(chapter, content: normalized)
         }

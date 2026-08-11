@@ -58,6 +58,22 @@ enum AudiobookTimelineResolver {
     }
 }
 
+enum AudiobookSentenceNavigator {
+    static func target(
+        from current: AudiobookTimedSegment?,
+        movingBy amount: Int,
+        in segments: [AudiobookTimedSegment]
+    ) -> AudiobookTimedSegment? {
+        guard !segments.isEmpty else { return nil }
+        guard let current,
+              let currentIndex = segments.firstIndex(where: { $0.id == current.id }) else {
+            return segments.first
+        }
+        let targetIndex = min(max(currentIndex + amount, 0), segments.count - 1)
+        return segments[targetIndex]
+    }
+}
+
 struct AudiobookServerHealth: Decodable {
     let protocolVersion: Int
     let service: String

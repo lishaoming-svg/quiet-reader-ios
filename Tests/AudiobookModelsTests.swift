@@ -254,6 +254,44 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual(AudiobookTimelineResolver.segment(at: 8, in: timeline)?.startOffset, 6)
     }
 
+    func testSentenceNavigatorMovesAndClampsAtTimelineEdges() throws {
+        let timeline = [
+            AudiobookTimedSegment(
+                text: "第一句。",
+                role: "narrator",
+                startTime: 0,
+                endTime: 1,
+                startOffset: 0,
+                endOffset: 4
+            ),
+            AudiobookTimedSegment(
+                text: "第二句。",
+                role: "female",
+                startTime: 1,
+                endTime: 2,
+                startOffset: 4,
+                endOffset: 8
+            )
+        ]
+
+        XCTAssertEqual(
+            AudiobookSentenceNavigator.target(from: nil, movingBy: 1, in: timeline)?.id,
+            timeline[0].id
+        )
+        XCTAssertEqual(
+            AudiobookSentenceNavigator.target(from: timeline[0], movingBy: 1, in: timeline)?.id,
+            timeline[1].id
+        )
+        XCTAssertEqual(
+            AudiobookSentenceNavigator.target(from: timeline[0], movingBy: -1, in: timeline)?.id,
+            timeline[0].id
+        )
+        XCTAssertEqual(
+            AudiobookSentenceNavigator.target(from: timeline[1], movingBy: 1, in: timeline)?.id,
+            timeline[1].id
+        )
+    }
+
     func testJobStatusDecodesMultiRoleTimeline() throws {
         let data = Data(
             """

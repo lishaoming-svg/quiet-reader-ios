@@ -132,6 +132,15 @@ enum AudiobookStorage {
         }?.segments ?? []
     }
 
+    static func chapterMetadata(bookID: String, chapterURL: String) -> LocalAudiobookChapter? {
+        guard let chapter = loadManifest(bookID: bookID)?.chapters.first(where: {
+            $0.chapterURL == chapterURL
+        }), FileManager.default.fileExists(
+            atPath: bookDirectory(bookID: bookID).appending(path: chapter.fileName).path
+        ) else { return nil }
+        return chapter
+    }
+
     static func storageSize(bookID: String) -> Int64 {
         let directory = bookDirectory(bookID: bookID)
         guard let enumerator = FileManager.default.enumerator(
