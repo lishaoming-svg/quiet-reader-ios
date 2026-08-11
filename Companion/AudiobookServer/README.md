@@ -20,6 +20,8 @@ python -m pip install -r requirements.txt
 .\install-cosyvoice.ps1
 ```
 
+当前模型和运行环境合计约 15 GB，安装时还会使用下载缓存，建议预留至少 25 GB 空间。首次安装时间取决于网络速度，完成后可以全程离线合成。
+
 准备一段具有使用权的清晰单人参考音频，以及与音频逐字一致的文字：
 
 ```powershell
@@ -30,9 +32,10 @@ python -m pip install -r requirements.txt
 
 参考音频建议为 5 至 15 秒、无背景音乐、无混响的 WAV 文件。生成器只监听本机局域网并使用随机配对令牌，切勿把端口直接暴露到公网。
 
+启动后让电脑与 iPhone 连接同一局域网，在墨阅的阅读页点击耳机按钮，再扫描电脑页面上的配对二维码。章节下载完成后，关闭电脑或离开局域网也能继续听。
+
 ## 测试
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
-

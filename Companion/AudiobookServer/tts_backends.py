@@ -92,7 +92,13 @@ class CosyVoiceBackend(TTSBackend):
         tensors = [item["tts_speech"] for item in outputs]
         torch = __import__("torch")
         audio = torch.cat(tensors, dim=1) if len(tensors) > 1 else tensors[0]
-        self._torchaudio.save(str(output_path), audio.cpu(), self.model.sample_rate)
+        self._torchaudio.save(
+            str(output_path),
+            audio.cpu(),
+            self.model.sample_rate,
+            encoding="PCM_S",
+            bits_per_sample=16,
+        )
 
     def voices(self) -> list[dict[str, str]]:
         return [{"id": "reference", "name": "参考音色"}]
@@ -132,4 +138,3 @@ def create_backend(args, base_dir: Path) -> TTSBackend:
     if args.engine == "tone":
         return ToneTestBackend()
     raise RuntimeError(f"不支持的语音引擎：{args.engine}")
-

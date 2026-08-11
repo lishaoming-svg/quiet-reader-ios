@@ -20,8 +20,18 @@ if ($Engine -eq 'cosyvoice') {
     if (-not $PromptText) {
         throw 'CosyVoice 需要 PromptText，内容必须与参考人声逐字一致。'
     }
+    $env:PYTHONUTF8 = '1'
+    $env:PYTHONIOENCODING = 'utf-8'
+    $env:QUIETREADER_PROMPT_AUDIO = (Resolve-Path -LiteralPath $PromptAudio).Path
+    $env:QUIETREADER_PROMPT_TEXT = $PromptText
     & conda run --no-capture-output -n quietreader-cosyvoice python server.py `
-        --engine cosyvoice --port $Port --prompt-audio $PromptAudio --prompt-text $PromptText
+        --engine cosyvoice --port $Port
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
 } else {
     python server.py --engine $Engine --port $Port
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
 }

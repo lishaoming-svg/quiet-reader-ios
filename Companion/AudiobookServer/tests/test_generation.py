@@ -4,8 +4,10 @@ import shutil
 import sys
 import tempfile
 import time
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,10 +15,43 @@ sys.path.insert(0, str(ROOT))
 
 from protocol import JobRequest
 from server import JobManager
-from tts_backends import ToneTestBackend, WindowsSAPIBackend
+from tts_backends import CosyVoiceBackend, ToneTestBackend, WindowsSAPIBackend
 
 
 class GenerationTests(unittest.TestCase):
+    def test_cosyvoice_writes_standard_pcm_wave(self):
+        class FakeAudio:
+            def cpu(self):
+                return self
+
+        class FakeModel:
+            sample_rate = 24_000
+
+            def inference_zero_shot(self, *args, **kwargs):
+                return iter([{"tts_speech": FakeAudio()}])
+
+        calls = []
+
+        class FakeTorchaudio:
+            @staticmethod
+            def save(*args, **kwargs):
+                calls.append((args, kwargs))
+
+        fake_torch = types.ModuleType("torch")
+        fake_torch.cat = lambda tensors, dim: tensors[0]
+        backend = object.__new__(CosyVoiceBackend)
+        backend.model = FakeModel()
+        backend.prompt_audio = Path("prompt.wav")
+        backend.prompt_text = "参考文字"
+        backend._torchaudio = FakeTorchaudio()
+
+        with patch.dict(sys.modules, {"torch": fake_torch}):
+            backend.synthesize("正文", Path("output.wav"), "reference", 1.0)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]["encoding"], "PCM_S")
+        self.assertEqual(calls[0][1]["bits_per_sample"], 16)
+
     @unittest.skipUnless(shutil.which("ffmpeg"), "需要 FFmpeg 验证 M4A 编码")
     def test_job_generates_playable_m4a(self):
         text = "第一段。第二段也应该完整生成。"

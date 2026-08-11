@@ -15,7 +15,7 @@ import threading
 import time
 import wave
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,7 +31,7 @@ MAX_REQUEST_BYTES = 2 * 1024 * 1024
 
 
 def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def local_ipv4() -> str:
