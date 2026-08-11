@@ -5,6 +5,7 @@ import base64
 import hashlib
 import io
 import json
+import multiprocessing
 import os
 import queue
 import re
@@ -38,9 +39,10 @@ from protocol import (
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.4.1"
+SERVER_VERSION = "0.4.2"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
+HEALTH_PORT_OFFSET = 1
 SEGMENT_PAUSE_SECONDS = 0.12
 
 
@@ -560,6 +562,47 @@ class AudiobookHTTPServer(ThreadingHTTPServer):
     public_url: str
 
 
+class HealthHTTPServer(ThreadingHTTPServer):
+    pairing_token: str
+    health_payload: dict[str, Any]
+
+
+class HealthRequestHandler(BaseHTTPRequestHandler):
+    server: HealthHTTPServer
+
+    def log_message(self, format_string: str, *args: Any) -> None:
+        return
+
+    def do_GET(self) -> None:
+        if urlparse(self.path).path != "/v1/health":
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "请求地址不存在"})
+            return
+        if self.headers.get("Authorization") != f"Bearer {self.server.pairing_token}":
+            self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "配对令牌无效"})
+            return
+        self._send_json(HTTPStatus.OK, self.server.health_payload)
+
+    def _send_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+def serve_health_sidecar(
+    host: str,
+    port: int,
+    pairing_token_value: str,
+    health_payload: dict[str, Any],
+) -> None:
+    server = HealthHTTPServer((host, port), HealthRequestHandler)
+    server.pairing_token = pairing_token_value
+    server.health_payload = health_payload
+    server.serve_forever()
+
+
 class RequestHandler(BaseHTTPRequestHandler):
     server: AudiobookHTTPServer
 
@@ -820,9 +863,32 @@ def main() -> None:
     server.manager = manager
     server.pairing_token = token
     server.public_url = public_url
+    health_payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "service": "墨阅听书生成器",
+        "server_version": SERVER_VERSION,
+        "status": "ready",
+        "engine": backend.engine_id,
+        "engine_name": backend.display_name,
+        "voices": backend.voices(),
+        "capabilities": [
+            "persistent-queue",
+            "readaloud-package-v1",
+            "batch-job-submit",
+            "health-sidecar",
+        ],
+    }
+    health_process = multiprocessing.get_context("spawn").Process(
+        target=serve_health_sidecar,
+        args=(args.host, args.port + HEALTH_PORT_OFFSET, token, health_payload),
+        name="quietreader-health",
+        daemon=True,
+    )
+    health_process.start()
     print("墨阅听书生成器已启动")
     print(f"语音引擎：{backend.display_name}")
     print(f"配对页面：{public_url}")
+    print(f"连接检查：http://{host_ip}:{args.port + HEALTH_PORT_OFFSET}")
     print("关闭窗口或按 Ctrl+C 可停止服务")
     if args.open_browser:
         webbrowser.open(public_url)
@@ -833,7 +899,11 @@ def main() -> None:
     finally:
         server.shutdown()
         manager.shutdown()
+        if health_process.is_alive():
+            health_process.terminate()
+        health_process.join(timeout=3)
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

@@ -5,8 +5,23 @@ struct AudiobookServerClient {
     var session: URLSession = .shared
 
     func health() async throws -> AudiobookServerHealth {
-        var request = authorizedRequest(path: "v1/health")
-        request.timeoutInterval = 10
+        if let sidecarURL = healthSidecarURL {
+            do {
+                return try await fetchHealth(at: sidecarURL, timeout: 5)
+            } catch {
+                // Older generators expose health on the main service port.
+            }
+        }
+        return try await fetchHealth(
+            at: configuration.baseURL.appending(path: "v1/health"),
+            timeout: 60
+        )
+    }
+
+    private func fetchHealth(at url: URL, timeout: TimeInterval) async throws -> AudiobookServerHealth {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.setValue("Bearer \(configuration.token)", forHTTPHeaderField: "Authorization")
         do {
             let (data, response) = try await session.data(for: request)
             return try decode(AudiobookServerHealth.self, data: data, response: response)
@@ -14,7 +29,7 @@ struct AudiobookServerClient {
             switch error.code {
             case .timedOut:
                 throw AudiobookClientError.connection(
-                    "连接电脑超时。请核对手机填写的地址，并确认手机与电脑位于同一局域网。"
+                    "生成器连续忙碌超过 60 秒。请等待当前语音分段完成后重试连接。"
                 )
             case .cannotConnectToHost, .cannotFindHost, .networkConnectionLost,
                  .notConnectedToInternet:
@@ -25,6 +40,20 @@ struct AudiobookServerClient {
                 throw error
             }
         }
+    }
+
+    private var healthSidecarURL: URL? {
+        guard var components = URLComponents(
+            url: configuration.baseURL,
+            resolvingAgainstBaseURL: false
+        ), let port = components.port, port < 65_535 else {
+            return nil
+        }
+        components.port = port + 1
+        components.path = "/v1/health"
+        components.query = nil
+        components.fragment = nil
+        return components.url
     }
 
     func submit(_ job: AudiobookJobRequest) async throws -> AudiobookJobStatus {

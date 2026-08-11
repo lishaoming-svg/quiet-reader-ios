@@ -789,7 +789,7 @@ private struct AudiobookPairingView: View {
                     InlineErrorView(message: errorMessage)
                 }
                 if isTesting {
-                    Text("正在检查 \(address)。此操作只验证并保存连接，不会提交正文或创建音频任务。")
+                    Text("正在检查 \(address)。连接检查使用独立通道，不会等待语音生成，也不会创建音频任务。")
                         .font(.caption)
                         .foregroundStyle(AppTheme.inkSoft)
                 }
