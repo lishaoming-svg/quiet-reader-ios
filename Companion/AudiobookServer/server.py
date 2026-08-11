@@ -38,8 +38,9 @@ from protocol import (
 from tts_backends import TTSBackend, create_backend
 
 
-SERVER_VERSION = "0.3.0"
-MAX_REQUEST_BYTES = 2 * 1024 * 1024
+SERVER_VERSION = "0.4.0"
+MAX_REQUEST_BYTES = 32 * 1024 * 1024
+MAX_BATCH_JOBS = 5_000
 SEGMENT_PAUSE_SECONDS = 0.12
 
 
@@ -558,7 +559,11 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "engine": self.server.manager.backend.engine_id,
                     "engine_name": self.server.manager.backend.display_name,
                     "voices": self.server.manager.backend.voices(),
-                    "capabilities": ["persistent-queue", "readaloud-package-v1"],
+                    "capabilities": [
+                        "persistent-queue",
+                        "readaloud-package-v1",
+                        "batch-job-submit",
+                    ],
                 },
             )
             return
@@ -602,20 +607,43 @@ class RequestHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if not self._authorized():
             return
-        if path != "/v1/jobs":
+        if path not in {"/v1/jobs", "/v1/jobs/batch"}:
             self._send_error(HTTPStatus.NOT_FOUND, "请求地址不存在")
             return
         try:
             payload = self._read_json()
-            request = JobRequest.from_dict(payload)
-            job = self.server.manager.submit(request)
-            self._send_json(HTTPStatus.ACCEPTED, job.public_dict())
+            if path == "/v1/jobs":
+                request = JobRequest.from_dict(payload)
+                job = self.server.manager.submit(request)
+                self._send_json(HTTPStatus.ACCEPTED, job.public_dict())
+            else:
+                self._submit_batch(payload)
         except ProtocolError as error:
             self._send_error(HTTPStatus.BAD_REQUEST, str(error))
         except (json.JSONDecodeError, UnicodeDecodeError):
             self._send_error(HTTPStatus.BAD_REQUEST, "请求 JSON 无效")
         except ValueError as error:
             self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+
+    def _submit_batch(self, payload: dict[str, Any]) -> None:
+        if payload.get("protocol_version") != PROTOCOL_VERSION:
+            raise ProtocolError("协议版本不匹配")
+        values = payload.get("jobs")
+        if not isinstance(values, list) or not values:
+            raise ProtocolError("批量任务不能为空")
+        if len(values) > MAX_BATCH_JOBS:
+            raise ProtocolError(f"单次最多提交 {MAX_BATCH_JOBS} 章")
+        if not all(isinstance(value, dict) for value in values):
+            raise ProtocolError("批量任务格式无效")
+        requests = [JobRequest.from_dict(value) for value in values]
+        jobs = [self.server.manager.submit(request) for request in requests]
+        self._send_json(
+            HTTPStatus.ACCEPTED,
+            {
+                "protocol_version": PROTOCOL_VERSION,
+                "accepted_count": len(jobs),
+            },
+        )
 
     def _authorized(self) -> bool:
         if self.headers.get("Authorization") == f"Bearer {self.server.pairing_token}":

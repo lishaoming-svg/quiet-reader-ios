@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 MAX_CHAPTER_CHARACTERS = 100_000
 SENTENCE_ENDINGS = frozenset("。！？!?；;\n")
 SOFT_ENDINGS = frozenset("，,、：:")

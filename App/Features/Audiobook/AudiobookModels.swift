@@ -3,7 +3,7 @@ import Foundation
 import Security
 
 enum AudiobookProtocol {
-    static let version = 3
+    static let version = 4
     static let defaultPort = 8765
 }
 
@@ -129,6 +129,26 @@ struct AudiobookJobRequest: Encodable {
     }
 }
 
+struct AudiobookBatchJobRequest: Encodable {
+    let protocolVersion = AudiobookProtocol.version
+    let jobs: [AudiobookJobRequest]
+
+    enum CodingKeys: String, CodingKey {
+        case protocolVersion = "protocol_version"
+        case jobs
+    }
+}
+
+struct AudiobookBatchSubmission: Decodable {
+    let protocolVersion: Int
+    let acceptedCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case protocolVersion = "protocol_version"
+        case acceptedCount = "accepted_count"
+    }
+}
+
 struct AudiobookBookStatus: Decodable {
     let protocolVersion: Int
     let bookID: String
@@ -251,14 +271,21 @@ enum AudiobookTextNormalizer {
 enum AudiobookQueuePlanner {
     static let defaultLookAhead = 3
 
+    static func unreadIndices(
+        chapters: [BookChapter],
+        currentIndex: Int
+    ) -> [Int] {
+        guard !chapters.isEmpty else { return [] }
+        let start = min(max(currentIndex, 0), chapters.count - 1)
+        return chapters.indices.dropFirst(start).filter { !chapters[$0].isVolume }
+    }
+
     static func targetIndices(
         chapters: [BookChapter],
         currentIndex: Int,
         lookAhead: Int = defaultLookAhead
     ) -> [Int] {
-        guard !chapters.isEmpty else { return [] }
-        let start = min(max(currentIndex, 0), chapters.count - 1)
-        let readable = chapters.indices.dropFirst(start).filter { !chapters[$0].isVolume }
+        let readable = unreadIndices(chapters: chapters, currentIndex: currentIndex)
         return Array(readable.prefix(max(0, lookAhead) + 1))
     }
 }

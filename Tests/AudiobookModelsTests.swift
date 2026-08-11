@@ -63,7 +63,41 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual(request.textSHA256, AudiobookIdentifier.sha256(request.text))
     }
 
-    func testAutomaticQueueKeepsThreeReadableChaptersAhead() {
+    func testBatchRequestEncodesAllJobsInOneEnvelope() throws {
+        let book = SearchBook(
+            sourceID: "source",
+            sourceName: "测试源",
+            name: "测试书",
+            author: "作者",
+            intro: "",
+            kind: "",
+            lastChapter: "",
+            updateTime: "",
+            bookURL: "https://example.test/book",
+            coverURL: "",
+            tocURL: ""
+        )
+        let jobs = (0..<3).map { index in
+            AudiobookJobRequest(
+                book: book,
+                chapter: BookChapter(
+                    title: "第\(index + 1)章",
+                    url: "https://example.test/chapter/\(index + 1)",
+                    index: index
+                ),
+                text: "第\(index + 1)章正文。",
+                voice: "multi-role",
+                speed: 1
+            )
+        }
+
+        let data = try JSONEncoder().encode(AudiobookBatchJobRequest(jobs: jobs))
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(payload["protocol_version"] as? Int, 4)
+        XCTAssertEqual((payload["jobs"] as? [[String: Any]])?.count, 3)
+    }
+
+    func testPlaybackQueueKeepsThreeReadableChaptersAhead() {
         let chapters = [
             BookChapter(title: "第一章", url: "chapter-1", index: 0),
             BookChapter(title: "第二卷", url: "volume-2", index: 1, isVolume: true),
@@ -80,6 +114,14 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual(
             AudiobookQueuePlanner.targetIndices(chapters: chapters, currentIndex: 4),
             [4, 5]
+        )
+        XCTAssertEqual(
+            AudiobookQueuePlanner.unreadIndices(chapters: chapters, currentIndex: 2),
+            [2, 3, 4, 5]
+        )
+        XCTAssertEqual(
+            AudiobookQueuePlanner.unreadIndices(chapters: chapters, currentIndex: 1),
+            [2, 3, 4, 5]
         )
     }
 
@@ -112,7 +154,7 @@ final class AudiobookModelsTests: XCTestCase {
         let data = Data(
             """
             {
-              "protocol_version": 3,
+              "protocol_version": 4,
               "job_id": "job",
               "status": "completed",
               "progress": 1,

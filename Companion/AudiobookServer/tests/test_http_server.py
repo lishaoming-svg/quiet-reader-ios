@@ -41,7 +41,7 @@ class HTTPServerTests(unittest.TestCase):
 
                 text = "第一段。第二段完整生成。"
                 payload = {
-                    "protocol_version": 3,
+                    "protocol_version": 4,
                     "book_id": "book",
                     "book_title": "测试书",
                     "author": "作者",
@@ -58,6 +58,14 @@ class HTTPServerTests(unittest.TestCase):
                     f"{base_url}/v1/jobs",
                     data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 )
+                batch = self._json_request(
+                    f"{base_url}/v1/jobs/batch",
+                    data=json.dumps(
+                        {"protocol_version": 4, "jobs": [payload]},
+                        ensure_ascii=False,
+                    ).encode("utf-8"),
+                )
+                self.assertEqual(batch["accepted_count"], 1)
                 deadline = time.time() + 10
                 status = submitted
                 while status["status"] in ("queued", "running") and time.time() < deadline:

@@ -232,11 +232,11 @@ struct AudiobookView: View {
                 Button("取消本次传输", role: .destructive) { workTask?.cancel() }
             } else {
                 Button {
-                    cacheFullBookAndSubmit()
+                    cacheUnreadChaptersAndSubmit()
                 } label: {
-                    Label("缓存全书并提交电脑", systemImage: "books.vertical.fill")
+                    Label("缓存未读章节并提交电脑", systemImage: "books.vertical.fill")
                 }
-                .disabled(configuration == nil || readableChapters.isEmpty)
+                .disabled(configuration == nil || unreadChapters.isEmpty)
 
                 if !cachedTargets.isEmpty {
                     Button {
@@ -288,7 +288,7 @@ struct AudiobookView: View {
                     Label("导入 .qraudio 伴读包", systemImage: "cable.connector")
                 }
 
-                Text("已缓存正文 \(cachedTargets.count)/\(readableChapters.count) 章。主按钮会自动补齐正文并一次提交全书任务，提交结束后电脑可以独立生成。")
+                Text("未读章节已缓存 \(cachedTargets.count)/\(unreadChapters.count) 章。主按钮只补齐当前章及后续正文，并一次提交未读章节任务。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
                 Text("数据线传输时，在 Windows Apple Devices 的“文件”中把 .qraudio 添加到墨阅，再从这里导入。")
@@ -360,23 +360,26 @@ struct AudiobookView: View {
         )
         let records = (try? modelContext.fetch(descriptor)) ?? []
         let contentByURL = Dictionary(uniqueKeysWithValues: records.map { ($0.chapterURL, $0.content) })
-        return chapters.compactMap { chapter in
+        return unreadChapters.compactMap { chapter in
             guard let text = contentByURL[chapter.url]?.nilIfBlank else { return nil }
             return (chapter, text)
         }
     }
 
-    private var readableChapters: [BookChapter] {
-        chapters.filter { !$0.isVolume }
+    private var unreadChapters: [BookChapter] {
+        AudiobookQueuePlanner.unreadIndices(
+            chapters: chapters,
+            currentIndex: currentIndex
+        ).map { chapters[$0] }
     }
 
     private func startCachedChapterGeneration() {
         submitCachedChapters()
     }
 
-    private func cacheFullBookAndSubmit() {
+    private func cacheUnreadChaptersAndSubmit() {
         guard let configuration else { return }
-        let targets = readableChapters
+        let targets = unreadChapters
         guard !targets.isEmpty else { return }
         let generationVoice = selectedVoice
         let requestedSpeed = generationSpeed
@@ -384,65 +387,56 @@ struct AudiobookView: View {
         workError = nil
         workMessage = nil
         completedCount = 0
-        targetCount = targets.count
+        targetCount = targets.count + 1
         currentTaskProgress = 0
         isWorking = true
         workTask = Task {
             defer { isWorking = false }
             let client = AudiobookServerClient(configuration: configuration)
             var cachedContent = cachedContentByURL()
-            var submitted = 0
             var failed = 0
             do {
-                for chapter in targets {
-                    try Task.checkCancellation()
-                    currentTaskTitle = "读取 \(chapter.title)"
-                    let text: String
-                    if let cached = cachedContent[chapter.url]?.nilIfBlank {
-                        text = cached
-                    } else {
-                        do {
-                            let loaded = try await SourceEngine().loadContent(
-                                chapter: chapter,
-                                source: source
-                            )
-                            let normalized = ReadableTextNormalizer.normalize(loaded)
-                            guard let value = normalized.nilIfBlank else {
-                                throw AudiobookClientError.generation("\(chapter.title) 没有可缓存的正文")
-                            }
-                            try saveChapterCache(chapter, content: value)
-                            cachedContent[chapter.url] = value
-                            text = value
-                        } catch is CancellationError {
-                            throw CancellationError()
-                        } catch {
+                let missing = targets.filter { cachedContent[$0.url]?.nilIfBlank == nil }
+                completedCount = targets.count - missing.count
+                if !missing.isEmpty {
+                    currentTaskTitle = "并行缓存缺失正文"
+                    for try await result in loadChapterContents(missing) {
+                        try Task.checkCancellation()
+                        if let text = result.text {
+                            try saveChapterCache(result.chapter, content: text)
+                            cachedContent[result.chapter.url] = text
+                        } else {
                             failed += 1
-                            completedCount += 1
-                            continue
                         }
+                        completedCount += 1
                     }
+                }
 
-                    currentTaskTitle = "提交 \(chapter.title)"
-                    let request = AudiobookJobRequest(
+                let requests = targets.compactMap { chapter -> AudiobookJobRequest? in
+                    guard let text = cachedContent[chapter.url]?.nilIfBlank else { return nil }
+                    return AudiobookJobRequest(
                         book: book,
                         chapter: chapter,
                         text: text,
                         voice: generationVoice,
                         speed: requestedSpeed
                     )
-                    _ = try await client.submit(request)
-                    submitted += 1
-                    completedCount += 1
                 }
+                guard !requests.isEmpty else {
+                    throw AudiobookClientError.generation("未读章节正文均未能缓存")
+                }
+                currentTaskTitle = "一次上传 \(requests.count) 章到电脑"
+                let submission = try await client.submit(requests)
+                completedCount = targets.count + 1
                 remoteBookStatus = try await client.bookStatus(
                     bookID: book.id,
                     voice: generationVoice,
                     speed: requestedSpeed
                 )
                 if failed == 0 {
-                    workMessage = "全书 \(submitted) 章已交给电脑，可以离开听书页面。"
+                    workMessage = "未读 \(submission.acceptedCount) 章已一次上传，可以离开听书页面。"
                 } else {
-                    workMessage = "已提交 \(submitted) 章，\(failed) 章正文下载失败；再次点击会继续补齐。"
+                    workMessage = "已上传 \(submission.acceptedCount) 章，\(failed) 章正文下载失败；再次点击会继续补齐。"
                 }
                 refreshLocalState()
             } catch is CancellationError {
@@ -450,6 +444,54 @@ struct AudiobookView: View {
             } catch {
                 workError = error.localizedDescription
             }
+        }
+    }
+
+    private func loadChapterContents(
+        _ targets: [BookChapter],
+        maximumConcurrent: Int = 4
+    ) -> AsyncThrowingStream<(chapter: BookChapter, text: String?), Error> {
+        AsyncThrowingStream { continuation in
+            let selectedSource = source
+            let task = Task {
+                do {
+                    for batchStart in stride(from: 0, to: targets.count, by: maximumConcurrent) {
+                        try Task.checkCancellation()
+                        let batchEnd = min(batchStart + maximumConcurrent, targets.count)
+                        let batch = Array(targets[batchStart..<batchEnd])
+                        try await withThrowingTaskGroup(
+                            of: (Int, String?).self
+                        ) { group in
+                            for (offset, chapter) in batch.enumerated() {
+                                group.addTask {
+                                    do {
+                                        let loaded = try await SourceEngine().loadContent(
+                                            chapter: chapter,
+                                            source: selectedSource
+                                        )
+                                        return (offset, ReadableTextNormalizer.normalize(loaded).nilIfBlank)
+                                    } catch is CancellationError {
+                                        throw CancellationError()
+                                    } catch {
+                                        return (offset, nil)
+                                    }
+                                }
+                            }
+                            var values: [(Int, String?)] = []
+                            for try await value in group {
+                                values.append(value)
+                            }
+                            for value in values.sorted(by: { $0.0 < $1.0 }) {
+                                continuation.yield((batch[value.0], value.1))
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -470,26 +512,24 @@ struct AudiobookView: View {
             defer { isWorking = false }
             let client = AudiobookServerClient(configuration: configuration)
             do {
-                for target in targets {
-                    try Task.checkCancellation()
-                    currentTaskTitle = "提交 \(target.chapter.title)"
-                    let request = AudiobookJobRequest(
+                currentTaskTitle = "一次上传 \(targets.count) 章到电脑"
+                let requests = targets.map { target in
+                    AudiobookJobRequest(
                         book: book,
                         chapter: target.chapter,
                         text: target.text,
                         voice: generationVoice,
                         speed: requestedSpeed
                     )
-                    _ = try await client.submit(request)
-                    completedCount += 1
-                    currentTaskProgress = 0
                 }
+                let submission = try await client.submit(requests)
+                completedCount = submission.acceptedCount
                 remoteBookStatus = try await client.bookStatus(
                     bookID: book.id,
                     voice: generationVoice,
                     speed: requestedSpeed
                 )
-                workMessage = "已把 \(targets.count) 章交给电脑，后续生成无需停留在手机页面。"
+                workMessage = "已一次上传 \(submission.acceptedCount) 章，后续生成无需停留在手机页面。"
             } catch is CancellationError {
                 workError = "章节提交已暂停，电脑会继续处理已经收到的任务。"
             } catch {

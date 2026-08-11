@@ -19,6 +19,22 @@ struct AudiobookServerClient {
         return try decode(AudiobookJobStatus.self, data: data, response: response)
     }
 
+    func submit(_ jobs: [AudiobookJobRequest]) async throws -> AudiobookBatchSubmission {
+        guard !jobs.isEmpty else {
+            return AudiobookBatchSubmission(
+                protocolVersion: AudiobookProtocol.version,
+                acceptedCount: 0
+            )
+        }
+        var request = authorizedRequest(path: "v1/jobs/batch")
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(AudiobookBatchJobRequest(jobs: jobs))
+        let (data, response) = try await session.data(for: request)
+        return try decode(AudiobookBatchSubmission.self, data: data, response: response)
+    }
+
     func status(jobID: String) async throws -> AudiobookJobStatus {
         let request = authorizedRequest(path: "v1/jobs/\(jobID)")
         let (data, response) = try await session.data(for: request)
@@ -121,6 +137,10 @@ struct AudiobookServerClient {
         }
         if let status = value as? AudiobookBookStatus,
            status.protocolVersion != AudiobookProtocol.version {
+            throw AudiobookClientError.protocolMismatch
+        }
+        if let submission = value as? AudiobookBatchSubmission,
+           submission.protocolVersion != AudiobookProtocol.version {
             throw AudiobookClientError.protocolMismatch
         }
         return value
