@@ -10,6 +10,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     @Published private(set) var currentChapterIndex: Int?
     @Published private(set) var currentChapterTitle = ""
     @Published private(set) var isPlaying = false
+    @Published private(set) var isWaitingForNextChapter = false
     @Published private(set) var elapsed: Double = 0
     @Published private(set) var duration: Double = 0
     @Published var playbackRate: Double = 1 {
@@ -55,16 +56,18 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     }
 
     func play(book: SearchBook, chapters: [BookChapter], startingAt startIndex: Int) throws {
-        guard chapters.indices.contains(startIndex),
-              AudiobookStorage.hasAudio(
-                bookID: book.id,
-                chapterURL: chapters[startIndex].url
-              ) else {
+        let targetIndices = AudiobookQueuePlanner.targetIndices(
+            chapters: chapters,
+            currentIndex: startIndex,
+            lookAhead: chapters.count
+        )
+        guard let firstIndex = targetIndices.first,
+              AudiobookStorage.hasAudio(bookID: book.id, chapterURL: chapters[firstIndex].url) else {
             throw AudiobookClientError.audioUnavailable
         }
 
         var playable: [Entry] = []
-        for index in startIndex..<chapters.count {
+        for index in targetIndices {
             let chapter = chapters[index]
             guard AudiobookStorage.hasAudio(bookID: book.id, chapterURL: chapter.url) else {
                 break
@@ -87,6 +90,38 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         entries = playable
         entryPosition = 0
         loadCurrentEntry(autoplay: true)
+    }
+
+    func extendQueue(book: SearchBook, chapters: [BookChapter]) {
+        guard currentBookID == book.id,
+              let currentChapterIndex,
+              !entries.isEmpty else { return }
+        let lastIndex = entries.last?.chapterIndex ?? currentChapterIndex
+        let existingIndices = Set(entries.map(\.chapterIndex))
+        for index in chapters.indices where index > lastIndex && !chapters[index].isVolume {
+            let chapter = chapters[index]
+            guard AudiobookStorage.hasAudio(bookID: book.id, chapterURL: chapter.url) else {
+                break
+            }
+            guard !existingIndices.contains(index) else { continue }
+            entries.append(
+                Entry(
+                    bookID: book.id,
+                    bookTitle: book.name,
+                    author: book.author,
+                    chapterIndex: index,
+                    chapterTitle: chapter.title,
+                    fileURL: AudiobookStorage.chapterFileURL(
+                        bookID: book.id,
+                        chapterURL: chapter.url
+                    )
+                )
+            )
+        }
+        if isWaitingForNextChapter, entryPosition + 1 < entries.count {
+            entryPosition += 1
+            loadCurrentEntry(autoplay: true)
+        }
     }
 
     func togglePlayback() {
@@ -126,6 +161,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     func playNext() {
         guard entryPosition + 1 < entries.count else {
             pause()
+            isWaitingForNextChapter = true
             return
         }
         entryPosition += 1
@@ -154,6 +190,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         elapsed = 0
         duration = 0
         isPlaying = false
+        isWaitingForNextChapter = false
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
@@ -175,6 +212,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         currentBookID = entry.bookID
         currentChapterIndex = entry.chapterIndex
         currentChapterTitle = entry.chapterTitle
+        isWaitingForNextChapter = false
         elapsed = 0
         duration = 0
         updateNowPlaying()

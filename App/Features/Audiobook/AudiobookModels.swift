@@ -168,6 +168,21 @@ enum AudiobookTextNormalizer {
     }
 }
 
+enum AudiobookQueuePlanner {
+    static let defaultLookAhead = 3
+
+    static func targetIndices(
+        chapters: [BookChapter],
+        currentIndex: Int,
+        lookAhead: Int = defaultLookAhead
+    ) -> [Int] {
+        guard !chapters.isEmpty else { return [] }
+        let start = min(max(currentIndex, 0), chapters.count - 1)
+        let readable = chapters.indices.dropFirst(start).filter { !chapters[$0].isVolume }
+        return Array(readable.prefix(max(0, lookAhead) + 1))
+    }
+}
+
 enum AudiobookIdentifier {
     static func sha256(_ value: String) -> String {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -258,4 +273,3 @@ enum AudiobookClientError: LocalizedError {
         }
     }
 }
-

@@ -62,4 +62,24 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual(request.text, "正文。\n第二段。")
         XCTAssertEqual(request.textSHA256, AudiobookIdentifier.sha256(request.text))
     }
+
+    func testAutomaticQueueKeepsThreeReadableChaptersAhead() {
+        let chapters = [
+            BookChapter(title: "第一章", url: "chapter-1", index: 0),
+            BookChapter(title: "第二卷", url: "volume-2", index: 1, isVolume: true),
+            BookChapter(title: "第二章", url: "chapter-2", index: 2),
+            BookChapter(title: "第三章", url: "chapter-3", index: 3),
+            BookChapter(title: "第四章", url: "chapter-4", index: 4),
+            BookChapter(title: "第五章", url: "chapter-5", index: 5)
+        ]
+
+        XCTAssertEqual(
+            AudiobookQueuePlanner.targetIndices(chapters: chapters, currentIndex: 0),
+            [0, 2, 3, 4]
+        )
+        XCTAssertEqual(
+            AudiobookQueuePlanner.targetIndices(chapters: chapters, currentIndex: 4),
+            [4, 5]
+        )
+    }
 }

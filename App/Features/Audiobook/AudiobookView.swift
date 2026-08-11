@@ -5,6 +5,7 @@ struct AudiobookView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @ObservedObject private var player = AudiobookPlayer.shared
+    @ObservedObject private var coordinator = AudiobookGenerationCoordinator.shared
     @AppStorage("audiobook.voice") private var selectedVoice = "default"
     @AppStorage("audiobook.generationSpeed") private var generationSpeed = 1.0
 
@@ -48,15 +49,25 @@ struct AudiobookView: View {
             }
             .task {
                 refreshLocalState()
-                if configuration != nil { await testConnection() }
+                if configuration != nil {
+                    await testConnection()
+                    beginAutomaticListening(allowComputer: health != nil)
+                } else {
+                    beginAutomaticListening(allowComputer: false)
+                    if !currentChapterHasAudio { showingPairing = true }
+                }
             }
             .onDisappear { workTask?.cancel() }
+            .onChange(of: coordinator.downloadedRevision) { _, _ in
+                refreshLocalState()
+            }
             .sheet(isPresented: $showingPairing) {
                 AudiobookPairingView { newConfiguration, newHealth in
                     configuration = newConfiguration
                     health = newHealth
                     selectedVoice = newHealth.voices.first?.id ?? "default"
                     connectionError = nil
+                    beginAutomaticListening(allowComputer: true)
                 }
             }
             .confirmationDialog(
@@ -120,12 +131,23 @@ struct AudiobookView: View {
                         Text("\(rate, specifier: "%g") 倍").tag(rate)
                     }
                 }
+                if player.isWaitingForNextChapter {
+                    Label("下一章正在生成，完成后自动续播", systemImage: "hourglass")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.inkSoft)
+                }
             } else if currentChapterHasAudio {
                 Button {
                     startPlayback()
                 } label: {
                     Label("从本章开始播放", systemImage: "play.fill")
                 }
+            } else if coordinator.activeBookID == book.id && coordinator.isWorking {
+                ContentUnavailableView(
+                    "正在生成本章",
+                    systemImage: "waveform",
+                    description: Text("生成完成后会自动开始播放")
+                )
             } else {
                 ContentUnavailableView(
                     "本章还没有音频",
@@ -136,8 +158,46 @@ struct AudiobookView: View {
         }
     }
 
+    @ViewBuilder
     private var generationSection: some View {
-        Section("电脑生成") {
+        Section("一键连续听书") {
+            if coordinator.activeBookID == book.id {
+                if coordinator.isWorking {
+                    ProgressView(value: coordinator.currentTaskProgress)
+                        .tint(AppTheme.vermilion)
+                    Text("正在处理：\(coordinator.currentTaskTitle)")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.inkSoft)
+                }
+                if !coordinator.statusMessage.isEmpty {
+                    Text(coordinator.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.inkSoft)
+                }
+                LabeledContent("已提前准备", value: "后续 \(coordinator.preparedAheadCount) 章")
+                if let error = coordinator.errorMessage {
+                    InlineErrorView(message: error)
+                    Button("重试自动听书") {
+                        beginAutomaticListening(allowComputer: health != nil)
+                    }
+                }
+                Button("停止自动预生成", role: .destructive) {
+                    coordinator.cancelAutomaticGeneration()
+                }
+            } else {
+                Button {
+                    beginAutomaticListening(allowComputer: health != nil)
+                } label: {
+                    Label("开始一键听书", systemImage: "headphones")
+                }
+            }
+
+            Text("播放时自动保持当前章之后 3 章已生成。关闭此面板后任务仍会继续。")
+                .font(.caption)
+                .foregroundStyle(AppTheme.inkSoft)
+        }
+
+        Section("手工生成") {
             if isWorking {
                 ProgressView(
                     value: Double(completedCount) + currentTaskProgress,
@@ -157,14 +217,22 @@ struct AudiobookView: View {
                         systemImage: "waveform.badge.plus"
                     )
                 }
-                .disabled(configuration == nil || currentText.nilIfBlank == nil)
+                .disabled(
+                    configuration == nil
+                        || currentText.nilIfBlank == nil
+                        || coordinator.isManaging(bookID: book.id)
+                )
 
                 Button {
                     startCachedChapterGeneration()
                 } label: {
                     Label("生成已缓存章节", systemImage: "books.vertical")
                 }
-                .disabled(configuration == nil || cachedTargets.isEmpty)
+                .disabled(
+                    configuration == nil
+                        || cachedTargets.isEmpty
+                        || coordinator.isManaging(bookID: book.id)
+                )
 
                 Text("已缓存正文 \(cachedTargets.count) 章。需要整本生成时，先在书籍详情中选择“缓存全书”。")
                     .font(.caption)
@@ -296,6 +364,7 @@ struct AudiobookView: View {
                         textSHA256: request.textSHA256,
                         voice: selectedVoice
                     )
+                    player.extendQueue(book: book, chapters: chapters)
                     completedCount += 1
                     currentTaskProgress = 0
                     refreshLocalState()
@@ -332,7 +401,24 @@ struct AudiobookView: View {
         }
     }
 
+    private func beginAutomaticListening(allowComputer: Bool) {
+        coordinator.startAutomaticListening(
+            book: book,
+            chapters: chapters,
+            source: source,
+            currentIndex: currentIndex,
+            currentText: currentText,
+            modelContext: modelContext,
+            configuration: allowComputer ? configuration : nil,
+            voice: selectedVoice,
+            generationSpeed: generationSpeed
+        )
+    }
+
     private func deleteBookAudio() {
+        if coordinator.isManaging(bookID: book.id) {
+            coordinator.cancelAutomaticGeneration()
+        }
         player.stop(bookID: book.id)
         do {
             try AudiobookStorage.deleteBook(bookID: book.id)
