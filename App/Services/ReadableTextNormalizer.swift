@@ -92,6 +92,9 @@ enum ReadableTextNormalizer {
     private static let maskedSeparatorRegex = try? NSRegularExpression(
         pattern: #"(?<=\p{Han})[*＊_＿]{1,3}(?=\p{Han})"#
     )
+    private static let chineseWhitespaceRegex = try? NSRegularExpression(
+        pattern: #"(?<=[\p{Han}，。！？；：、）》】」』〉〕］）])[^\S\r\n]+(?=[\p{Han}，。！？；：、）》】」』〉〕］）])"#
+    )
 
     static func normalize(_ value: String) -> String {
         guard !value.isEmpty else { return value }
@@ -104,6 +107,13 @@ enum ReadableTextNormalizer {
             result = replaceMatches(
                 in: result,
                 using: maskedSeparatorRegex,
+                replacement: ""
+            )
+        }
+        if let chineseWhitespaceRegex {
+            result = replaceMatches(
+                in: result,
+                using: chineseWhitespaceRegex,
                 replacement: ""
             )
         }

@@ -47,6 +47,18 @@ final class ReaderModelsTests: XCTestCase {
         }
     }
 
+    func testPagedTextUsesJustifiedChineseLayout() {
+        let attributes = ReaderPageTextStyle.attributes(
+            fontSize: 24,
+            lineSpacing: 10,
+            usesSerif: true
+        )
+        let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle
+
+        XCTAssertEqual(paragraphStyle?.alignment, .justified)
+        XCTAssertEqual(paragraphStyle?.lineBreakMode, .byWordWrapping)
+    }
+
     func testBlocksPreserveIncreasingLocatorsForLongContent() {
         let content = String(repeating: "山海之间有一座城。", count: 180) + "\n第二段"
         let blocks = ReaderDocumentBuilder.blocks(from: content, maximumUTF16Length: 120)

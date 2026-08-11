@@ -159,6 +159,7 @@ enum ReaderPageTextStyle {
     ) -> [NSAttributedString.Key: Any] {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
+        paragraphStyle.alignment = .justified
         paragraphStyle.lineBreakMode = .byWordWrapping
         paragraphStyle.lineBreakStrategy = [.pushOut]
 

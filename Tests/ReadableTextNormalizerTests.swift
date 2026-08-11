@@ -58,4 +58,13 @@ final class ReadableTextNormalizerTests: XCTestCase {
 
         XCTAssertEqual(ReadableTextNormalizer.normalize(once), once)
     }
+
+    func testRemovesWhitespaceInsideChineseProse() {
+        let input = "入。  其实 就算 不会。 接下来 AI 模型继续。"
+
+        XCTAssertEqual(
+            ReadableTextNormalizer.normalize(input),
+            "入。其实就算不会。接下来 AI 模型继续。"
+        )
+    }
 }

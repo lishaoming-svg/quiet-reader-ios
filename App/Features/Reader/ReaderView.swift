@@ -241,8 +241,7 @@ struct ReaderView: View {
             }
             .textSelection(.enabled)
             .scrollTargetLayout()
-            .frame(maxWidth: readerMargin.maximumContentWidth, alignment: .leading)
-            .padding(.horizontal, readerMargin.horizontalPadding)
+            .frame(width: readerContentWidth, alignment: .leading)
             .padding(.top, 36)
             .padding(.bottom, controlsVisible ? 36 : 84)
             .frame(maxWidth: .infinity)
@@ -316,8 +315,7 @@ struct ReaderView: View {
                 .frame(height: ReaderTypography.pageFooterHeight)
                 .padding(.top, ReaderTypography.pageFooterTopSpacing)
         }
-        .frame(maxWidth: readerMargin.maximumContentWidth)
-        .padding(.horizontal, readerMargin.horizontalPadding)
+        .frame(width: readerContentWidth)
         .frame(maxHeight: .infinity)
         .padding(.vertical, ReaderTypography.pageVerticalPadding)
         .frame(maxWidth: .infinity)
