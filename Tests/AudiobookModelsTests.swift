@@ -112,7 +112,7 @@ final class AudiobookModelsTests: XCTestCase {
         let data = Data(
             """
             {
-              "protocol_version": 1,
+              "protocol_version": 2,
               "job_id": "job",
               "status": "completed",
               "progress": 1,

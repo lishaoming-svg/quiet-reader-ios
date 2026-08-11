@@ -3,7 +3,7 @@ import Foundation
 import Security
 
 enum AudiobookProtocol {
-    static let version = 1
+    static let version = 2
     static let defaultPort = 8765
 }
 

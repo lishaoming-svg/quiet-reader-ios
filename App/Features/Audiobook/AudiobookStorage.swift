@@ -51,6 +51,7 @@ enum AudiobookStorage {
             $0.chapterURL == chapterURL
         }) else { return false }
         if let voice, local.voice != voice { return false }
+        if voice != nil, local.segments?.isEmpty != false { return false }
         if let speed, abs((local.generationSpeed ?? 1) - speed) > 0.001 { return false }
         return true
     }

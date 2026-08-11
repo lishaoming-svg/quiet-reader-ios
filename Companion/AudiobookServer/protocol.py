@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_CHAPTER_CHARACTERS = 100_000
 SENTENCE_ENDINGS = frozenset("。！？!?；;\n")
 SOFT_ENDINGS = frozenset("，,、：:")
@@ -252,7 +252,7 @@ class JobRequest:
     @property
     def stable_job_id(self) -> str:
         fingerprint = "\n".join(
-            [self.book_id, self.chapter_id, self.text_sha256, self.voice, f"{self.speed:.2f}"]
+            ["timeline-v2", self.book_id, self.chapter_id, self.text_sha256, self.voice, f"{self.speed:.2f}"]
         )
         return sha256(fingerprint.encode("utf-8")).hexdigest()[:32]
 

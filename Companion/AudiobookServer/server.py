@@ -24,6 +24,7 @@ from urllib.parse import quote, urlparse
 
 from protocol import (
     MULTI_ROLE_VOICE,
+    PROTOCOL_VERSION,
     JobRequest,
     NarrationChunk,
     ProtocolError,
@@ -99,7 +100,7 @@ class JobState:
 
     def public_dict(self) -> dict[str, Any]:
         return {
-            "protocol_version": 1,
+            "protocol_version": PROTOCOL_VERSION,
             "job_id": self.job_id,
             "status": self.status,
             "progress": self.progress,
@@ -344,7 +345,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 HTTPStatus.OK,
                 {
-                    "protocol_version": 1,
+                    "protocol_version": PROTOCOL_VERSION,
                     "service": "墨阅听书生成器",
                     "server_version": SERVER_VERSION,
                     "status": "ready",

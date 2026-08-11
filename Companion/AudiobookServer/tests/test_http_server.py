@@ -40,7 +40,7 @@ class HTTPServerTests(unittest.TestCase):
 
                 text = "第一段。第二段完整生成。"
                 payload = {
-                    "protocol_version": 1,
+                    "protocol_version": 2,
                     "book_id": "book",
                     "book_title": "测试书",
                     "author": "作者",
