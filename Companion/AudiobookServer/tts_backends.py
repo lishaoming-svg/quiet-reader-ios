@@ -223,7 +223,30 @@ class GPTSoVITSBackend(TTSBackend):
                 )
             )
         sample_rate, audio = result
-        self._soundfile.write(output_path, audio, sample_rate, subtype="PCM_16")
+        # Voice references can make GPT-SoVITS return different channel shapes or
+        # sample rates. Normalize every segment before chapter-level WAV merging.
+        numpy = __import__("numpy")
+        normalized = numpy.asarray(audio, dtype=numpy.float32).squeeze()
+        if normalized.ndim == 2:
+            channel_axis = 0 if normalized.shape[0] <= normalized.shape[1] else 1
+            normalized = normalized.mean(axis=channel_axis)
+        if normalized.ndim != 1 or normalized.size == 0:
+            raise RuntimeError("GPT-SoVITS 返回了无效的音频形状")
+        target_sample_rate = 32_000
+        if sample_rate != target_sample_rate:
+            target_length = max(1, round(normalized.size * target_sample_rate / sample_rate))
+            normalized = numpy.interp(
+                numpy.linspace(0, normalized.size - 1, target_length),
+                numpy.arange(normalized.size),
+                normalized,
+            ).astype(numpy.float32)
+        self._soundfile.write(
+            output_path,
+            normalized,
+            target_sample_rate,
+            format="WAV",
+            subtype="PCM_16",
+        )
 
     def voices(self) -> list[dict[str, str]]:
         return public_voice_options()
