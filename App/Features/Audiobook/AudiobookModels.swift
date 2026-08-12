@@ -48,10 +48,10 @@ struct AudiobookTimedSegment: Codable, Hashable, Identifiable {
     var roleName: String {
         if let speaker, !speaker.isEmpty { return speaker }
         switch role {
-        case "protagonist": "主角"
-        case "male": "男性角色"
-        case "female": "女性角色"
-        default: "旁白"
+        case "protagonist": return "主角"
+        case "male": return "男性角色"
+        case "female": return "女性角色"
+        default: return "旁白"
         }
     }
 
