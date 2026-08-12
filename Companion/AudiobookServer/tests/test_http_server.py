@@ -52,7 +52,7 @@ class HTTPServerTests(unittest.TestCase):
 
                 text = "第一段。第二段完整生成。"
                 payload = {
-                    "protocol_version": 4,
+                    "protocol_version": 5,
                     "book_id": "book",
                     "book_title": "测试书",
                     "author": "作者",
@@ -72,7 +72,7 @@ class HTTPServerTests(unittest.TestCase):
                 batch = self._json_request(
                     f"{base_url}/v1/jobs/batch",
                     data=json.dumps(
-                        {"protocol_version": 4, "jobs": [payload]},
+                        {"protocol_version": 5, "jobs": [payload]},
                         ensure_ascii=False,
                     ).encode("utf-8"),
                 )
@@ -95,7 +95,7 @@ class HTTPServerTests(unittest.TestCase):
                 self.assertEqual(book_status["jobs"][0]["status"], "completed")
                 self.assertEqual(book_status["jobs"][0]["file_size"], status["file_size"])
                 dashboard = self._json_request(f"{base_url}/v1/dashboard")
-                self.assertEqual(dashboard["server_version"], "0.5.2")
+                self.assertEqual(dashboard["server_version"], "0.6.0")
                 self.assertTrue(dashboard["public_url"].endswith(f":{server.server_port}"))
                 self.assertEqual(dashboard["books"][0]["book_title"], "测试书")
                 self.assertEqual(dashboard["books"][0]["completed_count"], 1)

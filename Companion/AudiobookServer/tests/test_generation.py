@@ -16,14 +16,81 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from protocol import JobRequest
-from server import JobManager, _utf16_offset
+from protocol import JobRequest, NarrationChunk, split_narration_chunks
+from server import CharacterVoiceRegistry, JobManager, _synthesis_voice, _utf16_offset
 from tts_backends import CosyVoiceBackend, ToneTestBackend, WindowsSAPIBackend
+from voice_catalog import approved_voices
 
 
 class GenerationTests(unittest.TestCase):
     def test_timeline_offsets_use_ios_utf16_units(self):
         self.assertEqual(_utf16_offset("甲😀乙", 2), 3)
+
+    def test_multi_role_resolves_named_speaker_to_catalog_voice(self):
+        chunk = NarrationChunk(
+            text="“现在出发。”",
+            start_offset=0,
+            end_offset=7,
+            role="female",
+            speaker="何雁",
+            gender="female",
+        )
+
+        voice = _synthesis_voice("multi-role", chunk)
+
+        self.assertIn(voice, {item["id"] for item in approved_voices("female")})
+        self.assertEqual(voice, _synthesis_voice("multi-role", chunk))
+
+    def test_character_voice_registry_uses_batch_gender_and_survives_restart(self):
+        first_text = "夜色很深。何雁轻声问：“现在出发吗？”"
+        evidence_text = "年轻女士何雁站在门边，她正在等待回答。"
+        common = {
+            "book_id": "character-book",
+            "book_title": "人物声线测试",
+            "author": "作者",
+            "voice": "multi-role",
+            "speed": 1.0,
+        }
+        requests = [
+            JobRequest(
+                chapter_id="chapter-1",
+                chapter_url="https://example.test/character/1",
+                chapter_index=0,
+                chapter_title="第一章",
+                text=first_text,
+                text_sha256=hashlib.sha256(first_text.encode("utf-8")).hexdigest(),
+                **common,
+            ),
+            JobRequest(
+                chapter_id="chapter-2",
+                chapter_url="https://example.test/character/2",
+                chapter_index=1,
+                chapter_title="第二章",
+                text=evidence_text,
+                text_sha256=hashlib.sha256(evidence_text.encode("utf-8")).hexdigest(),
+                **common,
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "character-voices.json"
+            registry = CharacterVoiceRegistry(path)
+            registry.observe(requests)
+            dialogue = next(
+                chunk
+                for chunk in split_narration_chunks(first_text, "multi-role")
+                if chunk.speaker == "何雁"
+            )
+            first_voice = registry.resolve("character-book", dialogue)
+            registry.observe([requests[0]])
+            repeated_voice = registry.resolve("character-book", dialogue)
+            restored = CharacterVoiceRegistry(path)
+
+            self.assertIn(
+                first_voice,
+                {item["id"] for item in approved_voices("female")},
+            )
+            self.assertEqual(repeated_voice, first_voice)
+            self.assertEqual(restored.resolve("character-book", dialogue), first_voice)
 
     def test_delete_book_removes_queued_jobs_and_metadata(self):
         with tempfile.TemporaryDirectory() as directory:

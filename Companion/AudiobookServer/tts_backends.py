@@ -4,9 +4,17 @@ import math
 import os
 import subprocess
 import sys
+import threading
 import wave
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+from voice_catalog import (
+    default_voice_assignment,
+    public_voice_options,
+    resolve_audio_path,
+    voice_profile,
+)
 
 
 class TTSBackend(ABC):
@@ -19,6 +27,9 @@ class TTSBackend(ABC):
 
     def voices(self) -> list[dict[str, str]]:
         return [{"id": "default", "name": "默认音色"}]
+
+    def voice_assignment(self) -> dict[str, str] | None:
+        return None
 
 
 class WindowsSAPIBackend(TTSBackend):
@@ -145,6 +156,82 @@ class CosyVoiceBackend(TTSBackend):
         ]
 
 
+class GPTSoVITSBackend(TTSBackend):
+    engine_id = "gpt-sovits-v2-proplus"
+    display_name = "GPT-SoVITS v2 ProPlus 多角色声库"
+
+    def __init__(self, home: Path) -> None:
+        if not home.is_dir():
+            raise RuntimeError(f"找不到 GPT-SoVITS 目录：{home}")
+        package_dir = home / "GPT_SoVITS"
+        if not package_dir.is_dir():
+            raise RuntimeError(f"GPT-SoVITS 程序目录不完整：{package_dir}")
+        self.home = home.resolve()
+        self._inference_lock = threading.Lock()
+
+        sys.path.insert(0, str(home))
+        sys.path.insert(0, str(package_dir))
+        sys.path.insert(0, str(package_dir / "eres2net"))
+        original_directory = Path.cwd()
+        try:
+            os.chdir(home)
+            from TTS_infer_pack.TTS import TTS, TTS_Config
+
+            pretrained = package_dir / "pretrained_models"
+            config = {
+                "custom": {
+                    "device": "cuda",
+                    "is_half": True,
+                    "version": "v2ProPlus",
+                    "t2s_weights_path": str(pretrained / "s1v3.ckpt"),
+                    "vits_weights_path": str(pretrained / "v2Pro" / "s2Gv2ProPlus.pth"),
+                    "bert_base_path": str(pretrained / "chinese-roberta-wwm-ext-large"),
+                    "cnhuhbert_base_path": str(pretrained / "chinese-hubert-base"),
+                }
+            }
+            self.model = TTS(TTS_Config(config))
+            # GPT-SoVITS lazily imports G2PW during the first Chinese request.
+            # Preload it while repository-relative model paths are available.
+            from text import chinese2 as _chinese2  # noqa: F401
+        finally:
+            os.chdir(original_directory)
+        self._soundfile = __import__("soundfile")
+
+    def synthesize(self, text: str, output_path: Path, voice: str, speed: float) -> None:
+        profile = voice_profile(voice)
+        engine = profile["engine"]
+        reference = resolve_audio_path(engine["reference_audio"])
+        with self._inference_lock:
+            result = next(
+                self.model.run(
+                    {
+                        "text": text,
+                        "text_lang": "all_zh",
+                        "ref_audio_path": str(reference),
+                        "prompt_text": engine["reference_text"],
+                        "prompt_lang": "all_zh",
+                        "text_split_method": "cut1",
+                        "batch_size": 4,
+                        "batch_threshold": 0.75,
+                        "split_bucket": True,
+                        "speed_factor": speed,
+                        "fragment_interval": 0.18,
+                        "seed": 20260812,
+                        "parallel_infer": True,
+                        "repetition_penalty": 1.35,
+                    }
+                )
+            )
+        sample_rate, audio = result
+        self._soundfile.write(output_path, audio, sample_rate, subtype="PCM_16")
+
+    def voices(self) -> list[dict[str, str]]:
+        return public_voice_options()
+
+    def voice_assignment(self) -> dict[str, str] | None:
+        return default_voice_assignment()
+
+
 class ToneTestBackend(TTSBackend):
     engine_id = "tone-test"
     display_name = "协议测试音"
@@ -176,6 +263,8 @@ def create_backend(args, base_dir: Path) -> TTSBackend:
             Path(args.prompt_audio),
             args.prompt_text,
         )
+    if args.engine == "gpt-sovits":
+        return GPTSoVITSBackend(Path(args.gpt_sovits_home))
     if args.engine == "tone":
         return ToneTestBackend()
     raise RuntimeError(f"不支持的语音引擎：{args.engine}")

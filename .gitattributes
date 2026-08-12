@@ -10,3 +10,4 @@
 *.ps1 text eol=lf
 *.cmd text eol=crlf
 *.png binary
+*.wav binary

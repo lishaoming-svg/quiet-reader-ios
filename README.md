@@ -24,8 +24,8 @@
 - 位置书签、书签摘要、书签列表和精确跳转。
 - 阅读页内置听书入口，可通过二维码连接同一局域网的 Windows 生成器。
 - 听书采用电脑整本预生成模式，手机只负责提交正文、同步伴读包和离线连续播放。
-- CosyVoice 模式提供自然女声、沉稳旁白和多角色对话三种朗读模式，默认使用多角色对话，也可在听书面板切换。
-- 多角色对话根据引号、说话提示词、姓名及“他/她”线索，为旁白、主角、男性和女性角色分配不同表达。
+- GPT-SoVITS v2 ProPlus 声库提供 1 个旁白、5 个男声和 5 个女声，听书面板可以选择多角色自动分配或任一单人音色。
+- 多角色模式根据引号、说话提示词、姓名及“他/她”线索稳定分配人物声线；同一人物跨章节保持相同音色。
 - 生成器记录逐段角色时间轴；播放时滚动正文自动跟随并高亮当前段，分页正文自动翻到对应页。
 - 已缓存章节可以一次快速提交给电脑，提交完成后电脑在手机离开听书页面的情况下继续生成。
 - 电脑将已完成章节导出为 `.qraudio` 逐句伴读包，包内保存音频、多角色标识、UTF-16 时间轴以及正文和音频哈希。
@@ -52,7 +52,7 @@ Windows 环境不能运行 Xcode。推送到 GitHub 后，可在 Actions 中运�
 
 ## Windows 本地听书
 
-Windows 生成器位于 [`Companion/AudiobookServer`](Companion/AudiobookServer)，默认可以使用系统自带的微软慧慧语音验证完整链路：
+Windows 生成器位于 [`Companion/AudiobookServer`](Companion/AudiobookServer)。已安装本项目的 GPT-SoVITS 环境后，双击 `打开墨阅听书.vbs` 即可使用 11 音色多角色声库；也可以使用系统自带的微软慧慧语音验证基础链路：
 
 ```powershell
 cd Companion\AudiobookServer
@@ -70,7 +70,7 @@ python -m pip install -r requirements.txt
 
 数据线传输时，在电脑生成器的 `data\packages` 中找到对应 `.qraudio` 文件。用 Windows Apple Devices 连接 iPhone，在“文件”中把该文件添加到墨阅，再在听书面板点击“导入 .qraudio 伴读包”。
 
-真人感更强的 CosyVoice 3 使用独立环境安装：
+CosyVoice 3 继续作为可选引擎，使用独立环境安装：
 
 ```powershell
 cd Companion\AudiobookServer

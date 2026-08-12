@@ -18,6 +18,15 @@
 
 ## 可选听书组件
 
+- GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+- 许可证：MIT License
+- 用途：Windows 本地 11 音色多角色语音合成。源码、依赖和模型由用户单独下载，不随 iOS App 分发。
+- AISHELL-3：https://www.aishelltech.com/aishell_3
+- 许可证：Apache License 2.0
+- 用途：已确认自然青年男声的本地参考声纹。
+- Qwen3-TTS：https://github.com/QwenLM/Qwen3-TTS
+- 许可证：Apache License 2.0
+- 用途：已确认设计声线和官方预设声线的本地参考声纹。
 - CosyVoice：https://github.com/QwenAudio/CosyVoice
 - 许可证：Apache License 2.0
 - 用途：Windows 本地自然语音合成。源码、依赖和模型由用户单独下载，不随 iOS App 分发。

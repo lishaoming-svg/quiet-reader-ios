@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('sapi', 'cosyvoice', 'tone')][string]$Engine = 'sapi',
+    [ValidateSet('sapi', 'cosyvoice', 'gpt-sovits', 'tone')][string]$Engine = 'gpt-sovits',
     [int]$Port = 8765,
     [string]$PromptAudio = $env:QUIETREADER_PROMPT_AUDIO,
     [string]$PromptText = $env:QUIETREADER_PROMPT_TEXT,
@@ -21,14 +21,34 @@ if ($ReuseExisting) {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $localURL -TimeoutSec 2
         $serviceMarker = ConvertFrom-UTF8Base64 '5aKo6ZiF5ZCs5Lmm55Sf5oiQ5Zmo'
         if ($response.Content.Contains($serviceMarker)) {
-            if ($OpenBrowser) {
-                Start-Process $localURL
+            $tokenPath = Join-Path $root 'data\pairing-token.txt'
+            $compatible = $false
+            if (Test-Path -LiteralPath $tokenPath) {
+                $token = (Get-Content -Raw -Encoding UTF8 -LiteralPath $tokenPath).Trim()
+                $health = Invoke-RestMethod -Uri ($localURL + 'v1/health') -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 3
+                $engineIdentifiers = @{
+                    'sapi' = 'windows-sapi'
+                    'cosyvoice' = 'cosyvoice3'
+                    'gpt-sovits' = 'gpt-sovits-v2-proplus'
+                    'tone' = 'tone-test'
+                }
+                $compatible = ($health.protocol_version -eq 5 -and $health.engine -eq $engineIdentifiers[$Engine])
             }
-            Write-Host (ConvertFrom-UTF8Base64 '5aKo6ZiF5ZCs5Lmm5pyN5Yqh5bey57uP6L+Q6KGM77yM6YWN5a+56aG16Z2i5bey5omT5byA44CC')
-            exit 0
+            if ($compatible) {
+                if ($OpenBrowser) {
+                    Start-Process $localURL
+                }
+                Write-Host (ConvertFrom-UTF8Base64 '5aKo6ZiF5ZCs5Lmm5pyN5Yqh5bey57uP6L+Q6KGM77yM6YWN5a+56aG16Z2i5bey5omT5byA44CC')
+                exit 0
+            }
+            throw (ConvertFrom-UTF8Base64 'ODc2NSDnq6/lj6PmraPlnKjov5DooYzml6fniYjloqjpmIXnlJ/miJDlmajjgILor7flhYjlnKjml6fnvZHpobXlj7PkuIrop5LlgZzmraLmnI3liqHvvIznhLblkI7ph43mlrDlj4zlh7vlkK/liqjjgII=')
         }
     } catch {
-        # No compatible local service is running, so continue with startup.
+        $oldServerMarker = ConvertFrom-UTF8Base64 '5pen54mI5aKo6ZiF55Sf5oiQ5Zmo'
+        if ($_.Exception.Message.Contains($oldServerMarker)) {
+            throw
+        }
+        # No local service is listening, so continue with startup.
     }
 }
 
@@ -47,17 +67,19 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 
 Write-Host (ConvertFrom-UTF8Base64 '5q2j5Zyo5ZCv5Yqo5aKo6ZiF5ZCs5Lmm5pyN5Yqh77yM6aaW5qyh5Yqg6L295qih5Z6L5Y+v6IO96ZyA6KaB5LiA5Lqb5pe26Ze044CC')
 
-if ($Engine -eq 'cosyvoice') {
-    if (-not $PromptAudio -or -not (Test-Path -LiteralPath $PromptAudio)) {
-        throw (ConvertFrom-UTF8Base64 'Q29zeVZvaWNlIOmcgOimgSBQcm9tcHRBdWRpb++8jOivt+aMh+WumuS4gOauteWFt+acieS9v+eUqOadg+eahOWPguiAg+S6uuWjsOOAgg==')
-    }
-    if (-not $PromptText) {
-        throw (ConvertFrom-UTF8Base64 'Q29zeVZvaWNlIOmcgOimgSBQcm9tcHRUZXh077yM5YaF5a655b+F6aG75LiO5Y+C6ICD5Lq65aOw6YCQ5a2X5LiA6Ie044CC')
-    }
+if ($Engine -in @('cosyvoice', 'gpt-sovits')) {
     $env:PYTHONUTF8 = '1'
     $env:PYTHONIOENCODING = 'utf-8'
-    $env:QUIETREADER_PROMPT_AUDIO = (Resolve-Path -LiteralPath $PromptAudio).Path
-    $env:QUIETREADER_PROMPT_TEXT = $PromptText
+    if ($Engine -eq 'cosyvoice') {
+        if (-not $PromptAudio -or -not (Test-Path -LiteralPath $PromptAudio)) {
+            throw (ConvertFrom-UTF8Base64 'Q29zeVZvaWNlIOmcgOimgSBQcm9tcHRBdWRpb++8jOivt+aMh+WumuS4gOauteWFt+acieS9v+eUqOadg+eahOWPguiAg+S6uuWjsOOAgg==')
+        }
+        if (-not $PromptText) {
+            throw (ConvertFrom-UTF8Base64 'Q29zeVZvaWNlIOmcgOimgSBQcm9tcHRUZXh077yM5YaF5a655b+F6aG75LiO5Y+C6ICD5Lq65aOw6YCQ5a2X5LiA6Ie044CC')
+        }
+        $env:QUIETREADER_PROMPT_AUDIO = (Resolve-Path -LiteralPath $PromptAudio).Path
+        $env:QUIETREADER_PROMPT_TEXT = $PromptText
+    }
     $condaCommand = Get-Command conda -ErrorAction SilentlyContinue
     if ($condaCommand) {
         $condaPath = $condaCommand.Source
@@ -69,9 +91,14 @@ if ($Engine -eq 'cosyvoice') {
             throw (ConvertFrom-UTF8Base64 '5pyq5om+5YiwIENvbmRh77yM6K+35YWI6L+Q6KGMIGluc3RhbGwtY29zeXZvaWNlLnBzMSDlronoo4XlkKzkuabnjq/looPjgII=')
         }
     }
+    if ($Engine -eq 'gpt-sovits') {
+        $environmentName = 'quietreader-gpt-sovits'
+    } else {
+        $environmentName = 'quietreader-cosyvoice'
+    }
     $serverArguments = @(
-        'run', '--no-capture-output', '-n', 'quietreader-cosyvoice',
-        'python', 'server.py', '--engine', 'cosyvoice', '--port', $Port
+        'run', '--no-capture-output', '-n', $environmentName,
+        'python', 'server.py', '--engine', $Engine, '--port', $Port
     )
     if ($OpenBrowser) {
         $serverArguments += '--open-browser'

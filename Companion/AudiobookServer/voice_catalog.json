@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "catalog_id": "quietreader-approved-voices-2026-08-12",
+  "display_name": "墨阅已确认多角色声库",
+  "normalization": {
+    "sample_rate": 24000,
+    "channels": 1,
+    "target_lufs": -18,
+    "true_peak_dbtp": -1.5
+  },
+  "voices": [
+    {
+      "id": "narrator-demo",
+      "name": "自然悬疑旁白",
+      "group": "narrator",
+      "gender": "male",
+      "role_tags": ["旁白", "悬疑旁白"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/narrator-demo-reference.wav",
+        "reference_text": "来说他就是对我不感兴趣"
+      },
+      "preview_audio": "voices/selected/narrator-demo-preview.wav",
+      "source": "GPT-SoVITS few-shot fine-tuning demo"
+    },
+    {
+      "id": "male-uncle-fu",
+      "name": "低沉成熟男声",
+      "group": "male",
+      "gender": "male",
+      "role_tags": ["年长男性", "父辈", "长者"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/male-uncle-fu-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/male-uncle-fu.wav",
+      "source": "Qwen3-TTS official preset"
+    },
+    {
+      "id": "male-young-south",
+      "name": "自然青年男声",
+      "group": "male",
+      "gender": "male",
+      "role_tags": ["青年男性", "普通青年", "男性配角"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/male-young-south-reference.wav",
+        "reference_text": "父子俩被那些先掳走他们的人推到了枪口前。"
+      },
+      "preview_audio": "voices/selected/male-young-south-preview.wav",
+      "source": "AISHELL-3 SSB0139"
+    },
+    {
+      "id": "male-calm-young",
+      "name": "冷静青年男声",
+      "group": "male",
+      "gender": "male",
+      "role_tags": ["男主角", "冷静青年", "悬疑角色"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/male-calm-young-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/male-calm-young.wav",
+      "source": "Qwen3-TTS VoiceDesign local design"
+    },
+    {
+      "id": "male-refined-middle",
+      "name": "儒雅中年男声",
+      "group": "male",
+      "gender": "male",
+      "role_tags": ["医生", "教师", "智者"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/male-refined-middle-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/male-refined-middle.wav",
+      "source": "Qwen3-TTS VoiceDesign local design"
+    },
+    {
+      "id": "male-rugged-adult",
+      "name": "硬朗成年男声",
+      "group": "male",
+      "gender": "male",
+      "role_tags": ["警察", "战士", "男性反派"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/male-rugged-adult-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/male-rugged-adult.wav",
+      "source": "Qwen3-TTS VoiceDesign local design"
+    },
+    {
+      "id": "female-serena",
+      "name": "温柔自然女声",
+      "group": "female",
+      "gender": "female",
+      "role_tags": ["女主角", "温柔女性", "年轻女性"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/female-serena-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/female-serena.wav",
+      "source": "Qwen3-TTS official preset"
+    },
+    {
+      "id": "female-cool-young",
+      "name": "清冷青年女声",
+      "group": "female",
+      "gender": "female",
+      "role_tags": ["冷静女性", "女主角", "悬疑角色"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/female-cool-young-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/female-cool-young.wav",
+      "source": "Qwen3-TTS VoiceDesign local design"
+    },
+    {
+      "id": "female-lively-young",
+      "name": "活泼少女声",
+      "group": "female",
+      "gender": "female",
+      "role_tags": ["少女", "活泼女性", "青春角色"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/female-lively-young-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/female-lively-young.wav",
+      "source": "Qwen3-TTS VoiceDesign local design"
+    },
+    {
+      "id": "female-intellectual-mature",
+      "name": "成熟知性女声",
+      "group": "female",
+      "gender": "female",
+      "role_tags": ["医生", "教师", "成熟女性"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/female-intellectual-mature-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/female-intellectual-mature.wav",
+      "source": "Qwen3-TTS VoiceDesign local design"
+    },
+    {
+      "id": "female-commanding-middle",
+      "name": "强势中年女声",
+      "group": "female",
+      "gender": "female",
+      "role_tags": ["领导", "长辈", "女性反派"],
+      "engine": {
+        "id": "gpt-sovits-v2-proplus",
+        "mode": "voice-clone",
+        "reference_audio": "voices/selected/female-commanding-middle-reference.wav",
+        "reference_text": "夜色渐渐沉了下来，远处的灯火安静地亮着。"
+      },
+      "preview_audio": "voices/selected/female-commanding-middle.wav",
+      "source": "Qwen3-TTS VoiceDesign local design"
+    }
+  ],
+  "default_assignment": {
+    "narrator": "narrator-demo",
+    "protagonist_male": "male-calm-young",
+    "protagonist_female": "female-serena",
+    "male_supporting": "male-young-south",
+    "female_supporting": "female-cool-young"
+  }
+}

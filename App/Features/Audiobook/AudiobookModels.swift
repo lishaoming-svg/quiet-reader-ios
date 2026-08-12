@@ -3,18 +3,41 @@ import Foundation
 import Security
 
 enum AudiobookProtocol {
-    static let version = 4
+    static let version = 5
     static let defaultPort = 8765
 }
 
 struct AudiobookVoice: Codable, Hashable, Identifiable {
     let id: String
     let name: String
+    let group: String?
+    let description: String?
+    let roleTags: [String]?
+
+    var groupName: String {
+        switch group {
+        case "automatic": "自动分配"
+        case "narrator": "旁白"
+        case "male": "男声"
+        case "female": "女声"
+        default: "其他"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case group
+        case description
+        case roleTags = "role_tags"
+    }
 }
 
 struct AudiobookTimedSegment: Codable, Hashable, Identifiable {
     let text: String
     let role: String
+    let speaker: String?
+    let voiceID: String?
     let startTime: Double
     let endTime: Double
     let startOffset: Int
@@ -23,6 +46,7 @@ struct AudiobookTimedSegment: Codable, Hashable, Identifiable {
     var id: String { "\(startOffset)-\(endOffset)-\(role)" }
 
     var roleName: String {
+        if let speaker, !speaker.isEmpty { return speaker }
         switch role {
         case "protagonist": "主角"
         case "male": "男性角色"
@@ -31,9 +55,53 @@ struct AudiobookTimedSegment: Codable, Hashable, Identifiable {
         }
     }
 
+    var voiceName: String? {
+        guard let voiceID else { return nil }
+        return [
+            "narrator-demo": "自然悬疑旁白",
+            "male-uncle-fu": "低沉成熟男声",
+            "male-young-south": "自然青年男声",
+            "male-calm-young": "冷静青年男声",
+            "male-refined-middle": "儒雅中年男声",
+            "male-rugged-adult": "硬朗成年男声",
+            "female-serena": "温柔自然女声",
+            "female-cool-young": "清冷青年女声",
+            "female-lively-young": "活泼少女声",
+            "female-intellectual-mature": "成熟知性女声",
+            "female-commanding-middle": "强势中年女声"
+        ][voiceID] ?? voiceID
+    }
+
+    var roleAndVoiceName: String {
+        guard let voiceName else { return roleName }
+        return "\(roleName) · \(voiceName)"
+    }
+
+    init(
+        text: String,
+        role: String,
+        speaker: String? = nil,
+        voiceID: String? = nil,
+        startTime: Double,
+        endTime: Double,
+        startOffset: Int,
+        endOffset: Int
+    ) {
+        self.text = text
+        self.role = role
+        self.speaker = speaker
+        self.voiceID = voiceID
+        self.startTime = startTime
+        self.endTime = endTime
+        self.startOffset = startOffset
+        self.endOffset = endOffset
+    }
+
     enum CodingKeys: String, CodingKey {
         case text
         case role
+        case speaker
+        case voiceID = "voice_id"
         case startTime = "start_time"
         case endTime = "end_time"
         case startOffset = "start_offset"
@@ -82,6 +150,7 @@ struct AudiobookServerHealth: Decodable {
     let engine: String
     let engineName: String
     let voices: [AudiobookVoice]
+    let defaultVoiceAssignment: [String: String]?
     let queue: AudiobookServerQueueSummary?
 
     enum CodingKeys: String, CodingKey {
@@ -92,6 +161,7 @@ struct AudiobookServerHealth: Decodable {
         case engine
         case engineName = "engine_name"
         case voices
+        case defaultVoiceAssignment = "default_voice_assignment"
         case queue
     }
 }

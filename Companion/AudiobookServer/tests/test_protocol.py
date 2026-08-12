@@ -31,7 +31,7 @@ class ProtocolTests(unittest.TestCase):
     def test_request_validates_normalized_text_hash(self):
         text = normalize_narration_text(" 第一段。 \r\n\r\n 第二段。 ")
         payload = {
-            "protocol_version": 4,
+            "protocol_version": 5,
             "book_id": "book",
             "book_title": "测试书",
             "author": "作者",
@@ -52,7 +52,7 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             JobRequest.from_dict(
                 {
-                    "protocol_version": 4,
+                    "protocol_version": 5,
                     "book_id": "book",
                     "book_title": "测试书",
                     "chapter_id": "chapter",
@@ -74,6 +74,27 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(roles.intersection({ROLE_MALE, ROLE_FEMALE}))
         self.assertEqual(chunks[0].start_offset, 0)
         self.assertEqual(chunks[-1].end_offset, len(text))
+        dialogue = [chunk for chunk in chunks if chunk.role != ROLE_NARRATOR]
+        self.assertTrue(any(chunk.speaker for chunk in dialogue))
+        self.assertTrue(any(chunk.gender == ROLE_FEMALE for chunk in dialogue))
+
+    def test_compound_speech_verb_keeps_clean_speaker_and_chapter_gender(self):
+        text = "何雁是一位年轻女士。过了一会儿，何雁轻声问：“真的准备好了吗？”"
+        chunks = split_narration_chunks(text, "multi-role", maximum=30, minimum=5)
+        dialogue = next(chunk for chunk in chunks if chunk.speaker)
+
+        self.assertEqual(dialogue.speaker, "何雁")
+        self.assertEqual(dialogue.gender, ROLE_FEMALE)
+
+    def test_pronoun_dialogue_resolves_to_nearest_explicit_person(self):
+        text = "林舟说：“先等等。”年轻女士何雁站在门边，她轻声问：“怎么了？”"
+        chunks = split_narration_chunks(text, "multi-role", maximum=30, minimum=5)
+        dialogue = [chunk for chunk in chunks if chunk.speaker]
+
+        self.assertEqual(dialogue[0].speaker, "林舟")
+        self.assertIsNone(dialogue[0].gender)
+        self.assertEqual(dialogue[1].speaker, "何雁")
+        self.assertEqual(dialogue[1].gender, ROLE_FEMALE)
 
 
 if __name__ == "__main__":

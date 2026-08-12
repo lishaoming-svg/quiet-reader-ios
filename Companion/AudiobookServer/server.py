@@ -36,9 +36,10 @@ from protocol import (
     timing_ranges,
 )
 from tts_backends import TTSBackend, create_backend
+from voice_catalog import stable_character_voice
 
 
-SERVER_VERSION = "0.5.2"
+SERVER_VERSION = "0.6.0"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
 SEGMENT_PAUSE_SECONDS = 0.12
@@ -136,6 +137,96 @@ class JobState:
         }
 
 
+class CharacterVoiceRegistry:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock = threading.RLock()
+        self.books: dict[str, dict[str, dict[str, str]]] = {}
+        self._load()
+
+    def observe(self, requests: list[JobRequest]) -> None:
+        grouped: dict[str, list[JobRequest]] = {}
+        for request in requests:
+            if request.voice == MULTI_ROLE_VOICE:
+                grouped.setdefault(request.book_id, []).append(request)
+        with self.lock:
+            changed = False
+            for book_id, book_requests in grouped.items():
+                complete_text = "\n".join(request.text for request in book_requests)
+                entries = self.books.setdefault(book_id, {})
+                for request in book_requests:
+                    for chunk in split_narration_chunks(request.text, request.voice):
+                        speaker = chunk.speaker
+                        if not speaker or speaker in {"他", "她", "它", "我", "你", "您"}:
+                            continue
+                        gender = chunk.gender or _book_speaker_gender(speaker, complete_text)
+                        previous = entries.get(speaker)
+                        previous_gender = previous.get("gender") if previous else None
+                        if gender is None and previous:
+                            gender = previous_gender
+                        group = "female" if gender == "female" else "male"
+                        if previous and previous_gender == gender:
+                            voice_id = previous["voice_id"]
+                        elif previous:
+                            voice_id = stable_character_voice(speaker, group, chunk.role)
+                        elif chunk.role == "protagonist":
+                            voice_id = stable_character_voice(None, group, chunk.role)
+                        else:
+                            voice_id = stable_character_voice(speaker, group, chunk.role)
+                        value = {"gender": gender or "unknown", "voice_id": voice_id}
+                        if previous != value:
+                            entries[speaker] = value
+                            changed = True
+            if changed:
+                self._save()
+
+    def resolve(self, book_id: str, chunk: NarrationChunk) -> str:
+        if chunk.role == "narrator":
+            return stable_character_voice(None, "narrator", chunk.role)
+        speaker = chunk.speaker
+        with self.lock:
+            entry = self.books.get(book_id, {}).get(speaker or "")
+            if entry:
+                return entry["voice_id"]
+            group = "female" if chunk.gender == "female" or chunk.role == "female" else "male"
+            voice_id = stable_character_voice(speaker, group, chunk.role)
+            if speaker and speaker not in {"他", "她", "它", "我", "你", "您"}:
+                self.books.setdefault(book_id, {})[speaker] = {
+                    "gender": chunk.gender or "unknown",
+                    "voice_id": voice_id,
+                }
+                self._save()
+            return voice_id
+
+    def remove_book(self, book_id: str) -> None:
+        with self.lock:
+            if self.books.pop(book_id, None) is not None:
+                self._save()
+
+    def _load(self) -> None:
+        if not self.path.is_file():
+            return
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            if payload.get("schema_version") == 1 and isinstance(payload.get("books"), dict):
+                self.books = payload["books"]
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            self.books = {}
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(
+                {"schema_version": 1, "books": self.books},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        temporary.replace(self.path)
+
+
 class JobManager:
     def __init__(self, backend: TTSBackend, data_dir: Path, ffmpeg: str = "ffmpeg") -> None:
         self.backend = backend
@@ -147,25 +238,30 @@ class JobManager:
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.audio_dir.mkdir(parents=True, exist_ok=True)
         self.packages_dir.mkdir(parents=True, exist_ok=True)
+        self.character_voices = CharacterVoiceRegistry(data_dir / "character-voices.json")
         self.jobs: dict[str, JobState] = {}
         self.lock = threading.RLock()
         self.package_lock = threading.Lock()
         self.work_queue: queue.Queue[str | None] = queue.Queue()
         pending_jobs = self._restore_jobs()
+        self.character_voices.observe([state.request for state in self.jobs.values()])
         self.worker = threading.Thread(target=self._run_worker, name="audiobook-worker", daemon=True)
         self.worker.start()
         for job_id in pending_jobs:
             self.work_queue.put(job_id)
 
     def submit(self, request: JobRequest) -> JobState:
+        self.character_voices.observe([request])
         job_id = request.stable_job_id
         with self.lock:
             existing = self.jobs.get(job_id)
             if existing:
                 existing.request = request
-                if existing.status == "failed" or (
-                    existing.status == "completed" and not existing.segments
-                ):
+                voice_mapping_changed = (
+                    existing.status == "completed"
+                    and not self._voice_mapping_matches(request, existing.segments)
+                )
+                if existing.status == "failed" or voice_mapping_changed:
                     if existing.audio_path is not None and existing.audio_path.is_file():
                         existing.audio_path.unlink()
                     existing.status = "queued"
@@ -231,6 +327,13 @@ class JobManager:
                     self.jobs.pop(state.job_id, None)
                     self._delete_job_files(state)
             self._invalidate_package(book_id, voice, speed)
+            remaining_multi_role = any(
+                job.request.book_id == book_id
+                and job.request.voice == MULTI_ROLE_VOICE
+                for job in self.jobs.values()
+            )
+            if not remaining_multi_role:
+                self.character_voices.remove_book(book_id)
         return {"deleted_count": len(jobs), "deleted_bytes": deleted_bytes}
 
     def discard_superseded_pending(self, request: JobRequest) -> int:
@@ -483,6 +586,8 @@ class JobManager:
                 payload = json.loads(target.read_text(encoding="utf-8"))
                 request = JobRequest.from_storage_dict(payload["request"])
                 job_id = str(payload["job_id"])
+                if job_id != request.stable_job_id:
+                    continue
                 audio_path = self.audio_dir / f"{job_id}.m4a"
                 status = str(payload.get("status", "failed"))
                 is_pending = False
@@ -586,7 +691,7 @@ class JobManager:
             elapsed = 0.0
             for index, chunk in enumerate(chunks):
                 segment_path = temp_dir / f"segment-{index:04d}.wav"
-                synthesis_voice = _synthesis_voice(state.request.voice, chunk)
+                synthesis_voice = self._synthesis_voice(state.request, chunk)
                 self.backend.synthesize(
                     chunk.text,
                     segment_path,
@@ -601,7 +706,13 @@ class JobManager:
                 if index > 0:
                     elapsed += SEGMENT_PAUSE_SECONDS
                 timeline.extend(
-                    _timeline_for_chunk(chunk, elapsed, duration, state.request.text)
+                    _timeline_for_chunk(
+                        chunk,
+                        elapsed,
+                        duration,
+                        state.request.text,
+                        synthesis_voice,
+                    )
                 )
                 elapsed += duration
                 wave_paths.append(segment_path)
@@ -651,11 +762,59 @@ class JobManager:
             segments=timeline,
         )
 
+    def _synthesis_voice(self, request: JobRequest, chunk: NarrationChunk) -> str:
+        if request.voice == MULTI_ROLE_VOICE:
+            return self.character_voices.resolve(request.book_id, chunk)
+        return request.voice
+
+    def _voice_mapping_matches(
+        self,
+        request: JobRequest,
+        segments: list[dict[str, Any]],
+    ) -> bool:
+        if request.voice != MULTI_ROLE_VOICE:
+            return bool(segments)
+        actual = {str(segment.get("voice_id", "")) for segment in segments}
+        if "" in actual:
+            return False
+        expected = {
+            self.character_voices.resolve(request.book_id, chunk)
+            for chunk in split_narration_chunks(request.text, request.voice)
+        }
+        return expected == actual
+
 
 def _synthesis_voice(requested_voice: str, chunk: NarrationChunk) -> str:
     if requested_voice == MULTI_ROLE_VOICE:
-        return f"role-{chunk.role}"
+        if chunk.role == "narrator":
+            group = "narrator"
+        elif chunk.gender == "female" or chunk.role == "female":
+            group = "female"
+        else:
+            group = "male"
+        return stable_character_voice(chunk.speaker, group, chunk.role)
     return requested_voice
+
+
+def _book_speaker_gender(speaker: str, text: str) -> str | None:
+    escaped = re.escape(speaker)
+    female = (
+        rf"(?:女孩|女人|姑娘|小姐|女士|母亲|妻子|姐姐|妹妹)[，、\s]*{escaped}|"
+        rf"{escaped}(?:是|作为)?(?:一名|一位|个|位)?(?:年轻|年迈)?"
+        rf"(?:女孩|女人|姑娘|小姐|女士|母亲|妻子|姐姐|妹妹)"
+    )
+    male = (
+        rf"(?:男孩|男人|少年|先生|男士|父亲|丈夫|哥哥|弟弟)[，、\s]*{escaped}|"
+        rf"{escaped}(?:是|作为)?(?:一名|一位|个|位)?(?:年轻|年迈)?"
+        rf"(?:男孩|男人|少年|先生|男士|父亲|丈夫|哥哥|弟弟)"
+    )
+    female_score = len(re.findall(female, text))
+    male_score = len(re.findall(male, text))
+    if female_score > male_score:
+        return "female"
+    if male_score > female_score:
+        return "male"
+    return None
 
 
 def _timeline_for_chunk(
@@ -663,6 +822,7 @@ def _timeline_for_chunk(
     start_time: float,
     duration: float,
     full_text: str,
+    voice_id: str,
 ) -> list[dict[str, Any]]:
     ranges = timing_ranges(chunk.text)
     if not ranges:
@@ -678,6 +838,8 @@ def _timeline_for_chunk(
             {
                 "text": chunk.text[start:end],
                 "role": chunk.role,
+                "speaker": chunk.speaker,
+                "voice_id": voice_id,
                 "start_time": round(cursor, 3),
                 "end_time": round(unit_end, 3),
                 "start_offset": _utf16_offset(full_text, chunk.start_offset + start),
@@ -726,6 +888,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "engine": self.server.manager.backend.engine_id,
                     "engine_name": self.server.manager.backend.display_name,
                     "voices": self.server.manager.backend.voices(),
+                    "default_voice_assignment": self.server.manager.backend.voice_assignment(),
                     "queue": self.server.manager.queue_summary(),
                     "capabilities": [
                         "persistent-queue",
@@ -837,6 +1000,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not all(isinstance(value, dict) for value in values):
             raise ProtocolError("批量任务格式无效")
         requests = [JobRequest.from_dict(value) for value in values]
+        self.server.manager.character_voices.observe(requests)
         discarded_count = sum(
             self.server.manager.discard_superseded_pending(request)
             for request in requests
@@ -999,7 +1163,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--data-dir", default=str(base_dir / "data"))
-    parser.add_argument("--engine", choices=("sapi", "cosyvoice", "tone"), default="sapi")
+    parser.add_argument(
+        "--engine",
+        choices=("sapi", "cosyvoice", "gpt-sovits", "tone"),
+        default="sapi",
+    )
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--cosyvoice-home", default=str(runtime_dir / "CosyVoice"))
     parser.add_argument(
@@ -1008,6 +1176,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--prompt-audio", default=os.environ.get("QUIETREADER_PROMPT_AUDIO", ""))
     parser.add_argument("--prompt-text", default=os.environ.get("QUIETREADER_PROMPT_TEXT", ""))
+    parser.add_argument(
+        "--gpt-sovits-home",
+        default=str(runtime_dir / "GPT-SoVITS"),
+    )
     parser.add_argument("--open-browser", action="store_true")
     return parser.parse_args()
 

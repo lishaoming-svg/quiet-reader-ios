@@ -112,14 +112,27 @@ struct AudiobookView: View {
         Section("声音与角色") {
             if let health, !health.voices.isEmpty {
                 Picker("朗读模式", selection: $selectedVoice) {
-                    ForEach(health.voices) { voice in
-                        Text(voice.name).tag(voice.id)
+                    ForEach(voiceGroupIDs(in: health.voices), id: \.self) { group in
+                        Section(voiceGroupName(group)) {
+                            ForEach(voices(in: group, from: health.voices)) { voice in
+                                Text(voice.name).tag(voice.id)
+                            }
+                        }
                     }
                 }
-                if selectedVoice == "multi-role" {
-                    Text("自动识别引号内台词，并为旁白、主角、男性和女性角色分配不同表达。")
+                if let voice = health.voices.first(where: { $0.id == selectedVoice }) {
+                    Text(voice.description ?? "使用固定声线生成整章音频。")
                         .font(.caption)
                         .foregroundStyle(AppTheme.inkSoft)
+                }
+                if selectedVoice == "multi-role", health.defaultVoiceAssignment != nil {
+                    DisclosureGroup("查看默认人物声线") {
+                        voiceAssignmentRow("旁白", assignment: "narrator", health: health)
+                        voiceAssignmentRow("男性主角", assignment: "protagonist_male", health: health)
+                        voiceAssignmentRow("女性主角", assignment: "protagonist_female", health: health)
+                        voiceAssignmentRow("男性配角", assignment: "male_supporting", health: health)
+                        voiceAssignmentRow("女性配角", assignment: "female_supporting", health: health)
+                    }
                 }
             } else {
                 LabeledContent("朗读模式", value: "连接生成器后可切换")
@@ -191,7 +204,7 @@ struct AudiobookView: View {
                 }
                 if let segment = player.currentSegment {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(segment.roleName)
+                        Text(segment.roleAndVoiceName)
                             .font(.caption.bold())
                             .foregroundStyle(AppTheme.vermilion)
                         Text(segment.text)
@@ -798,6 +811,49 @@ struct AudiobookView: View {
         voices.first(where: { $0.id == "multi-role" })?.id
             ?? voices.first?.id
             ?? "multi-role"
+    }
+
+    private func voices(
+        in group: String,
+        from voices: [AudiobookVoice]
+    ) -> [AudiobookVoice] {
+        voices.filter { voice in
+            if group == "other" {
+                guard let voiceGroup = voice.group else { return true }
+                return !["automatic", "narrator", "male", "female"].contains(voiceGroup)
+            }
+            return voice.group == group
+        }
+    }
+
+    private func voiceGroupIDs(in voices: [AudiobookVoice]) -> [String] {
+        ["automatic", "narrator", "male", "female", "other"].filter {
+            !self.voices(in: $0, from: voices).isEmpty
+        }
+    }
+
+    private func voiceGroupName(_ group: String) -> String {
+        switch group {
+        case "automatic": "自动分配"
+        case "narrator": "旁白"
+        case "male": "男声"
+        case "female": "女声"
+        default: "其他"
+        }
+    }
+
+    @ViewBuilder
+    private func voiceAssignmentRow(
+        _ role: String,
+        assignment: String,
+        health: AudiobookServerHealth
+    ) -> some View {
+        let voiceID = health.defaultVoiceAssignment?[assignment] ?? ""
+        LabeledContent(
+            role,
+            value: health.voices.first(where: { $0.id == voiceID })?.name ?? voiceID
+        )
+        .font(.caption)
     }
 
     private func refreshRemoteBookStatus() async {

@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 MAX_CHAPTER_CHARACTERS = 100_000
 SENTENCE_ENDINGS = frozenset("。！？!?；;\n")
 SOFT_ENDINGS = frozenset("，,、：:")
@@ -15,7 +15,11 @@ ROLE_NARRATOR = "narrator"
 ROLE_PROTAGONIST = "protagonist"
 ROLE_MALE = "male"
 ROLE_FEMALE = "female"
-SPEECH_VERBS = "说|问|喊|叫|答|道|回应|开口|低声说|轻声说|大声说|笑道|哭道"
+SPEECH_VERBS = (
+    "低声说道|轻声说道|大声说道|低声问|轻声问|大声问|"
+    "低声说|轻声说|大声说|笑着说|哭着说|笑道|哭道|"
+    "回应|回答|开口|说道|说|问|喊|叫|答|道"
+)
 
 
 class ProtocolError(ValueError):
@@ -74,6 +78,8 @@ class NarrationChunk:
     start_offset: int
     end_offset: int
     role: str = ROLE_NARRATOR
+    speaker: str | None = None
+    gender: str | None = None
 
 
 def split_narration_chunks(
@@ -103,18 +109,26 @@ def split_narration_chunks(
 
     protagonist: str | None = None
     known_roles: dict[str, str] = {}
+    recent_speakers: dict[str, str] = {}
     unknown_dialogue_count = 0
     result: list[NarrationChunk] = []
     for chunk, start, end, is_dialogue in raw_chunks:
         role = ROLE_NARRATOR
+        speaker: str | None = None
+        gender: str | None = None
         if voice == MULTI_ROLE_VOICE and is_dialogue:
             context_start = max(0, start - 40)
             context_end = min(len(text), end + 40)
             context = text[context_start:context_end]
             speaker = _speaker_name(context, start - context_start)
-            gender = _speaker_gender(speaker, context)
+            gender = _speaker_gender(speaker, context, text)
+            if speaker in {"她", "他"}:
+                antecedent = _pronoun_antecedent(context, start - context_start, speaker)
+                speaker = antecedent or recent_speakers.get(gender or "") or speaker
 
             if speaker and speaker not in {"他", "她", "它", "我", "你", "您"}:
+                if gender:
+                    recent_speakers[gender] = speaker
                 if protagonist is None:
                     protagonist = speaker
                     known_roles[speaker] = ROLE_PROTAGONIST
@@ -129,7 +143,16 @@ def split_narration_chunks(
                 role = ROLE_MALE if unknown_dialogue_count % 2 == 0 else ROLE_FEMALE
                 unknown_dialogue_count += 1
 
-        result.append(NarrationChunk(chunk, start, end, role))
+        result.append(
+            NarrationChunk(
+                chunk,
+                start,
+                end,
+                role,
+                speaker,
+                gender,
+            )
+        )
 
     return result
 
@@ -186,23 +209,68 @@ def _speaker_name(context: str, anchor: int) -> str | None:
     ))
     if before_matches:
         closest = min(before_matches, key=lambda match: abs(match.end() - 1 - anchor))
-        return closest.group(1)[-4:]
+        return _clean_speaker_name(closest.group(1))
     after = re.search(
         rf"[”’\"][，,。！？!?\s]*([\u4e00-\u9fff]{{1,6}}?)(?:{SPEECH_VERBS})",
         context,
     )
     if after:
-        return after.group(1)[-4:]
+        return _clean_speaker_name(after.group(1))
     pronoun = re.search(r"(?:^|[^\u4e00-\u9fff])(她|他)(?:[^\u4e00-\u9fff]|$)", context)
     return pronoun.group(1) if pronoun else None
 
 
-def _speaker_gender(speaker: str | None, context: str) -> str | None:
-    if speaker == "她" or any(marker in context for marker in ("女孩", "女人", "姑娘", "小姐", "母亲")):
+def _clean_speaker_name(value: str) -> str:
+    cleaned = re.sub(
+        r"(?:忽然|突然|连忙|缓缓|轻轻|低声|轻声|大声|沉声|笑着|哭着)+$",
+        "",
+        value,
+    )
+    return cleaned[-4:]
+
+
+def _speaker_gender(speaker: str | None, context: str, full_text: str) -> str | None:
+    female_markers = ("女孩", "女人", "姑娘", "小姐", "母亲", "妻子", "姐姐", "妹妹", "女士")
+    male_markers = ("男孩", "男人", "少年", "先生", "父亲", "丈夫", "哥哥", "弟弟", "男士")
+    if speaker == "她":
         return ROLE_FEMALE
-    if speaker == "他" or any(marker in context for marker in ("男孩", "男人", "少年", "先生", "父亲")):
+    if speaker == "他":
         return ROLE_MALE
+    if speaker in female_markers:
+        return ROLE_FEMALE
+    if speaker in male_markers:
+        return ROLE_MALE
+    if speaker and speaker not in {"它", "我", "你", "您"}:
+        escaped = re.escape(speaker)
+        female_pattern = (
+            rf"(?:{'|'.join(female_markers)})[，、\s]*{escaped}|"
+            rf"{escaped}(?:是|作为)?(?:一名|一位|个|位)?(?:年轻|年迈)?(?:{'|'.join(female_markers)})"
+        )
+        male_pattern = (
+            rf"(?:{'|'.join(male_markers)})[，、\s]*{escaped}|"
+            rf"{escaped}(?:是|作为)?(?:一名|一位|个|位)?(?:年轻|年迈)?(?:{'|'.join(male_markers)})"
+        )
+        if re.search(female_pattern, full_text):
+            return ROLE_FEMALE
+        if re.search(male_pattern, full_text):
+            return ROLE_MALE
     return None
+
+
+def _pronoun_antecedent(context: str, anchor: int, pronoun: str) -> str | None:
+    prefix = context[:anchor]
+    if pronoun == "她":
+        markers = "女孩|女人|姑娘|小姐|女士|母亲|妻子|姐姐|妹妹"
+    else:
+        markers = "男孩|男人|少年|先生|男士|父亲|丈夫|哥哥|弟弟"
+    matches = list(
+        re.finditer(
+            rf"(?:年轻|年迈)?(?:{markers})([一-鿿]{{2,4}}?)(?="
+            rf"站|坐|走|看|转|来|问|说|道|在|正|轻|低|大|，|。)",
+            prefix,
+        )
+    )
+    return matches[-1].group(1) if matches else None
 
 
 @dataclass(frozen=True)
@@ -254,7 +322,7 @@ class JobRequest:
     @property
     def stable_job_id(self) -> str:
         fingerprint = "\n".join(
-            ["timeline-v2", self.book_id, self.chapter_id, self.text_sha256, self.voice, f"{self.speed:.2f}"]
+            ["timeline-v3", self.book_id, self.chapter_id, self.text_sha256, self.voice, f"{self.speed:.2f}"]
         )
         return sha256(fingerprint.encode("utf-8")).hexdigest()[:32]
 

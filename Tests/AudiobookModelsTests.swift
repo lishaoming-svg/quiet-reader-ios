@@ -107,14 +107,14 @@ final class AudiobookModelsTests: XCTestCase {
 
         let data = try JSONEncoder().encode(AudiobookBatchJobRequest(jobs: jobs))
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(payload["protocol_version"] as? Int, 4)
+        XCTAssertEqual(payload["protocol_version"] as? Int, 5)
         XCTAssertEqual((payload["jobs"] as? [[String: Any]])?.count, 3)
 
         let response = try JSONDecoder().decode(
             AudiobookBatchSubmission.self,
             from: Data(
                 """
-                {"protocol_version":4,"accepted_count":3,"discarded_count":2}
+                {"protocol_version":5,"accepted_count":3,"discarded_count":2}
                 """.utf8
             )
         )
@@ -126,13 +126,22 @@ final class AudiobookModelsTests: XCTestCase {
         let data = Data(
             """
             {
-              "protocol_version": 4,
+              "protocol_version": 5,
               "service": "墨阅听书生成器",
               "server_version": "0.4.0",
               "status": "ready",
               "engine": "cosyvoice3",
               "engine_name": "CosyVoice 3",
-              "voices": [],
+              "voices": [{
+                "id": "multi-role",
+                "name": "多角色自动分配",
+                "group": "automatic",
+                "description": "稳定分配人物声线",
+                "role_tags": ["整书推荐"]
+              }],
+              "default_voice_assignment": {
+                "narrator": "narrator-demo"
+              },
               "queue": {
                 "running_count": 1,
                 "queued_count": 54,
@@ -146,13 +155,16 @@ final class AudiobookModelsTests: XCTestCase {
         XCTAssertEqual(health.queue?.runningCount, 1)
         XCTAssertEqual(health.queue?.queuedCount, 54)
         XCTAssertEqual(health.queue?.pendingCount, 55)
+        XCTAssertEqual(health.voices.first?.groupName, "自动分配")
+        XCTAssertEqual(health.voices.first?.roleTags, ["整书推荐"])
+        XCTAssertEqual(health.defaultVoiceAssignment?["narrator"], "narrator-demo")
     }
 
     func testBookStatusDecodesChapterDetails() throws {
         let data = Data(
             """
             {
-              "protocol_version": 4,
+              "protocol_version": 5,
               "book_id": "book",
               "voice": "multi-role",
               "generation_speed": 1,
@@ -196,7 +208,7 @@ final class AudiobookModelsTests: XCTestCase {
         let data = Data(
             """
             {
-              "protocol_version": 4,
+              "protocol_version": 5,
               "book_id": "book",
               "voice": "multi-role",
               "generation_speed": 1,
@@ -310,7 +322,7 @@ final class AudiobookModelsTests: XCTestCase {
         let data = Data(
             """
             {
-              "protocol_version": 4,
+              "protocol_version": 5,
               "job_id": "job",
               "status": "completed",
               "progress": 1,
@@ -326,6 +338,8 @@ final class AudiobookModelsTests: XCTestCase {
               "segments": [{
                 "text": "你好。",
                 "role": "female",
+                "speaker": "何雁",
+                "voice_id": "female-cool-young",
                 "start_time": 0,
                 "end_time": 1.2,
                 "start_offset": 0,
@@ -335,7 +349,9 @@ final class AudiobookModelsTests: XCTestCase {
             """.utf8
         )
         let status = try JSONDecoder().decode(AudiobookJobStatus.self, from: data)
-        XCTAssertEqual(status.segments?.first?.roleName, "女性角色")
+        XCTAssertEqual(status.segments?.first?.roleName, "何雁")
+        XCTAssertEqual(status.segments?.first?.voiceID, "female-cool-young")
+        XCTAssertEqual(status.segments?.first?.roleAndVoiceName, "何雁 · 清冷青年女声")
         XCTAssertEqual(status.segments?.first?.endOffset, 3)
     }
 

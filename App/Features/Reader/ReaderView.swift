@@ -318,7 +318,7 @@ struct ReaderView: View {
                                         isActive ? AppTheme.vermilion : paper.primaryText
                                     )
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(segment.roleName)
+                                Text(segment.roleAndVoiceName)
                                     .font(.system(size: 10, weight: .medium, design: .rounded))
                                     .tracking(0.6)
                                     .foregroundStyle(paper.secondaryText.opacity(0.78))
