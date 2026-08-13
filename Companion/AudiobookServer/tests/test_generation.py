@@ -18,11 +18,28 @@ sys.path.insert(0, str(ROOT))
 
 from protocol import JobRequest, NarrationChunk, split_narration_chunks
 from server import CharacterVoiceRegistry, JobManager, _synthesis_voice, _utf16_offset
-from tts_backends import CosyVoiceBackend, ToneTestBackend, WindowsSAPIBackend
+from tts_backends import (
+    CosyVoiceBackend,
+    ToneTestBackend,
+    WindowsSAPIBackend,
+    normalize_gpt_sovits_audio,
+)
 from voice_catalog import approved_voices
 
 
 class GenerationTests(unittest.TestCase):
+    def test_gpt_sovits_int16_audio_is_scaled_before_wav_write(self):
+        import numpy
+
+        audio = numpy.array([-32768, -16384, 0, 16384, 32767], dtype=numpy.int16)
+        normalized = normalize_gpt_sovits_audio(audio, 32_000)
+
+        self.assertEqual(normalized.dtype, numpy.float32)
+        self.assertAlmostEqual(float(normalized[0]), -1.0, places=6)
+        self.assertAlmostEqual(float(normalized[1]), -0.5, places=6)
+        self.assertAlmostEqual(float(normalized[3]), 0.5, places=6)
+        self.assertLessEqual(float(abs(normalized).max()), 1.0)
+
     def test_timeline_offsets_use_ios_utf16_units(self):
         self.assertEqual(_utf16_offset("甲😀乙", 2), 3)
 

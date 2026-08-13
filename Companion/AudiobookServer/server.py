@@ -39,7 +39,7 @@ from tts_backends import TTSBackend, create_backend
 from voice_catalog import stable_character_voice
 
 
-SERVER_VERSION = "0.6.0"
+SERVER_VERSION = "0.6.1"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
 SEGMENT_PAUSE_SECONDS = 0.12

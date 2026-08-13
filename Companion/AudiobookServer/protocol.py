@@ -322,7 +322,7 @@ class JobRequest:
     @property
     def stable_job_id(self) -> str:
         fingerprint = "\n".join(
-            ["timeline-v3", self.book_id, self.chapter_id, self.text_sha256, self.voice, f"{self.speed:.2f}"]
+            ["timeline-v4-pcm-normalized", self.book_id, self.chapter_id, self.text_sha256, self.voice, f"{self.speed:.2f}"]
         )
         return sha256(fingerprint.encode("utf-8")).hexdigest()[:32]
 

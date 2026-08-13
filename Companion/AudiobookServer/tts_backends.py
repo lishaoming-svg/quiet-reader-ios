@@ -17,6 +17,30 @@ from voice_catalog import (
 )
 
 
+def normalize_gpt_sovits_audio(audio, sample_rate: int, target_sample_rate: int = 32_000):
+    numpy = __import__("numpy")
+    source = numpy.asarray(audio).squeeze()
+    if numpy.issubdtype(source.dtype, numpy.integer):
+        limits = numpy.iinfo(source.dtype)
+        scale = float(max(abs(limits.min), limits.max))
+        normalized = source.astype(numpy.float32) / scale
+    else:
+        normalized = source.astype(numpy.float32)
+    if normalized.ndim == 2:
+        channel_axis = 0 if normalized.shape[0] <= normalized.shape[1] else 1
+        normalized = normalized.mean(axis=channel_axis)
+    if normalized.ndim != 1 or normalized.size == 0:
+        raise RuntimeError("GPT-SoVITS 返回了无效的音频形状")
+    if sample_rate != target_sample_rate:
+        target_length = max(1, round(normalized.size * target_sample_rate / sample_rate))
+        normalized = numpy.interp(
+            numpy.linspace(0, normalized.size - 1, target_length),
+            numpy.arange(normalized.size),
+            normalized,
+        ).astype(numpy.float32)
+    return numpy.clip(normalized, -1.0, 1.0)
+
+
 class TTSBackend(ABC):
     engine_id = "unknown"
     display_name = "未知引擎"
@@ -225,21 +249,8 @@ class GPTSoVITSBackend(TTSBackend):
         sample_rate, audio = result
         # Voice references can make GPT-SoVITS return different channel shapes or
         # sample rates. Normalize every segment before chapter-level WAV merging.
-        numpy = __import__("numpy")
-        normalized = numpy.asarray(audio, dtype=numpy.float32).squeeze()
-        if normalized.ndim == 2:
-            channel_axis = 0 if normalized.shape[0] <= normalized.shape[1] else 1
-            normalized = normalized.mean(axis=channel_axis)
-        if normalized.ndim != 1 or normalized.size == 0:
-            raise RuntimeError("GPT-SoVITS 返回了无效的音频形状")
         target_sample_rate = 32_000
-        if sample_rate != target_sample_rate:
-            target_length = max(1, round(normalized.size * target_sample_rate / sample_rate))
-            normalized = numpy.interp(
-                numpy.linspace(0, normalized.size - 1, target_length),
-                numpy.arange(normalized.size),
-                normalized,
-            ).astype(numpy.float32)
+        normalized = normalize_gpt_sovits_audio(audio, sample_rate, target_sample_rate)
         self._soundfile.write(
             output_path,
             normalized,
