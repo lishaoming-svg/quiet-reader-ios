@@ -96,6 +96,15 @@ if ($Engine -in @('cosyvoice', 'gpt-sovits')) {
     } else {
         $environmentName = 'quietreader-cosyvoice'
     }
+    & $condaPath run -n $environmentName python -c 'import qrcode, PIL' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $serverRequirements = Join-Path $root 'requirements.txt'
+        Write-Host (ConvertFrom-UTF8Base64 '5q2j5Zyo5a6J6KOF5ZCs5Lmm5pyN5Yqh5L6d6LWWLi4u')
+        & $condaPath run --no-capture-output -n $environmentName python -m pip install -r $serverRequirements
+        if ($LASTEXITCODE -ne 0) {
+            throw (ConvertFrom-UTF8Base64 '5ZCs5Lmm5pyN5Yqh5L6d6LWW5a6J6KOF5aSx6LSl77yM6K+35qOA5p+l572R57uc5ZCO6YeN6K+V44CC')
+        }
+    }
     $serverArguments = @(
         'run', '--no-capture-output', '-n', $environmentName,
         'python', 'server.py', '--engine', $Engine, '--port', $Port
