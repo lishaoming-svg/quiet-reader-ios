@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from protocol import JobRequest, NarrationChunk, split_narration_chunks
-from server import CharacterVoiceRegistry, JobManager, _synthesis_voice, _utf16_offset
+from server import CharacterVoiceRegistry, JobManager, _book_speaker_gender, _synthesis_voice, _utf16_offset
 from tts_backends import (
     CosyVoiceBackend,
     ToneTestBackend,
@@ -108,6 +108,116 @@ class GenerationTests(unittest.TestCase):
             )
             self.assertEqual(repeated_voice, first_voice)
             self.assertEqual(restored.resolve("character-book", dialogue), first_voice)
+
+    def test_character_voice_registry_resolves_ren_jing_as_female(self):
+        dialogue_text = "任静看了看欧雪雁的房间，说道：“你先回去吧。”"
+        evidence_text = "深槐认出了任静小姐。深夜，阿静她仍然留在书房。"
+        common = {
+            "book_id": "yi-song",
+            "book_title": "异悚",
+            "author": "黑色火种",
+            "voice": "multi-role",
+            "speed": 1.0,
+        }
+        requests = [
+            JobRequest(
+                chapter_id="chapter-9",
+                chapter_url="https://example.test/yi-song/9",
+                chapter_index=8,
+                chapter_title="第九章",
+                text=dialogue_text,
+                text_sha256=hashlib.sha256(dialogue_text.encode("utf-8")).hexdigest(),
+                **common,
+            ),
+            JobRequest(
+                chapter_id="chapter-evidence",
+                chapter_url="https://example.test/yi-song/evidence",
+                chapter_index=9,
+                chapter_title="人物证据",
+                text=evidence_text,
+                text_sha256=hashlib.sha256(evidence_text.encode("utf-8")).hexdigest(),
+                **common,
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            registry = CharacterVoiceRegistry(Path(directory) / "character-voices.json")
+            registry.observe(requests)
+            dialogue = next(
+                chunk
+                for chunk in split_narration_chunks(dialogue_text, "multi-role")
+                if chunk.speaker == "任静"
+            )
+
+            voice = registry.resolve("yi-song", dialogue)
+
+            conflicting_text = "一个男人，任静随后说道：“继续行动。”"
+            conflicting_request = JobRequest(
+                chapter_id="chapter-conflict",
+                chapter_url="https://example.test/yi-song/conflict",
+                chapter_index=10,
+                chapter_title="局部歧义",
+                text=conflicting_text,
+                text_sha256=hashlib.sha256(conflicting_text.encode("utf-8")).hexdigest(),
+                **common,
+            )
+            registry.observe([conflicting_request])
+
+            self.assertEqual(registry.books["yi-song"]["任静"]["gender"], "female")
+            self.assertIn(voice, {item["id"] for item in approved_voices("female")})
+
+    def test_character_voice_registry_ignores_legacy_polluted_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "character-voices.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "books": {
+                            "yi-song": {
+                                "说": {"gender": "male", "voice_id": "legacy"},
+                                "阿静": {"gender": "male", "voice_id": "legacy"},
+                            }
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            registry = CharacterVoiceRegistry(path)
+
+            self.assertEqual(registry.books, {})
+
+    def test_explicit_title_outweighs_unrelated_following_pronouns(self):
+        text = "任静小姐走进房间。任静，他们随后才想起这个名字。任静他们没有继续追问。"
+
+        self.assertEqual(_book_speaker_gender("任静", text), "female")
+
+    def test_repeated_same_sentence_pronouns_infer_character_gender(self):
+        text = "岳洁走进房间，她放下了提包。岳洁点点头，她同意这个安排。"
+
+        self.assertEqual(_book_speaker_gender("岳洁", text), "female")
+
+    def test_identity_description_infers_character_gender(self):
+        text = "储藏室中央倒着一个男人，他是林言臣。这部电影的男主演陈楚安来到现场。"
+
+        self.assertEqual(_book_speaker_gender("林言臣", text), "male")
+        self.assertEqual(_book_speaker_gender("陈楚安", text), "male")
+
+    def test_clause_subject_pronoun_infers_character_gender(self):
+        text = "孙组长发现大家疲惫，其实他自己也很累。张胜磊看重这场戏，他力求完美。"
+
+        self.assertEqual(_book_speaker_gender("孙组长", text), "male")
+        self.assertEqual(_book_speaker_gender("张胜磊", text), "male")
+
+    def test_direct_name_pronoun_outweighs_nearby_other_characters(self):
+        text = (
+            "阿静她仍然留在书房。阿静看向润暗，他没有回答。"
+            "阿静提到深槐，他随后离开。阿静问起慕镜，他也保持沉默。"
+        )
+
+        self.assertEqual(_book_speaker_gender("阿静", text), "female")
 
     def test_delete_book_removes_queued_jobs_and_metadata(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -95,7 +95,7 @@ class HTTPServerTests(unittest.TestCase):
                 self.assertEqual(book_status["jobs"][0]["status"], "completed")
                 self.assertEqual(book_status["jobs"][0]["file_size"], status["file_size"])
                 dashboard = self._json_request(f"{base_url}/v1/dashboard")
-                self.assertEqual(dashboard["server_version"], "0.6.1")
+                self.assertEqual(dashboard["server_version"], "0.6.2")
                 self.assertTrue(dashboard["public_url"].endswith(f":{server.server_port}"))
                 self.assertEqual(dashboard["books"][0]["book_title"], "测试书")
                 self.assertEqual(dashboard["books"][0]["completed_count"], 1)

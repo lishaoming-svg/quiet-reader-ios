@@ -32,6 +32,7 @@ from protocol import (
     JobRequest,
     NarrationChunk,
     ProtocolError,
+    is_valid_speaker_name,
     split_narration_chunks,
     timing_ranges,
 )
@@ -39,7 +40,8 @@ from tts_backends import TTSBackend, create_backend
 from voice_catalog import stable_character_voice
 
 
-SERVER_VERSION = "0.6.1"
+SERVER_VERSION = "0.6.2"
+CHARACTER_VOICE_SCHEMA_VERSION = 2
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_BATCH_JOBS = 5_000
 SEGMENT_PAUSE_SECONDS = 0.12
@@ -157,13 +159,17 @@ class CharacterVoiceRegistry:
                 for request in book_requests:
                     for chunk in split_narration_chunks(request.text, request.voice):
                         speaker = chunk.speaker
-                        if not speaker or speaker in {"他", "她", "它", "我", "你", "您"}:
+                        if (
+                            not is_valid_speaker_name(speaker, complete_text)
+                            or speaker in {"他", "她", "它", "我", "你", "您"}
+                        ):
                             continue
-                        gender = chunk.gender or _book_speaker_gender(speaker, complete_text)
                         previous = entries.get(speaker)
                         previous_gender = previous.get("gender") if previous else None
-                        if gender is None and previous:
+                        if previous_gender in {"female", "male"}:
                             gender = previous_gender
+                        else:
+                            gender = _book_speaker_gender(speaker, complete_text) or chunk.gender
                         group = "female" if gender == "female" else "male"
                         if previous and previous_gender == gender:
                             voice_id = previous["voice_id"]
@@ -190,7 +196,10 @@ class CharacterVoiceRegistry:
                 return entry["voice_id"]
             group = "female" if chunk.gender == "female" or chunk.role == "female" else "male"
             voice_id = stable_character_voice(speaker, group, chunk.role)
-            if speaker and speaker not in {"他", "她", "它", "我", "你", "您"}:
+            if (
+                is_valid_speaker_name(speaker)
+                and speaker not in {"他", "她", "它", "我", "你", "您"}
+            ):
                 self.books.setdefault(book_id, {})[speaker] = {
                     "gender": chunk.gender or "unknown",
                     "voice_id": voice_id,
@@ -208,7 +217,10 @@ class CharacterVoiceRegistry:
             return
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
-            if payload.get("schema_version") == 1 and isinstance(payload.get("books"), dict):
+            if (
+                payload.get("schema_version") == CHARACTER_VOICE_SCHEMA_VERSION
+                and isinstance(payload.get("books"), dict)
+            ):
                 self.books = payload["books"]
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             self.books = {}
@@ -218,7 +230,7 @@ class CharacterVoiceRegistry:
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(
             json.dumps(
-                {"schema_version": 1, "books": self.books},
+                {"schema_version": CHARACTER_VOICE_SCHEMA_VERSION, "books": self.books},
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -797,19 +809,44 @@ def _synthesis_voice(requested_voice: str, chunk: NarrationChunk) -> str:
 
 
 def _book_speaker_gender(speaker: str, text: str) -> str | None:
+    if any(marker in speaker for marker in ("女孩", "女人", "女子", "姑娘", "小姐", "女士", "少女", "女生", "女学生", "空姐", "女管家", "女警", "夫人", "护士")):
+        return "female"
+    if any(marker in speaker for marker in ("男孩", "男人", "男子", "少年", "先生", "男士", "男生", "皇帝", "太医")):
+        return "male"
     escaped = re.escape(speaker)
-    female = (
+    female_title = (
         rf"(?:女孩|女人|姑娘|小姐|女士|母亲|妻子|姐姐|妹妹)[，、\s]*{escaped}|"
         rf"{escaped}(?:是|作为)?(?:一名|一位|个|位)?(?:年轻|年迈)?"
         rf"(?:女孩|女人|姑娘|小姐|女士|母亲|妻子|姐姐|妹妹)"
     )
-    male = (
+    male_title = (
         rf"(?:男孩|男人|少年|先生|男士|父亲|丈夫|哥哥|弟弟)[，、\s]*{escaped}|"
         rf"{escaped}(?:是|作为)?(?:一名|一位|个|位)?(?:年轻|年迈)?"
         rf"(?:男孩|男人|少年|先生|男士|父亲|丈夫|哥哥|弟弟)"
     )
-    female_score = len(re.findall(female, text))
-    male_score = len(re.findall(male, text))
+    female_pronoun = rf"{escaped}(?:她(?!们)|这个女人|这个女孩|这位女士|这位姑娘)"
+    male_pronoun = rf"{escaped}(?:他(?!们)|这个男人|这个男孩|这位先生|这位男士)"
+    female_identity = rf"(?:女孩|女人|女子|女生|女演员|女主演)[^。！？!?\n]{{0,30}}(?:名叫|叫|是)?{escaped}"
+    male_identity = rf"(?:男孩|男人|男子|男演员|男主演)[^。！？!?\n]{{0,30}}(?:名叫|叫|是)?{escaped}"
+    female_local = rf"{escaped}[^。！？!?\n]{{0,24}}(?:她(?!们)|这位女子|这个女人)"
+    male_local = rf"{escaped}[^。！？!?\n]{{0,24}}(?:他(?!们)|这位男子|这个男人)"
+    subject_tail = r"(?:自己|也|则|就|才|连忙|立即|开始|继续|打开|无法|不会|不|很|正|会|要|想|把|将|和|以)"
+    female_subject = rf"{escaped}[^。！？!?\n]{{0,36}}[，,](?:她(?!们)){subject_tail}"
+    male_subject = rf"{escaped}[^。！？!?\n]{{0,36}}[，,](?:他(?!们)){subject_tail}"
+    female_score = (
+        50 * len(re.findall(female_title, text))
+        + 50 * len(re.findall(female_identity, text))
+        + 50 * len(re.findall(female_pronoun, text))
+        + 5 * len(re.findall(female_subject, text))
+        + len(re.findall(female_local, text))
+    )
+    male_score = (
+        50 * len(re.findall(male_title, text))
+        + 50 * len(re.findall(male_identity, text))
+        + 50 * len(re.findall(male_pronoun, text))
+        + 5 * len(re.findall(male_subject, text))
+        + len(re.findall(male_local, text))
+    )
     if female_score > male_score:
         return "female"
     if male_score > female_score:
