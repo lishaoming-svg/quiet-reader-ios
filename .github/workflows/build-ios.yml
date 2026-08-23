@@ -17,6 +17,9 @@ jobs:
       - name: 安装 XcodeGen
         run: brew install xcodegen
 
+      - name: 安装 Python 依赖
+        run: python3 -m pip install -r Companion/AudiobookServer/requirements.txt
+
       - name: 测试 Windows 听书协议
         run: python3 -m unittest discover -s Companion/AudiobookServer/tests -v
 
