@@ -3,6 +3,7 @@ import UIKit
 
 enum ReaderMode: String, CaseIterable, Identifiable {
     case scroll
+    case pageCurl
     case pageSlide
     case pageNone
 
@@ -11,6 +12,7 @@ enum ReaderMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .scroll: "滚动"
+        case .pageCurl: "翻页"
         case .pageSlide: "滑动"
         case .pageNone: "无动画"
         }
@@ -19,6 +21,7 @@ enum ReaderMode: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .scroll: "scroll"
+        case .pageCurl: "book.pages"
         case .pageSlide: "rectangle.portrait.on.rectangle.portrait"
         case .pageNone: "rectangle.portrait"
         }

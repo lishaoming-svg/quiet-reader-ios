@@ -113,6 +113,20 @@ final class LocalBookImportTests: XCTestCase {
         XCTAssertTrue(try LocalBookStorage.content(at: again.chapters[0].url, root: root).contains("保留阅读位置"))
     }
 
+    func testFileImportStillReadsAfterOriginalFileIsMoved() throws {
+        let source = root.appendingPathComponent("原始文件.txt")
+        try Data("第一章 离线\n原文件移动后仍可阅读。".utf8).write(to: source)
+        let value = try LocalBookImporter.prepare(url: source, root: root.appendingPathComponent("library"))
+        try FileManager.default.removeItem(at: source)
+        let content = try LocalBookStorage.content(at: value.chapters[0].url, root: root.appendingPathComponent("library"))
+        XCTAssertTrue(content.contains("原文件移动后仍可阅读"))
+    }
+
+    func testOversizedFileIsRejectedBeforeParsingOrWriting() {
+        let bytes = Data(repeating: 0, count: LocalBookImporter.maximumFileSize + 1)
+        assertError(.tooLarge) { try LocalBookImporter.prepare(data: bytes, filename: "huge.txt", root: root) }
+    }
+
     func testLocalAddressesCannotEscapeStorageDirectory() {
         for address in ["file:///etc/passwd", "quietreader-local://../1", "quietreader-local://abc/0"] {
             assertError(.missing) { try LocalBookStorage.content(at: address, root: root) }

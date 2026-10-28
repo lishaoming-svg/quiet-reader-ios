@@ -3,13 +3,14 @@ import SwiftUI
 
 struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("reader.fontSize") private var fontSize = 19.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
     @AppStorage("reader.paper") private var paperValue = ReaderPaper.white.rawValue
     @AppStorage("reader.serif") private var usesSerif = true
-    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageSlide.rawValue
+    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageCurl.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
     @ObservedObject private var audiobookPlayer = AudiobookPlayer.shared
@@ -64,7 +65,10 @@ struct ReaderView: View {
 
     private var chapter: BookChapter { chapters[currentIndex] }
     private var paper: ReaderPaper { ReaderPaper(rawValue: paperValue) ?? .warm }
-    private var readerMode: ReaderMode { ReaderMode(rawValue: modeValue) ?? .scroll }
+    private var readerMode: ReaderMode {
+        let selected = ReaderMode(rawValue: modeValue) ?? .pageCurl
+        return reduceMotion && selected == .pageCurl ? .pageNone : selected
+    }
     private var readerMargin: ReaderMargin {
         ReaderMargin(rawValue: marginValue) ?? .comfortable
     }
@@ -108,6 +112,8 @@ struct ReaderView: View {
         .navigationTitle(book.name)
         .navigationBarBackButtonHidden()
         .navigationBarTitleDisplayMode(.inline)
+        .accessibilityAction(named: "显示阅读菜单") { controlsVisible = true }
+        .accessibilityAction(.escape) { dismiss() }
         .toolbar(controlsVisible ? .visible : .hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .toolbarBackground(paper.background, for: .navigationBar)
@@ -362,6 +368,13 @@ struct ReaderView: View {
     private var pagedReader: some View {
         if pages.isEmpty {
             ProgressView().tint(AppTheme.vermilion)
+        } else if readerMode == .pageCurl {
+            ReaderPageCurlView(count: pages.count,
+                revision: "\(chapter.url)-\(layoutSize)-\(fontSize)-\(lineSpacing)-\(usesSerif)-\(marginValue)-\(paragraphIndent)-\(paperValue)",
+                background: UIColor(paper.background), index: $pageIndex) { index in
+                    pageView(pages[index]).background(paper.background)
+                }
+                .onChange(of: pageIndex) { _, _ in recordActivity(); locationDidChange() }
         } else if readerMode == .pageSlide {
             TabView(selection: $pageIndex) {
                 ForEach(pages) { page in
@@ -768,7 +781,7 @@ struct ReaderView: View {
         recordActivity()
         let target = pageIndex + direction
         if pages.indices.contains(target) {
-            if readerMode == .pageSlide {
+            if readerMode == .pageSlide || readerMode == .pageCurl {
                 withAnimation(.easeOut(duration: 0.22)) { pageIndex = target }
             } else {
                 var transaction = Transaction()
@@ -1191,7 +1204,7 @@ private struct ReaderSettingsView: View {
     @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
     @AppStorage("reader.paper") private var paperValue = ReaderPaper.white.rawValue
     @AppStorage("reader.serif") private var usesSerif = true
-    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageSlide.rawValue
+    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageCurl.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
 
