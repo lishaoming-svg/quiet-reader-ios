@@ -118,6 +118,8 @@ struct ReaderView: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbarBackground(paper.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(paper == .night ? .dark : .light, for: .navigationBar)
+        .environment(\.colorScheme, paper == .night ? .dark : .light)
         .toolbar { readerToolbar }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if sentencePlaybackMode, !audiobookSegments.isEmpty {
@@ -963,7 +965,7 @@ struct ReaderView: View {
                         source: source
                     )
                     guard !Task.isCancelled else { return }
-                    cache(target, content: source.id == LocalBookStorage.sourceID ? value : ReadableTextNormalizer.normalize(value))
+                    cache(target, content: ReadingTextPreparation.prepare(value, sourceID: source.id))
                 } catch is CancellationError {
                     return
                 } catch let error as URLError where error.code == .cancelled {
@@ -976,7 +978,7 @@ struct ReaderView: View {
     }
 
     private func prepareDocument(_ value: String, chapter: BookChapter) {
-        let normalized = source.id == LocalBookStorage.sourceID ? value : ReadableTextNormalizer.normalize(value)
+        let normalized = ReadingTextPreparation.prepare(value, sourceID: source.id)
         content = normalized
         blocks = ReaderDocumentBuilder.blocks(from: normalized)
         refreshChapterAudiobook()
@@ -1309,8 +1311,12 @@ private enum ReaderPaper: String, CaseIterable, Identifiable {
         case .night: Color(red: 0.08, green: 0.10, blue: 0.11)
         }
     }
-    var primaryText: Color { self == .night ? Color(red: 0.78, green: 0.78, blue: 0.73) : AppTheme.ink }
-    var secondaryText: Color { self == .night ? Color(red: 0.58, green: 0.60, blue: 0.58) : AppTheme.inkSoft }
+    var primaryText: Color {
+        self == .night ? Color(red: 0.78, green: 0.78, blue: 0.73) : Color(red: 0.12, green: 0.12, blue: 0.13)
+    }
+    var secondaryText: Color {
+        self == .night ? Color(red: 0.58, green: 0.60, blue: 0.58) : Color(red: 0.43, green: 0.43, blue: 0.45)
+    }
 }
 
 private extension Array {

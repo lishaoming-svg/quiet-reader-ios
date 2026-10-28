@@ -5,7 +5,8 @@ final class LibraryFlowTests: XCTestCase {
 
     private func launch(empty: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing"] + (empty ? ["--empty-library"] : [])
+        app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+            + (empty ? ["--empty-library"] : [])
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 20))
         app.tabBars.buttons["书库"].tap()

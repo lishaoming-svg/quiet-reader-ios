@@ -141,6 +141,11 @@ final class LocalBookImportTests: XCTestCase {
         XCTAssertTrue(chapters.allSatisfy { $0.content.utf16.count <= 24_000 })
     }
 
+    func testReaderAndAudiobookPreparationKeepsLiteralLocalText() {
+        let text = "爱情的写法是爱*情。数学表达式 1 < 2，原文保留 shi 和🌊。"
+        XCTAssertEqual(ReadingTextPreparation.prepare(text, sourceID: LocalBookStorage.sourceID), text)
+    }
+
     private func assertError<T>(_ expected: LocalBookError, _ operation: () throws -> T,
                                 file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertThrowsError(try operation(), file: file, line: line) { error in

@@ -594,7 +594,7 @@ struct AudiobookView: View {
                                             chapter: chapter,
                                             source: selectedSource
                                         )
-                                        return (offset, ReadableTextNormalizer.normalize(loaded).nilIfBlank)
+                                        return (offset, ReadingTextPreparation.prepare(loaded, sourceID: selectedSource.id).nilIfBlank)
                                     } catch is CancellationError {
                                         throw CancellationError()
                                     } catch {

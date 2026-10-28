@@ -3,6 +3,7 @@ import SwiftUI
 
 struct BookshelfView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var importer: BookImportCoordinator
     @Query(sort: \BookRecord.lastReadAt, order: .reverse) private var books: [BookRecord]
     @Query private var sources: [BookSourceRecord]
@@ -47,7 +48,7 @@ struct BookshelfView: View {
                 }.padding(.top, 6)
                 if visibleBooks.isEmpty {
                     libraryEmpty
-                } else if grid {
+                } else if grid && !dynamicTypeSize.isAccessibilitySize {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 100, maximum: 170), spacing: 22)], alignment: .leading, spacing: 30) {
                         ForEach(visibleBooks) { book in libraryItem(book, compact: false) }
                     }
@@ -186,7 +187,7 @@ struct LibraryBookCard: View {
     }
     private var details: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(book.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(2)
+            Text(book.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
             Text(book.author.nilIfBlank ?? (book.isLocal ? "\(book.kind) 文档" : book.sourceName))
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             if let progress {
@@ -212,7 +213,7 @@ struct ReadingHomeView: View {
             VStack(alignment: .leading, spacing: 30) {
                 if readingBooks.isEmpty {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("翻开一本好书").font(.system(size: 30, weight: .bold, design: .serif))
+                        Text("翻开一本好书").font(.system(.largeTitle, design: .serif).weight(.bold))
                         Text("你的下一段旅程，就在书页之间。")
                             .font(.subheadline).foregroundStyle(.secondary)
                         Button("导入你的第一本书", systemImage: "plus") { importer.showingPicker = true }

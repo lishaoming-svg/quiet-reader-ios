@@ -29,6 +29,12 @@ struct LocalBookDocument: Codable, Sendable {
     var cover: Data?
 }
 
+enum ReadingTextPreparation {
+    static func prepare(_ value: String, sourceID: String) -> String {
+        sourceID == LocalBookStorage.sourceID ? value : ReadableTextNormalizer.normalize(value)
+    }
+}
+
 enum LocalTextDecoder {
     static func decode(_ data: Data) throws -> String {
         guard !data.isEmpty else { throw LocalBookError.empty }

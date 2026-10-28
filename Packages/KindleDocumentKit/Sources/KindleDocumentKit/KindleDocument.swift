@@ -13,12 +13,24 @@ public struct KindleDocument: Sendable {
     /// libmobi handles PalmDOC, HUFF/CDIC, KF7, hybrid and KF8 containers.
     /// Reject encryption before parsing; no DRM keys or decryption APIs are used.
     public static func read(at url: URL) throws -> KindleDocument {
+        // In a hybrid file libmobi may promote the KF8 half to the root structure.
+        // Inspect the original record-0 flag as well, so an encrypted KF7 half is never ignored.
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count <= 64 * 1_024 * 1_024 else { throw ReadError.tooLarge }
+        if data.count >= 86, data.subdata(in: 60..<68) == Data("BOOKMOBI".utf8) {
+            let offset = data[78..<82].reduce(0) { ($0 << 8) | Int($1) }
+            if offset <= data.count - 16 {
+                let encryption = UInt16(data[offset + 12]) << 8 | UInt16(data[offset + 13])
+                if encryption != 0 { throw ReadError.encrypted }
+            }
+        }
         guard let mobi = mobi_init() else { throw ReadError.invalid }
         defer { mobi_free(mobi) }
         let status = url.withUnsafeFileSystemRepresentation { path in
             mobi_load_filename(mobi, path)
         }
-        if status == MOBI_FILE_ENCRYPTED || mobi_is_encrypted(mobi) { throw ReadError.encrypted }
+        if status == MOBI_FILE_ENCRYPTED || mobi_is_encrypted(mobi)
+            || (mobi.pointee.next.map { mobi_is_encrypted($0) } ?? false) { throw ReadError.encrypted }
         guard status == MOBI_SUCCESS else { throw ReadError.invalid }
         guard mobi_get_text_maxsize(mobi) <= 64 * 1_024 * 1_024 else { throw ReadError.tooLarge }
         guard let raw = mobi_init_rawml(mobi) else { throw ReadError.invalid }
