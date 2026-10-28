@@ -63,6 +63,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             progress = saved?.bookProgress ?? 0
             let session = ReadingSessionRecord(sessionID: UUID().uuidString, bookID: id, bookName: book.name, sourceID: book.sourceID)
             context.insert(session); self.session = session; lastTick = .now; lastActivity = .now
+            active = true
             try context.save()
         } catch is CancellationError { return
         } catch { errorMessage = "无法打开 EPUB：\(error.localizedDescription)\n请重新导入未加密、完整的原文件。" }
@@ -108,8 +109,19 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     func finish() {
         if let navigator, let locator = navigator.currentLocation { self.navigator(navigator, locationDidChange: locator) }
         tick(isActive: false)
+    }
+
+    func close() {
+        finish()
         restoreTask?.cancel()
         restoreTask = nil
+        navigator?.delegate = nil
+        tapToken = nil
+        navigationAdapter = nil
+        navigator = nil
+        publication = nil
+        pendingRestore = nil
+        isRestoring = false
     }
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) { errorMessage = "暂时无法完成这个阅读操作，请重试。" }
     func navigator(_ navigator: Navigator, didFailToLoadResourceAt href: RelativeURL, withError error: ReadError) {
@@ -181,7 +193,7 @@ struct EPUBReaderView: View {
                         Text(book.name).font(.subheadline.weight(.semibold)).lineLimit(1)
                             .padding(.horizontal, 16).padding(.vertical, 9).background(.regularMaterial, in: Capsule())
                         Spacer(minLength: 12)
-                        Button { model.finish(); dismiss() } label: { Image(systemName: "xmark").font(.title2.weight(.semibold)).frame(width: 48, height: 48) }
+                        Button { model.close(); dismiss() } label: { Image(systemName: "xmark").font(.title2.weight(.semibold)).frame(width: 48, height: 48) }
                             .background(.regularMaterial, in: Circle()).accessibilityLabel("关闭图书").accessibilityIdentifier("reader.close")
                     }
                     Spacer()
@@ -193,6 +205,7 @@ struct EPUBReaderView: View {
                         Spacer(minLength: 12)
                         Button { showingMenu = true } label: { Image(systemName: "line.3.horizontal.decrease").font(.title2.bold()).frame(width: 48, height: 48) }
                             .background(.regularMaterial, in: Circle()).accessibilityLabel("阅读菜单").accessibilityIdentifier("reader.menu")
+                            .disabled(model.isRestoring)
                     }
                 }.padding(.horizontal, 24).padding(.top, 4).padding(.bottom, 16)
             }
@@ -201,7 +214,7 @@ struct EPUBReaderView: View {
         .environment(\.colorScheme, theme == "dark" ? .dark : .light)
         .navigationBarBackButtonHidden().toolbar(.hidden, for: .navigationBar, .tabBar)
         .accessibilityAction(named: "显示阅读菜单") { model.controlsVisible = true }
-        .accessibilityAction(.escape) { dismiss() }
+        .accessibilityAction(.escape) { model.close(); dismiss() }
         .task { await model.open(book: book, chapters: chapters, context: context, preferences: preferences) }
         .task {
             while !Task.isCancelled {
@@ -209,7 +222,7 @@ struct EPUBReaderView: View {
                 model.tick(isActive: scenePhase == .active)
             }
         }
-        .onDisappear { model.finish() }
+        .onDisappear { if showingMenu { model.finish() } else { model.close() } }
         .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
         .onChange(of: publisherStyles) { _, _ in updatePreferences() }
         .onChange(of: fontSize) { _, _ in updatePreferences() }
@@ -222,7 +235,7 @@ struct EPUBReaderView: View {
             } else {
                 Button("继续阅读") { model.errorMessage = nil }
             }
-            Button("返回书库", role: .cancel) { dismiss() }
+            Button("返回书库", role: .cancel) { model.close(); dismiss() }
         } message: { Text(model.errorMessage ?? "") }
     }
 
