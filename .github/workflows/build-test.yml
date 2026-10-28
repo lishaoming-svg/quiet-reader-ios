@@ -36,7 +36,8 @@ jobs:
   unsigned-ipa:
     name: 听书协议测试与无签名 IPA
     needs: test
-    runs-on: macos-26
+    # 设备交叉编译使用 Intel 运行器池，仍固定相同的 Xcode 版本。
+    runs-on: macos-26-intel
     timeout-minutes: 30
     steps:
       - name: 检出源码
@@ -82,7 +83,7 @@ jobs:
     name: 导出界面预览
     needs: test
     if: ${{ !cancelled() && needs.test.result != 'skipped' }}
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 10
     steps:
       - uses: maxim-lobanov/setup-xcode@v1
