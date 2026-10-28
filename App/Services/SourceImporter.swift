@@ -29,7 +29,9 @@ struct SourceImporter {
         defer {
             if canAccess { url.stopAccessingSecurityScopedResource() }
         }
-        let data = try CoordinatedFileReader.read(url, limit: 5_000_000)
+        let data: Data
+        do { data = try CoordinatedFileReader.read(url, limit: 64 * 1_024 * 1_024) }
+        catch LocalBookError.tooLarge { throw SourceImportError.localPayloadTooLarge }
         return try await decodeAndResolve(data)
     }
 
@@ -154,6 +156,7 @@ enum SourceImportError: LocalizedError {
     case emptySubscription
     case remoteRequestFailed
     case payloadTooLarge
+    case localPayloadTooLarge
     case noSources
     case noValidSources
 
@@ -165,6 +168,7 @@ enum SourceImportError: LocalizedError {
         case .emptySubscription: "订阅中没有书源地址"
         case .remoteRequestFailed: "远程书源请求失败"
         case .payloadTooLarge: "书源文件超过 5 MB 限制"
+        case .localPayloadTooLarge: "本地书源文件超过 64 MB，请拆分后重新导入。"
         case .noSources: "书源列表为空"
         case .noValidSources: "没有可导入的有效书源"
         }
