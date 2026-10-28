@@ -162,6 +162,7 @@ struct EPUBReaderView: View {
             }
         }
         .foregroundStyle(theme == "dark" ? SwiftUI.Color.white : SwiftUI.Color.black)
+        .environment(\.colorScheme, theme == "dark" ? .dark : .light)
         .navigationBarBackButtonHidden().toolbar(.hidden, for: .navigationBar, .tabBar)
         .accessibilityAction(named: "显示阅读菜单") { model.controlsVisible = true }
         .accessibilityAction(.escape) { dismiss() }
@@ -180,7 +181,11 @@ struct EPUBReaderView: View {
         .onChange(of: theme) { _, _ in updatePreferences() }
         .sheet(isPresented: $showingMenu) { menu.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
         .alert("阅读提示", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
-            Button("重新打开") { Task { await model.open(book: book, chapters: chapters, context: context, preferences: preferences) } }
+            if model.navigator == nil {
+                Button("重新打开") { Task { await model.open(book: book, chapters: chapters, context: context, preferences: preferences) } }
+            } else {
+                Button("继续阅读") { model.errorMessage = nil }
+            }
             Button("返回书库", role: .cancel) { dismiss() }
         } message: { Text(model.errorMessage ?? "") }
     }

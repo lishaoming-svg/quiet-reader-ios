@@ -47,8 +47,10 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["library.emptyImport"].waitForExistence(timeout: 10))
         capture(app, "04-empty-library")
         app.buttons["library.emptyImport"].tap()
-        let cancel = app.buttons["取消"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+        // During File Provider startup the system exposes its close control as
+        // an accessibility container before classifying it as a Button.
+        let cancel = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "取消")).firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 40))
         cancel.tap()
         XCTAssertTrue(app.buttons["library.emptyImport"].waitForExistence(timeout: 10))
     }
@@ -89,7 +91,12 @@ final class LibraryFlowTests: XCTestCase {
 
     private func importFile(_ app: XCUIApplication, name: String) {
         app.buttons["library.emptyImport"].tap()
-        let file = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+        let file = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+        let folder = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "导入测试")).firstMatch
+        let ready = expectation(for: NSPredicate { _, _ in file.exists || folder.exists }, evaluatedWith: app)
+        wait(for: [ready], timeout: 45)
+        // File Provider may resolve directoryURL to the owning app's root on a cold start.
+        if !file.exists, folder.exists { folder.tap() }
         XCTAssertTrue(file.waitForExistence(timeout: 20), app.debugDescription)
         file.tap()
         let open = app.buttons["打开"]

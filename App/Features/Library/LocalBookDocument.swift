@@ -9,7 +9,7 @@ enum LocalBookError: LocalizedError {
         case .empty: "文件中没有可阅读的正文，请检查文件后重新导入。"
         case .invalid: "文件内容损坏或与扩展名不符，请重新导出后再导入。"
         case .encrypted: "这本书或文档已加密。请使用未加密、无需密码的版本。"
-        case .tooLarge: "文件或解压后的内容过大。图书文件上限 256 MB；请压缩图片或拆分文档后重试。"
+        case .tooLarge: "文件或解压后的内容过大。普通图书上限 256 MB，Kindle 上限 64 MB，压缩包另有展开限制。请压缩图片或拆分文档后重试。"
         case .missing: "本地书籍文件已丢失，请重新导入原文件以恢复阅读。"
         case .unreadableText: "无法识别文字编码。请将文本另存为 UTF-8 后重新导入。"
         }
