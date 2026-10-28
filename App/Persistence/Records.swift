@@ -87,7 +87,7 @@ final class BookRecord {
             lastChapter: "",
             updateTime: "",
             bookURL: bookURL,
-            coverURL: coverURL,
+            coverURL: resolvedCoverURL,
             tocURL: tocURL
         )
     }

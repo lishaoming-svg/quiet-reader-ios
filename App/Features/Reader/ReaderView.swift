@@ -2,13 +2,14 @@ import SwiftData
 import SwiftUI
 
 struct ReaderView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("reader.fontSize") private var fontSize = 19.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
-    @AppStorage("reader.paper") private var paperValue = ReaderPaper.warm.rawValue
+    @AppStorage("reader.paper") private var paperValue = ReaderPaper.white.rawValue
     @AppStorage("reader.serif") private var usesSerif = true
-    @AppStorage("reader.mode") private var modeValue = ReaderMode.scroll.rawValue
+    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageSlide.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
     @ObservedObject private var audiobookPlayer = AudiobookPlayer.shared
@@ -30,7 +31,7 @@ struct ReaderView: View {
     @State private var errorMessage: String?
     @State private var authenticationRequired = false
     @State private var showingSourceLogin = false
-    @State private var controlsVisible = true
+    @State private var controlsVisible = false
     @State private var showingSettings = false
     @State private var showingBookmarks = false
     @State private var showingAudiobook = false
@@ -105,6 +106,7 @@ struct ReaderView: View {
             )
         }
         .navigationTitle(book.name)
+        .navigationBarBackButtonHidden()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(controlsVisible ? .visible : .hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
@@ -118,7 +120,9 @@ struct ReaderView: View {
                 readerControls
             }
         }
-        .sheet(isPresented: $showingSettings) { ReaderSettingsView() }
+        .sheet(isPresented: $showingSettings) {
+            ReaderSettingsView().presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showingSourceLogin) {
             SourceLoginView(source: source) {
                 authenticationRequired = false
@@ -450,9 +454,6 @@ struct ReaderView: View {
                 .lineSpacing(4)
                 .foregroundStyle(paper.primaryText)
                 .lineLimit(2)
-            Capsule()
-                .fill(AppTheme.vermilion.opacity(0.82))
-                .frame(width: 28, height: 2)
         }
         .accessibilityElement(children: .combine)
     }
@@ -583,6 +584,10 @@ struct ReaderView: View {
 
     @ToolbarContentBuilder
     private var readerToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button { dismiss() } label: { Image(systemName: "xmark") }
+                .accessibilityLabel("关闭图书").accessibilityIdentifier("reader.close")
+        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
                 ForEach(chapters) { item in
@@ -591,11 +596,13 @@ struct ReaderView: View {
             } label: {
                 Image(systemName: "list.bullet")
             }
+            .accessibilityLabel("目录").accessibilityIdentifier("reader.toc")
             Button {
                 toggleBookmark()
             } label: {
                 Image(systemName: currentBookmarkID == nil ? "bookmark" : "bookmark.fill")
             }
+            .accessibilityLabel(currentBookmarkID == nil ? "添加书签" : "移除书签")
             if !audiobookSegments.isEmpty {
                 Button {
                     if sentencePlaybackMode {
@@ -622,6 +629,7 @@ struct ReaderView: View {
             } label: {
                 Image(systemName: "textformat.size")
             }
+            .accessibilityLabel("主题与设置").accessibilityIdentifier("reader.settings")
         }
     }
 
@@ -893,11 +901,11 @@ struct ReaderView: View {
         scrollBlockID = nil
 
         if !forceRefresh, let cached = cachedChapter(url: currentChapter.url) {
-            let requiresRefresh = SourceEngine.authenticationMessage(in: cached.content) != nil
+            let requiresRefresh = source.id != LocalBookStorage.sourceID && (SourceEngine.authenticationMessage(in: cached.content) != nil
                 || ReadableContentFormatter.shouldRefreshLegacyCache(
                     cached.content,
                     sourceID: source.id
-                )
+                ))
             if !requiresRefresh {
                 guard !Task.isCancelled, currentIndex == requestedIndex else { return }
                 prepareDocument(cached.content, chapter: currentChapter)
@@ -942,7 +950,7 @@ struct ReaderView: View {
                         source: source
                     )
                     guard !Task.isCancelled else { return }
-                    cache(target, content: ReadableTextNormalizer.normalize(value))
+                    cache(target, content: source.id == LocalBookStorage.sourceID ? value : ReadableTextNormalizer.normalize(value))
                 } catch is CancellationError {
                     return
                 } catch let error as URLError where error.code == .cancelled {
@@ -955,7 +963,7 @@ struct ReaderView: View {
     }
 
     private func prepareDocument(_ value: String, chapter: BookChapter) {
-        let normalized = ReadableTextNormalizer.normalize(value)
+        let normalized = source.id == LocalBookStorage.sourceID ? value : ReadableTextNormalizer.normalize(value)
         content = normalized
         blocks = ReaderDocumentBuilder.blocks(from: normalized)
         refreshChapterAudiobook()
@@ -1181,9 +1189,9 @@ private struct ReaderSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("reader.fontSize") private var fontSize = 19.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
-    @AppStorage("reader.paper") private var paperValue = ReaderPaper.warm.rawValue
+    @AppStorage("reader.paper") private var paperValue = ReaderPaper.white.rawValue
     @AppStorage("reader.serif") private var usesSerif = true
-    @AppStorage("reader.mode") private var modeValue = ReaderMode.scroll.rawValue
+    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageSlide.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
 
@@ -1254,7 +1262,7 @@ private struct ReaderSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("阅读设置")
+            .navigationTitle("主题与设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1282,7 +1290,7 @@ private enum ReaderPaper: String, CaseIterable, Identifiable {
     }
     var background: Color {
         switch self {
-        case .warm: AppTheme.paper
+        case .warm: Color(red: 0.97, green: 0.94, blue: 0.87)
         case .white: Color(red: 0.98, green: 0.98, blue: 0.97)
         case .green: Color(red: 0.87, green: 0.92, blue: 0.86)
         case .night: Color(red: 0.08, green: 0.10, blue: 0.11)

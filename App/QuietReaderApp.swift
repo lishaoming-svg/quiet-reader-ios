@@ -15,7 +15,8 @@ struct QuietReaderApp: App {
                 ChapterListCacheRecord.self,
                 ReadingSessionRecord.self,
                 BookmarkRecord.self,
-                SearchHistoryRecord.self
+                SearchHistoryRecord.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: ProcessInfo.processInfo.arguments.contains("--ui-testing"))
             )
         } catch {
             fatalError("无法初始化本地数据库：\(error.localizedDescription)")
@@ -25,7 +26,6 @@ struct QuietReaderApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .preferredColorScheme(.light)
         }
         .modelContainer(modelContainer)
     }

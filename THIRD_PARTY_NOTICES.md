@@ -3,7 +3,7 @@
 ## SwiftSoup
 
 - 项目：https://github.com/scinfu/SwiftSoup
-- 版本要求：2.13.5 及以上、3.0.0 以下
+- 版本：2.13.5（固定）
 - 许可证：MIT License
 - 用途：HTML 解析、CSS Selector 查询和正文清理。
 
@@ -43,3 +43,14 @@
 - rektpartyaftermath/Legado-booksource-collection
 
 应用不内置书籍内容。书源只在用户主动操作时访问对应站点，能否使用取决于站点状态和使用条款。
+
+## libmobi / KindleDocumentKit
+
+- libmobi：https://github.com/bfabiszewski/libmobi
+- Swift Package 封装：https://github.com/mlilback/LibmobiSPM ，固定提交 `9f50f89509a2edc229b08ae4e128caa7bc983f3a`
+- libmobi 许可证：LGPL-3.0-or-later；上游 Swift Package 封装：MIT。
+- 用途：在本机解析未加密的 MOBI / AZW / AZW3 正文和元数据。
+- 集成方式：`Packages/KindleDocumentKit` 动态库；上游 C 源码未修改。源码获取、重新构建与替换说明见该目录的 README，许可证全文在 `Licenses/` 并随 App 分发。
+- Kindle 回归样本的来源、固定版本与文件哈希见 `Tests/Fixtures/README.md`。
+
+新增界面由 SwiftUI、系统字体和 SF Symbols 构建，不包含苹果图书的品牌图片或其书籍内容。

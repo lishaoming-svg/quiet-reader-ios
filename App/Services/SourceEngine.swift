@@ -107,6 +107,9 @@ struct SourceEngine {
         book: SearchBook,
         source: BookSourceDefinition
     ) async throws -> [BookChapter] {
+        if source.id == LocalBookStorage.sourceID {
+            return try LocalBookStorage.book(at: book.bookURL).chapters
+        }
         guard let rules = source.ruleToc,
               let chapterListRule = rules.chapterList?.nilIfBlank else {
             return [BookChapter(title: "全文", url: book.bookURL, index: 0)]
@@ -155,6 +158,9 @@ struct SourceEngine {
         chapter: BookChapter,
         source: BookSourceDefinition
     ) async throws -> String {
+        if source.id == LocalBookStorage.sourceID {
+            return try LocalBookStorage.content(at: chapter.url)
+        }
         let rules = source.ruleContent
         var currentURL = try URLTemplateRenderer.render(chapter.url)
         var visited = Set<String>()

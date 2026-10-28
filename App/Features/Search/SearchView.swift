@@ -21,7 +21,7 @@ struct SearchView: View {
                 content
             }
         }
-        .navigationTitle("寻书")
+        .navigationTitle("搜索")
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
     }
