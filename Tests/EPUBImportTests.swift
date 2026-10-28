@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ReadiumNavigator
 import ReadiumShared
 import ReadiumStreamer
 import ZIPFoundation
@@ -46,6 +47,24 @@ final class EPUBImportTests: XCTestCase {
             let positions = try await publication.positions().get()
             let locator = try XCTUnwrap(positions.last)
             XCTAssertEqual(try Locator(jsonString: locator.jsonString()), locator)
+        }
+    }
+
+    @MainActor
+    func testReaderFontPercentageUsesReadiumMultiplierAndPreservesPublisherSize() async throws {
+        let result = try LocalBookImporter.prepare(data: bytes(), filename: "precision.epub", root: root)
+        let file = try XCTUnwrap(FileURL(url: LocalBookStorage.publicationURL(for: result.book.bookURL, root: root)))
+        let asset = try await AssetRetriever(httpClient: DefaultHTTPClient()).retrieve(url: file).get()
+        let publication = try await PublicationOpener(parser: EPUBParser()).open(asset: asset, allowUserInteraction: false).get()
+        let original = EPUBReaderModel.preferences(publisherStyles: true, fontSizePercent: 200, scroll: false, theme: "sepia")
+        XCTAssertNil(original.fontSize, "原书精排不能覆盖出版方字号")
+        let originalNavigator = try EPUBNavigatorViewController(publication: publication, initialLocation: nil, config: .init(preferences: original))
+        XCTAssertEqual(originalNavigator.settings.fontSize, 1.0)
+        for percent in [75.0, 100.0, 200.0] {
+            let preferences = EPUBReaderModel.preferences(publisherStyles: false, fontSizePercent: percent, scroll: false, theme: "sepia")
+            let navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: nil, config: .init(preferences: preferences))
+            XCTAssertEqual(navigator.settings.fontSize, percent / 100, accuracy: 0.001,
+                           "100% 应是 1 倍，而不是把正文放大 100 倍")
         }
     }
 

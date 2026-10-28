@@ -25,6 +25,17 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     private var lastActivity = Date.now
     private var active = true
 
+    static func preferences(publisherStyles: Bool, fontSizePercent: Double, scroll: Bool, theme: String) -> EPUBPreferences {
+        var preferences = EPUBPreferences()
+        preferences.publisherStyles = publisherStyles
+        // Readium uses a multiplier (1.0 = 100%), not percentage points.
+        // Original layout must also keep the publication's own base font size.
+        preferences.fontSize = publisherStyles ? nil : fontSizePercent / 100
+        preferences.scroll = scroll
+        preferences.theme = Theme(rawValue: theme) ?? .sepia
+        return preferences
+    }
+
     func open(book: SearchBook, chapters: [BookChapter], context: ModelContext, preferences: EPUBPreferences) async {
         guard navigator == nil else { return }
         self.book = book; self.chapters = chapters; self.context = context; errorMessage = nil
@@ -155,10 +166,7 @@ struct EPUBReaderView: View {
         theme == "dark" ? .black : theme == "sepia" ? SwiftUI.Color(red: 250/255, green: 244/255, blue: 232/255) : .white
     }
     private var preferences: EPUBPreferences {
-        var prefs = EPUBPreferences()
-        prefs.publisherStyles = publisherStyles; prefs.fontSize = fontSize
-        prefs.scroll = scroll; prefs.theme = Theme(rawValue: theme) ?? .sepia
-        return prefs
+        EPUBReaderModel.preferences(publisherStyles: publisherStyles, fontSizePercent: fontSize, scroll: scroll, theme: theme)
     }
 
     var body: some View {
