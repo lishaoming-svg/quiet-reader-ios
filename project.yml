@@ -32,6 +32,7 @@ targets:
       - package: SwiftSoup
       - package: ZIPFoundation
       - package: KindleDocumentKit
+        embed: true
     info:
       path: App/Info.plist
       properties:
