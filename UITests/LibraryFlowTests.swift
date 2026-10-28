@@ -53,10 +53,11 @@ final class LibraryFlowTests: XCTestCase {
         let app = launch()
         let book = app.buttons["book.山海之间"]
         XCTAssertTrue(book.waitForExistence(timeout: 20))
-        audit(app, page: "书库")
+        var issues = audit(app, page: "书库")
         book.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "海边的清晨")).firstMatch.waitForExistence(timeout: 20))
-        audit(app, page: "阅读页")
+        issues += audit(app, page: "阅读页")
+        if !issues.isEmpty { XCTFail(issues.joined(separator: "\n")) }
     }
 
     private func revealControls(_ app: XCUIApplication) {
@@ -68,12 +69,15 @@ final class LibraryFlowTests: XCTestCase {
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment)
     }
-    private func audit(_ app: XCUIApplication, page: String) {
+    private func audit(_ app: XCUIApplication, page: String) -> [String] {
+        var issues: [String] = []
         do {
             try app.performAccessibilityAudit { issue in
-                XCTFail("Accessibility audit（\(page)）：\(issue.compactDescription)")
+                let element = issue.element?.label ?? "无具体元素"
+                issues.append("Accessibility audit（\(page)）：\(issue.compactDescription) — \(element.prefix(120))")
                 return true
             }
-        } catch { XCTFail("Accessibility audit（\(page)）：\(error.localizedDescription)") }
+        } catch { issues.append("Accessibility audit（\(page)）：\(error.localizedDescription)") }
+        return issues
     }
 }
