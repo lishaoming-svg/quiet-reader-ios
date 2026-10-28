@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   test:
-    uses: wenjinliuu/ios-ci-workflows/.github/workflows/build-test.yml@df71d6096d6d39ea799179cb2635703548b07ae0 # v1.1.0
+    uses: ./.github/workflows/ios-ci-build-test-intel.yml
     with:
       suite: ${{ inputs.suite || '' }}   # 未拆分测试计划时，每次都跑主 scheme 的全部测试
       record_snapshots: ${{ inputs.record_snapshots || false }}
