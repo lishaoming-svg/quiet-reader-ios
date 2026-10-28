@@ -12,6 +12,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     @Published var progress = 0.0
     @Published var locationTitle = ""
     @Published var bookmarkAdded = false
+    @Published var tocLinks: [ReadiumShared.Link] = []
     private(set) var publication: Publication?
     private var navigationAdapter: DirectionalNavigationAdapter?
     private var tapToken: InputObservableToken?
@@ -33,6 +34,8 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             let retriever = AssetRetriever(httpClient: client)
             let asset = try await retriever.retrieve(url: fileURL).get()
             let publication = try await PublicationOpener(parser: EPUBParser()).open(asset: asset, allowUserInteraction: false).get()
+            let contents = (try? await publication.tableOfContents().get()) ?? []
+            tocLinks = contents.isEmpty ? publication.readingOrder : contents
             try Task.checkCancellation()
             let id = book.id
             let saved = try context.fetch(FetchDescriptor<ReadingProgressRecord>(predicate: #Predicate { $0.bookID == id })).first
@@ -196,8 +199,8 @@ struct EPUBReaderView: View {
                     Button(model.bookmarkAdded ? "书签已添加" : "添加书签", systemImage: "bookmark") { model.bookmark() }
                         .disabled(model.bookmarkAdded)
                 }
-                if let publication = model.publication {
-                    Section("目录") { toc(publication.tableOfContents.isEmpty ? publication.readingOrder : publication.tableOfContents, depth: 0) }
+                if !model.tocLinks.isEmpty {
+                    Section("目录") { toc(model.tocLinks, depth: 0) }
                 }
                 let marks = bookmarks.filter { $0.bookID == book.id && $0.publicationLocator != nil }
                 if !marks.isEmpty {

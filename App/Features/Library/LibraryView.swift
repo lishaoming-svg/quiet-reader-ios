@@ -275,7 +275,7 @@ struct ReadingHomeView: View {
                             Button { showingGoal = true } label: {
                                 Text("（目标 \(goal) 分钟） ›").font(.subheadline.weight(.medium)).frame(minHeight: 44)
                             }
-                        }.padding(.top, 44)
+                        }
                     }.frame(height: 170).padding(.horizontal, 18).padding(.top, 22)
                     Button("导入图书") { importer.showingPicker = true }
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 48)

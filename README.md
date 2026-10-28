@@ -1,21 +1,22 @@
-# 墨阅 QuietReader
+# iBooks
 
-墨阅是一款面向个人使用的原生 iOS 无广告阅读器。当前版本支持导入声明式 JSON 书源、跨书源搜索、精确阅读进度、多种翻页方式、阅读记录、书签、批量离线缓存和由 Windows 本地生成的离线听书。
+iBooks 是一款面向个人使用的原生 iOS 无广告阅读器。当前版本支持导入声明式 JSON 书源、跨书源搜索、精确阅读进度、多种翻页方式、阅读记录、书签、批量离线缓存和由 Windows 本地生成的离线听书。
 
 ## 本地图书与新版书库
 
-界面采用新版苹果图书的白色书库、封面网格、继续阅读和简洁阅读页布局，保留墨阅已有的网络书源和离线听书功能。主页右上角可进入阅读记录与书源管理。
+界面采用新版苹果图书的白色书库、封面网格、继续阅读和简洁阅读页布局，保留已有的网络书源和离线听书功能。主页右上角可进入阅读记录与书源管理。
 
-在“书库”点左上角 **+**，可从系统“文件”一次选择多本书；也可以从其他 App 的分享菜单选择用墨阅打开。导入在本机后台完成，支持取消、逐文件错误提示和重复导入去重。相同文件重新导入会恢复本地正文并保留阅读位置，不要求原文件一直留在原处。
+在“书库”点右上角 **更多 → 导入图书**，可从系统“文件”一次选择多本书；也可以从其他 App 的分享菜单选择用 iBooks 打开。导入在本机后台完成，支持取消、逐文件错误提示和重复导入去重。相同文件重新导入会恢复本地正文并保留阅读位置，不要求原文件一直留在原处。
 
 | 格式 | 处理方式 |
 | --- | --- |
+| EPUB | Readium 原书精排，保留 CSS、字体、插图、目录、锚点与固定版式 |
 | TXT | UTF-8、带 BOM 的 UTF-16/32、GB18030、Big5 等常见编码；识别中英文章节标题，超长正文自动分段 |
 | DOCX | 提取元数据、Word 标题目录、段落和表格文字，隐藏修订中已删除的文字 |
 | DOC | Word 97 及之后的二进制文档，按 MS-CFB/FIB/CLX 的逻辑顺序还原正文；也兼容以 DOC 扩展名保存的 RTF |
 | MOBI / AZW / AZW3 | libmobi 解析未加密的 KF7/KF8、混合容器、PalmDOC 和 HUFF/CDIC 压缩；读取书名、作者和封面 |
 
-单文件限制 64 MB。密码保护的 Word、DRM 加密的 Kindle 文件和 KFX/Topaz 等其他容器不在此范围内。Word 和 Kindle 内容会转换为可调字号的正文；复杂页面布局、嵌入对象、批注和文档图片不作原版页面还原。
+普通图书上限 256 MB，Kindle 解析上限 64 MB。密码保护的 Word、DRM 加密的 Kindle 文件和 KFX/Topaz 等其他容器不在此范围内。Word 和 Kindle 内容会转换为可调字号的正文；复杂页面布局、嵌入对象、批注和文档图片不作原版页面还原。
 
 本地图书支持目录、书签、离线阅读、阅读位置恢复，以及已有的本地听书生成链路。阅读器提供原生卷页、横向滑动、滚动和无动画四种方式，并遵从系统的“减弱动态效果”设置。移除本地图书会清理其正文、位置和书签，保留原始导入文件。
 
@@ -70,7 +71,7 @@ Windows 环境不能运行 Xcode。项目按 [ios-ci-workflows Skill](https://gi
 - 配置在 `.ios-ci.yml`，入口在 `.github/workflows/build-test.yml`；中央工作流固定为 [v1.1.0](https://github.com/wenjinliuu/ios-ci-workflows/releases/tag/v1.1.0) 的提交 `df71d6096d6d39ea799179cb2635703548b07ae0`。
 - 分支推送、PR 和手动运行都会执行 `QuietReader` scheme 的全部单元测试；仅修改 Markdown 或 `docs/` 时跳过。当前不拆快线和慢线，也没有快照测试；手动输入的 `fast / ui / full` 在未配置分层计划时均运行主 scheme 的全部测试。
 - 在运行页面的 job summary 查看“测试报告”，或下载 `build-test-<run>` 里的 `report/report.md`、`report/report.json`、`Test.xcresult` 和编译日志。
-- iOS 测试通过后继续运行 Windows 听书协议回归并生成 `QuietReader-unsigned-ipa`，产物保留 14 天。下载后可使用 AltStore 或 Sideloadly 以自己的 Apple ID 签名安装。
+- iOS 测试通过后继续运行 Windows 听书协议回归并生成 `iBooks-ipa`，产物保留 14 天。下载后可使用 AltStore 或 Sideloadly 以自己的 Apple ID 签名安装。
 - Xcode 固定为 `26.6`，模拟器为 `iPhone 17 Pro / iOS 26.4`。runner 不提供指定版本时，按 CI 报错中的可用列表更新 `.ios-ci.yml`；IPA job 中的 Xcode 版本也要同步更新。
 - 当前接入等级 1（Build & Test），无需 Secrets。后续按需接入 TestFlight、Live Preview 和 App Icon。
 

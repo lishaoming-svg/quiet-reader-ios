@@ -125,7 +125,7 @@ struct SearchView: View {
                 title: "从书名开始",
                 message: enabledSources.isEmpty
                     ? "请先到“书源”页面导入并启用至少一个书源。"
-                    : "输入书名或作者，墨阅会同时搜索所有启用书源。"
+                    : "输入书名或作者，iBooks 会同时搜索所有启用书源。"
             )
             Spacer()
         } else {

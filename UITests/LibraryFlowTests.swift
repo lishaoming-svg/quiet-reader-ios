@@ -18,6 +18,10 @@ final class LibraryFlowTests: XCTestCase {
         let book = app.buttons["book.山海之间"]
         XCTAssertTrue(book.waitForExistence(timeout: 20))
         capture(app, "01-library")
+        app.tabBars.buttons["主页"].tap()
+        XCTAssertTrue(app.staticTexts["阅读目标"].waitForExistence(timeout: 5))
+        capture(app, "01-home-reading-goal")
+        app.tabBars.buttons["书库"].tap()
         book.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "海边的清晨")).firstMatch.waitForExistence(timeout: 20))
         capture(app, "02-reader")

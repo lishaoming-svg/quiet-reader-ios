@@ -38,7 +38,7 @@ struct BookCoverView: View {
         ZStack {
             Rectangle().fill(coverColor.gradient)
             VStack(alignment: .leading, spacing: height * 0.07) {
-                Text("墨阅藏书").font(.system(size: max(6, width * 0.065), weight: .medium)).tracking(2)
+                Text("iBooks").font(.system(size: max(6, width * 0.065), weight: .medium)).tracking(2)
                     .foregroundStyle(.white.opacity(0.65))
                 Rectangle().fill(.white.opacity(0.35)).frame(width: width * 0.25, height: 0.5)
                 Text(title).font(.system(size: max(12, width * 0.16), weight: .medium, design: .serif))

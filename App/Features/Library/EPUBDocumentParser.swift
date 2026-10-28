@@ -31,7 +31,7 @@ enum EPUBDocumentParser {
             let navPath = try path(href, relativeTo: base)
             let html = try SwiftSoup.parse(String(decoding: read(navPath, in: archive), as: UTF8.self))
             for link in try html.select("nav a[href]") {
-                let address = try path(link.attr("href"), relativeTo: (navPath as NSString).deletingLastPathComponent)
+                guard let address = try? path(link.attr("href"), relativeTo: (navPath as NSString).deletingLastPathComponent) else { continue }
                 if labels[address] == nil { labels[address] = try link.text() }
             }
         }

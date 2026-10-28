@@ -337,7 +337,7 @@ struct AudiobookView: View {
                 Text("未读章节已缓存 \(cachedTargets.count)/\(unreadChapters.count) 章。主按钮只补齐当前章及后续正文，并一次提交未读章节任务。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
-                Text("数据线传输时，在 Windows Apple Devices 的“文件”中把 .qraudio 添加到墨阅，再从这里导入。")
+                Text("数据线传输时，在 Windows Apple Devices 的“文件”中把 .qraudio 添加到 iBooks，再从这里导入。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
             }
