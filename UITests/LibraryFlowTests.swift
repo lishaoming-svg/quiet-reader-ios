@@ -82,6 +82,10 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(chapter.waitForExistence(timeout: 5))
         chapter.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "夜色落在窗台上")).firstMatch.waitForExistence(timeout: 20))
+        let progress = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "全书进度")).firstMatch
+        let chapterPosition = expectation(for: NSPredicate { _, _ in progress.label == "全书进度 50%" }, evaluatedWith: app)
+        wait(for: [chapterPosition], timeout: 15)
+        let savedPosition = progress.label
         app.buttons["reader.close"].tap()
         XCTAssertTrue(book.waitForExistence(timeout: 10))
         book.tap()
@@ -89,6 +93,7 @@ final class LibraryFlowTests: XCTestCase {
         let restoring = app.descendants(matching: .any).matching(identifier: "epub.restoring").firstMatch
         let restored = expectation(for: NSPredicate { _, _ in !restoring.exists }, evaluatedWith: app)
         wait(for: [restored], timeout: 20)
+        XCTAssertEqual(progress.label, savedPosition)
         capture(app, "08-epub-restored-location")
     }
 
