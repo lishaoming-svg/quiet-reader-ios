@@ -24,8 +24,6 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     private var lastTick = Date.now
     private var lastActivity = Date.now
     private var active = true
-    private var pendingRestore: Locator?
-    private var restoreTask: Task<Void, Never>?
 
     func open(book: SearchBook, chapters: [BookChapter], context: ModelContext, preferences: EPUBPreferences) async {
         guard navigator == nil else { return }
@@ -43,14 +41,12 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             let id = book.id
             let saved = try context.fetch(FetchDescriptor<ReadingProgressRecord>(predicate: #Predicate { $0.bookID == id })).first
             let locator = saved?.publicationLocator.flatMap { try? Locator(jsonString: $0) }
-            pendingRestore = locator
             isRestoring = locator != nil
             var config = EPUBNavigatorViewController.Configuration(preferences: preferences)
             config.contentInset = [.compact: (top: 80, bottom: 72), .regular: (top: 80, bottom: 72)]
-            // The navigator must attach and measure its first viewport before
-            // restoring a later resource. Restoring directly during controller
-            // construction can leave WebKit loading forever on iOS 26.
-            let navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: nil, config: config)
+            // Each opening owns a fresh controller. Let Readium lay out the saved
+            // resource directly instead of jumping while its first spread loads.
+            let navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: locator, config: config)
             navigator.delegate = self
             let adapter = DirectionalNavigationAdapter(animatedTransition: true) { [weak self] in self?.lastActivity = .now }
             adapter.bind(to: navigator)
@@ -91,19 +87,10 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
         } catch { errorMessage = "阅读位置保存失败：\(error.localizedDescription)" }
     }
     func navigator(_ navigator: any ViewportObservingNavigator, viewportDidChange viewport: NavigatorViewport?) {
-        guard viewport != nil, let locator = pendingRestore, let controller = self.navigator else { return }
-        pendingRestore = nil
-        restoreTask = Task { [weak self, weak controller] in
-            guard let self, let controller else { return }
-            let restored = await controller.go(to: locator)
-            guard !Task.isCancelled else { return }
-            self.isRestoring = false
-            if restored, let current = controller.currentLocation {
-                self.navigator(controller, locationDidChange: current)
-            } else {
-                self.errorMessage = "原阅读位置暂时无法定位，请从目录选择章节继续阅读。"
-            }
-        }
+        guard isRestoring, viewport != nil, let controller = self.navigator,
+              let current = controller.currentLocation else { return }
+        isRestoring = false
+        self.navigator(controller, locationDidChange: current)
     }
 
     func finish() {
@@ -113,14 +100,11 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
 
     func close() {
         finish()
-        restoreTask?.cancel()
-        restoreTask = nil
         navigator?.delegate = nil
         tapToken = nil
         navigationAdapter = nil
         navigator = nil
         publication = nil
-        pendingRestore = nil
         isRestoring = false
     }
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) { errorMessage = "暂时无法完成这个阅读操作，请重试。" }

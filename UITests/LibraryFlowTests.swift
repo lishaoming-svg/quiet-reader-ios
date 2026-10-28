@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class LibraryFlowTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
@@ -85,6 +86,8 @@ final class LibraryFlowTests: XCTestCase {
         let progress = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "全书进度")).firstMatch
         let chapterPosition = expectation(for: NSPredicate { _, _ in progress.label == "全书进度 50%" }, evaluatedWith: app)
         wait(for: [chapterPosition], timeout: 15)
+        waitForVisibleEPUBBody(app)
+        capture(app, "08-epub-chapter-before-close")
         let savedPosition = progress.label
         app.buttons["reader.close"].tap()
         XCTAssertTrue(book.waitForExistence(timeout: 10))
@@ -94,7 +97,34 @@ final class LibraryFlowTests: XCTestCase {
         let restored = expectation(for: NSPredicate { _, _ in !restoring.exists }, evaluatedWith: app)
         wait(for: [restored], timeout: 20)
         XCTAssertEqual(progress.label, savedPosition)
+        waitForVisibleEPUBBody(app)
         capture(app, "08-epub-restored-location")
+    }
+
+    private func waitForVisibleEPUBBody(_ app: XCUIApplication) {
+        let body = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "夜色落在窗台上")).firstMatch
+        let visible = expectation(for: NSPredicate { _, _ in
+            guard body.exists, body.isHittable else { return false }
+            // WebKit can expose preloaded text while its page is still blank.
+            // Check rendered ink in the reading area, excluding floating controls.
+            guard let image = app.screenshot().image.cgImage else { return false }
+            let rect = CGRect(x: CGFloat(image.width) * 0.1, y: CGFloat(image.height) * 0.2,
+                              width: CGFloat(image.width) * 0.8, height: CGFloat(image.height) * 0.55)
+            guard let crop = image.cropping(to: rect) else { return false }
+            var pixels = [UInt8](repeating: 0, count: 160 * 240 * 4)
+            let darkPixels = pixels.withUnsafeMutableBytes { buffer -> Int in
+                guard let context = CGContext(data: buffer.baseAddress, width: 160, height: 240,
+                    bitsPerComponent: 8, bytesPerRow: 160 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+                context.draw(crop, in: CGRect(x: 0, y: 0, width: 160, height: 240))
+                let bytes = buffer.bindMemory(to: UInt8.self)
+                return stride(from: 0, to: bytes.count, by: 4).filter {
+                    Int(bytes[$0]) + Int(bytes[$0 + 1]) + Int(bytes[$0 + 2]) < 450
+                }.count
+            }
+            return darkPixels > 100
+        }, evaluatedWith: app)
+        wait(for: [visible], timeout: 30)
     }
 
     private func importFile(_ app: XCUIApplication, name: String) {
