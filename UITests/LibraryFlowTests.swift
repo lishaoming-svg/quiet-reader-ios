@@ -118,9 +118,14 @@ final class LibraryFlowTests: XCTestCase {
                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
                 context.draw(crop, in: CGRect(x: 0, y: 0, width: 160, height: 240))
                 let bytes = buffer.bindMemory(to: UInt8.self)
-                return stride(from: 0, to: bytes.count, by: 4).filter {
-                    Int(bytes[$0]) + Int(bytes[$0 + 1]) + Int(bytes[$0 + 2]) < 450
-                }.count
+                var count = 0
+                for offset in stride(from: 0, to: bytes.count, by: 4) {
+                    let red = Int(bytes[offset])
+                    let green = Int(bytes[offset + 1])
+                    let blue = Int(bytes[offset + 2])
+                    if red + green + blue < 450 { count += 1 }
+                }
+                return count
             }
             return darkPixels > 100
         }, evaluatedWith: app)
