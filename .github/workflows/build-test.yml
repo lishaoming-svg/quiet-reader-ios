@@ -1,0 +1,79 @@
+name: Build & Test
+
+on:
+  push:
+    paths-ignore: ['**/*.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**/*.md', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 跑哪些测试（fast 快线 / ui 慢线 / full 全部）
+        type: choice
+        options: [fast, ui, full]
+        default: fast
+      record_snapshots:
+        description: 重新录制快照参考图（有意改了界面时勾选）
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# PR 和它的分支推送共用一组，新提交取消还在跑的旧运行；main 上每次合并都跑完，供 TestFlight 复用
+concurrency:
+  group: build-test-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    uses: wenjinliuu/ios-ci-workflows/.github/workflows/build-test.yml@df71d6096d6d39ea799179cb2635703548b07ae0 # v1.1.0
+    with:
+      suite: ${{ inputs.suite || '' }}   # 未拆分测试计划时，每次都跑主 scheme 的全部测试
+      record_snapshots: ${{ inputs.record_snapshots || false }}
+
+  # 保留现有的 Windows 听书协议回归和侧载 IPA；模拟器测试由上面的中央工作流负责。
+  unsigned-ipa:
+    name: 听书协议测试与无签名 IPA
+    needs: test
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: 选择固定的 Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: 安装固定版本 XcodeGen
+        run: |
+          set -euo pipefail
+          curl -fLsS https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip -o "$RUNNER_TEMP/xcodegen.zip"
+          echo "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -oq "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: 创建 Python 测试环境
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r Companion/AudiobookServer/requirements.txt
+          .venv/bin/python -m pip install numpy
+
+      - name: 测试 Windows 听书协议
+        run: .venv/bin/python -m unittest discover -s Companion/AudiobookServer/tests -v
+
+      - name: 构建设备 IPA
+        run: bash scripts/build-unsigned-ipa.sh
+
+      - name: 上传无签名 IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: QuietReader-unsigned-ipa
+          path: build/QuietReader-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
