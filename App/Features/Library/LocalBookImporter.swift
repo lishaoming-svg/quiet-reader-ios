@@ -114,7 +114,7 @@ enum LocalBookStorage {
         defer { try? manager.removeItem(at: staging) }
         for (index, chapter) in document.chapters.enumerated() {
             try Task.checkCancellation()
-            try Data(chapter.content.utf8).write(to: staging.appendingPathComponent("\(index).txt"), options: .atomic)
+            try Data(bodyText(chapter).utf8).write(to: staging.appendingPathComponent("\(index).txt"), options: .atomic)
         }
         let cover = document.cover.flatMap(thumbnail)
         if let cover { try cover.write(to: staging.appendingPathComponent("cover.jpg"), options: .atomic) }
@@ -192,6 +192,14 @@ enum LocalBookStorage {
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return output as Data
+    }
+
+    private static func bodyText(_ chapter: LocalBookDocument.Chapter) -> String {
+        let lines = chapter.content.components(separatedBy: "\n")
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == chapter.title else { return chapter.content }
+        let body = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Keep heading-only sections readable; normal chapters render their title in reader chrome.
+        return body.isEmpty ? chapter.content : body
     }
 }
 

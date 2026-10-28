@@ -146,6 +146,12 @@ final class LocalBookImportTests: XCTestCase {
         XCTAssertEqual(ReadingTextPreparation.prepare(text, sourceID: LocalBookStorage.sourceID), text)
     }
 
+    func testChapterTitleIsNotRepeatedInStoredReadingBody() throws {
+        let value = try LocalBookImporter.prepare(data: Data("第一章 海边\n风从海上来。".utf8), filename: "海边.txt", root: root)
+        XCTAssertEqual(value.chapters[0].title, "第一章 海边")
+        XCTAssertEqual(try LocalBookStorage.content(at: value.chapters[0].url, root: root), "风从海上来。")
+    }
+
     private func assertError<T>(_ expected: LocalBookError, _ operation: () throws -> T,
                                 file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertThrowsError(try operation(), file: file, line: line) { error in
