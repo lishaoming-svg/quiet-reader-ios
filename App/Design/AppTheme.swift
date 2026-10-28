@@ -5,7 +5,7 @@ enum AppTheme {
     static let inkSoft = Color.secondary
     static let paper = Color(.systemGroupedBackground)
     static let paperLight = Color(.systemBackground)
-    static let vermilion = Color.orange
+    static let vermilion = Color.primary
     static let ochre = Color.orange
     static let jade = Color.secondary
     static let line = Color(.separator)

@@ -6,6 +6,8 @@ struct RootView: View {
     @StateObject private var importer = BookImportCoordinator()
     @State private var didRefreshBundledSources = false
     @State private var selectedTab = 0
+    @State private var sourceFile: SourceFile?
+    private struct SourceFile: Identifiable { let id = UUID(); let access: ImportedFileAccess }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -25,13 +27,19 @@ struct RootView: View {
         }
         .environmentObject(importer)
         .tint(AppTheme.vermilion)
-        .fileImporter(isPresented: $importer.showingPicker, allowedContentTypes: LocalBookImporter.contentTypes,
-                      allowsMultipleSelection: true) { result in
+        .sheet(isPresented: $importer.showingPicker, onDismiss: {
             selectedTab = 1
-            importer.accept(result, context: modelContext)
+            importer.pickerDidDismiss(context: modelContext)
+        }) {
+            DocumentImportPicker { importer.pickedDocuments($0) }
         }
         .sheet(isPresented: $importer.showingResults) { BookImportResultsView(importer: importer) }
-        .onOpenURL { url in selectedTab = 1; importer.start([url], context: modelContext) }
+        .sheet(item: $sourceFile) { SourceImportView(file: $0.access) }
+        .onOpenURL { url in
+            if url.pathExtension.lowercased() == "json" {
+                selectedTab = 2; sourceFile = SourceFile(access: ImportedFileAccess(url))
+            } else { selectedTab = 1; importer.start([url], context: modelContext) }
+        }
         .task {
             guard !didRefreshBundledSources else { return }
             didRefreshBundledSources = true

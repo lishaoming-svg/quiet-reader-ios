@@ -12,9 +12,9 @@
 ## ZIPFoundation
 
 - 项目：https://github.com/weichsel/ZIPFoundation
-- 版本：0.9.20
+- 版本：0.9.20，原始提交 `22787ffb59de99e5dc1fbfe80b19c97a904ad48d`；同步兼容源码位于 `Packages/LegacyZIPFoundation`
 - 许可证：MIT License
-- 用途：在 iOS 本地校验和解包 `.qraudio` 逐句伴读包。
+- 用途：本地 Word、EPUB 索引和 `.qraudio` 包解析。MIT 许可随源码和 App 分发。
 
 ## 可选听书组件
 
@@ -54,3 +54,13 @@
 - Kindle 回归样本的来源、固定版本与文件哈希见 `Tests/Fixtures/README.md`。
 
 新增界面由 SwiftUI、系统字体和 SF Symbols 构建，不包含苹果图书的品牌图片或其书籍内容。
+
+## Readium Swift Toolkit
+
+- 项目：https://github.com/readium/swift-toolkit
+- 版本：3.11.1，固定提交 `9a8c094b72245fd27043c9d298005e5c78b32a01`。
+- 许可证：BSD-3-Clause，全文随 App 分发。
+- 用途：EPUB 2/3 原书 CSS、图片、字体、注音与固定版式阅读；保留 Readium Locator 续读。
+- 使用 ReadiumShared、ReadiumStreamer、ReadiumNavigator，不接入 LCP 付费服务。
+- Readium 的直接依赖许可：SwiftSoup（MIT）、Zip（MIT）、DifferenceKit（Apache-2.0）、Readium/Fuzi（MIT）、Readium/ZIPFoundation（MIT）；这些模块保留上游许可。SDK 所带 Readium CSS 与字体资源的原始许可随其资源包分发。
+- 原创 EPUB 示例仅用于排版和导入验证，文字和 SVG 均为本项目生成。

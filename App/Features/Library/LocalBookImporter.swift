@@ -11,8 +11,8 @@ struct LocalBookImport: Sendable {
 }
 
 enum LocalBookImporter {
-    static let supportedExtensions = ["txt", "docx", "doc", "mobi", "azw", "azw3"]
-    static let maximumFileSize = 64 * 1_024 * 1_024
+    static let supportedExtensions = ["epub", "txt", "docx", "doc", "mobi", "azw", "azw3"]
+    static let maximumFileSize = 256 * 1_024 * 1_024
     static var contentTypes: [UTType] {
         supportedExtensions.compactMap { UTType(filenameExtension: $0) }
     }
@@ -45,6 +45,9 @@ enum LocalBookImporter {
         guard supportedExtensions.contains(format) else { throw LocalBookError.unsupported }
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let fallbackTitle = (filename as NSString).deletingPathExtension
+        if format == "epub" {
+            return try LocalBookStorage.save(EPUBDocumentParser.parse(data, fallbackTitle: fallbackTitle), digest: digest, root: root)
+        }
         var title = fallbackTitle
         var author = ""
         var cover: Data?
@@ -117,6 +120,9 @@ enum LocalBookStorage {
             try Data(bodyText(chapter).utf8).write(to: staging.appendingPathComponent("\(index).txt"), options: .atomic)
         }
         let cover = document.cover.flatMap(thumbnail)
+        if let publication = document.publicationData {
+            try publication.write(to: staging.appendingPathComponent("publication.epub"), options: .atomic)
+        }
         if let cover { try cover.write(to: staging.appendingPathComponent("cover.jpg"), options: .atomic) }
         let manifest = Manifest(title: document.title, author: document.author, format: document.format,
                                 chapterTitles: document.chapters.map(\.title), hasCover: cover != nil)
@@ -157,6 +163,12 @@ enum LocalBookStorage {
         guard let digest = try? identifier(from: address) else { return "" }
         let url = root.appendingPathComponent(digest).appendingPathComponent("cover.jpg")
         return FileManager.default.fileExists(atPath: url.path) ? url.absoluteString : ""
+    }
+
+    static func publicationURL(for address: String, root: URL = LocalBookStorage.root) throws -> URL {
+        let url = root.appendingPathComponent(try identifier(from: address)).appendingPathComponent("publication.epub")
+        guard FileManager.default.fileExists(atPath: url.path) else { throw LocalBookError.missing }
+        return url
     }
 
     static func remove(address: String, root: URL = LocalBookStorage.root) throws {

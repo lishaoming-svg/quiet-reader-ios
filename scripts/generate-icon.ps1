@@ -1,54 +1,37 @@
 Add-Type -AssemblyName System.Drawing
-
-$size = 1024
-$bitmap = [System.Drawing.Bitmap]::new(
-    $size,
-    $size,
-    [System.Drawing.Imaging.PixelFormat]::Format24bppRgb
-)
+# Source-controlled vector geometry, rendered at 2x for clean App Store edges.
+$size = 2048
+$bitmap = [System.Drawing.Bitmap]::new($size, $size, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-$graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
-
-$paper = [System.Drawing.Color]::FromArgb(255, 246, 238, 216)
-$ink = [System.Drawing.Color]::FromArgb(255, 21, 42, 50)
-$paperLight = [System.Drawing.Color]::FromArgb(255, 255, 251, 238)
-$vermilion = [System.Drawing.Color]::FromArgb(255, 178, 46, 31)
-$graphics.Clear($paper)
-
-$inkBrush = New-Object System.Drawing.SolidBrush($ink)
-$paperBrush = New-Object System.Drawing.SolidBrush($paperLight)
-$redBrush = New-Object System.Drawing.SolidBrush($vermilion)
-
-$graphics.FillRectangle($inkBrush, 116, 116, 792, 792)
-$graphics.FillPolygon($paperBrush, [System.Drawing.Point[]]@(
-    (New-Object System.Drawing.Point(245, 260)),
-    (New-Object System.Drawing.Point(500, 325)),
-    (New-Object System.Drawing.Point(500, 760)),
-    (New-Object System.Drawing.Point(245, 690))
-))
-$graphics.FillPolygon($paperBrush, [System.Drawing.Point[]]@(
-    (New-Object System.Drawing.Point(524, 325)),
-    (New-Object System.Drawing.Point(779, 260)),
-    (New-Object System.Drawing.Point(779, 690)),
-    (New-Object System.Drawing.Point(524, 760))
-))
-$graphics.FillRectangle($redBrush, 690, 670, 142, 142)
-
-$font = New-Object System.Drawing.Font('Microsoft YaHei', 86, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-$format = New-Object System.Drawing.StringFormat
-$format.Alignment = [System.Drawing.StringAlignment]::Center
-$format.LineAlignment = [System.Drawing.StringAlignment]::Center
-$glyph = [string][char]0x58A8
-$graphics.DrawString($glyph, $font, $paperBrush, (New-Object System.Drawing.RectangleF(690, 670, 142, 142)), $format)
-
+$graphics.ScaleTransform(2, 2)
+$gradient = [System.Drawing.Drawing2D.LinearGradientBrush]::new([System.Drawing.Point]::new(0, 0), [System.Drawing.Point]::new(0, 1024), [System.Drawing.Color]::FromArgb(255, 255, 169, 40), [System.Drawing.Color]::FromArgb(255, 248, 107, 0))
+$graphics.FillRectangle($gradient, 0, 0, 1024, 1024)
+$white = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
+$left = [System.Drawing.Drawing2D.GraphicsPath]::new()
+$left.StartFigure()
+$left.AddBezier(220, 292, 305, 276, 415, 297, 493, 340)
+$left.AddLine(493, 340, 493, 747)
+$left.AddBezier(493, 747, 408, 698, 316, 680, 220, 697)
+$left.AddBezier(220, 697, 207, 700, 202, 692, 202, 681)
+$left.AddLine(202, 681, 202, 315)
+$left.AddBezier(202, 315, 202, 302, 208, 294, 220, 292)
+$left.CloseFigure()
+$graphics.FillPath($white, $left)
+$right = [System.Drawing.Drawing2D.GraphicsPath]::new()
+$right.StartFigure()
+$right.AddBezier(804, 292, 719, 276, 609, 297, 531, 340)
+$right.AddLine(531, 340, 531, 747)
+$right.AddBezier(531, 747, 616, 698, 708, 680, 804, 697)
+$right.AddBezier(804, 697, 817, 700, 822, 692, 822, 681)
+$right.AddLine(822, 681, 822, 315)
+$right.AddBezier(822, 315, 822, 302, 816, 294, 804, 292)
+$right.CloseFigure()
+$graphics.FillPath($white, $right)
 $output = Join-Path $PSScriptRoot '..\App\Resources\Assets.xcassets\AppIcon.appiconset\AppIcon.png'
-$bitmap.Save($output, [System.Drawing.Imaging.ImageFormat]::Png)
-
-$format.Dispose()
-$font.Dispose()
-$redBrush.Dispose()
-$paperBrush.Dispose()
-$inkBrush.Dispose()
-$graphics.Dispose()
-$bitmap.Dispose()
+$final = [System.Drawing.Bitmap]::new(1024, 1024, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+$resize = [System.Drawing.Graphics]::FromImage($final)
+$resize.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$resize.DrawImage($bitmap, 0, 0, 1024, 1024)
+$final.Save($output, [System.Drawing.Imaging.ImageFormat]::Png)
+$resize.Dispose(); $final.Dispose(); $left.Dispose(); $right.Dispose(); $white.Dispose(); $gradient.Dispose(); $graphics.Dispose(); $bitmap.Dispose()

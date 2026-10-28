@@ -11,3 +11,7 @@ Kindle 材料来自 libmobi 的公开测试集，按其 LGPL-3.0-or-later 许可
 - 许可文本：`Packages/KindleDocumentKit/Licenses/`。
 
 测试会以 MOBI、AZW 和 AZW3 扩展名分别导入相同的有效容器，检查实际正文解析；文件不是仅更改扩展名的文本。
+
+## EPUB 原创精排样本
+
+`precision.epub` 与 App 内同名示例相同，包含中文元数据、百分号编码路径、相对 CSS、SVG 插图、注音、装饰、表格、跨章锚点与导航目录。`fixed-layout.epub` 使用同一份原创内容及 pre-paginated 元数据、viewport。用于验证原始归档逐字节保留，以及 Readium 真正可打开两类出版物。文字与 SVG 均为项目生成，无第三方书籍内容。

@@ -17,7 +17,20 @@ final class BookImportCoordinator: ObservableObject {
     @Published private(set) var total = 0
     @Published private(set) var results: [ResultItem] = []
     private var operation: Task<Void, Never>?
-    private var queue: [URL] = []
+    private var queue: [ImportedFileAccess] = []
+    private var picked: Result<[URL], Error>?
+    private var pickedAccess: [ImportedFileAccess] = []
+
+    func pickedDocuments(_ selection: Result<[URL], Error>) {
+        if case .success(let urls) = selection { pickedAccess = urls.map(ImportedFileAccess.init) }
+        picked = selection
+        showingPicker = false
+    }
+
+    func pickerDidDismiss(context: ModelContext) {
+        defer { picked = nil; pickedAccess = [] }
+        if let picked { accept(picked, context: context) }
+    }
 
     func accept(_ selection: Result<[URL], Error>, context: ModelContext) {
         switch selection {
@@ -31,17 +44,21 @@ final class BookImportCoordinator: ObservableObject {
 
     func start(_ urls: [URL], context: ModelContext) {
         guard !urls.isEmpty else { return }
-        if isImporting { queue += urls; total += urls.count; showingResults = true; return }
+        let files = urls.map(ImportedFileAccess.init)
+        if isImporting { queue += files; total += urls.count; showingResults = true; return }
         results = []; completed = 0; total = urls.count; isImporting = true; showingResults = true
-        queue = urls
+        queue = files
         operation = Task {
             defer { isImporting = false; currentFilename = ""; operation = nil }
             while !queue.isEmpty {
                 if Task.isCancelled { break }
-                let url = queue.removeFirst()
+                let access = queue.removeFirst()
+                let url = access.url
                 currentFilename = url.lastPathComponent
                 do {
-                    let worker = Task.detached(priority: .userInitiated) { try LocalBookImporter.prepare(url: url) }
+                    let worker = Task.detached(priority: .userInitiated) {
+                        try withExtendedLifetime(access) { try LocalBookImporter.prepare(url: access.url) }
+                    }
                     let imported = try await withTaskCancellationHandler {
                         try await worker.value
                     } onCancel: { worker.cancel() }

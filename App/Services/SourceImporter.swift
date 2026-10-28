@@ -29,7 +29,8 @@ struct SourceImporter {
         defer {
             if canAccess { url.stopAccessingSecurityScopedResource() }
         }
-        return try await decodeAndResolve(Data(contentsOf: url))
+        let data = try CoordinatedFileReader.read(url, limit: 5_000_000)
+        return try await decodeAndResolve(data)
     }
 
     func decodeSources(_ data: Data) throws -> ImportedSources {

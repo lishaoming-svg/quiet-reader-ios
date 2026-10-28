@@ -137,3 +137,13 @@ python scripts\verify-source-catalog.py 'App\Resources\SourceCatalog'
 ```
 
 仅应连接用户有权访问的内容服务。
+
+### iBooks 本地导入与 EPUB 精排
+
+应用显示名为 `iBooks`，设备产物名为 `iBooks.ipa`。橙色书本图标由 `scripts/generate-icon.ps1` 的矢量几何生成。
+
+在“书库 → 右上角更多 → 导入图书”选取 EPUB、TXT、DOCX、DOC、MOBI、AZW、AZW3，也可从“文件”通过分享/打开送入应用。系统选择器先取得本机副本；关闭后显示逐文件结果，失败会说明原因。书源 JSON 应在“搜索 → 书源管理 → 导入书源”导入，JSON 打开链接会直接进入书源预览。
+
+EPUB 使用 Readium 3.11.1，默认“原书精排”，完整保留原始归档中的 CSS、插图、字体、目录、锚点与固定版式，续读使用原生 Locator；底部显示全书百分比，避免把 EPUB 逻辑位置误称为真实页码。可在阅读菜单切换纸张、滚动、排版和书签。Word/Kindle 仍以正文提取方式阅读；不支持密码或 DRM 加密文件。普通文件上限 256 MB，Kindle 解析上限 64 MB，压缩包另有展开大小限制。
+
+本次回归新增真实系统文件选择器选中 TXT / EPUB、导入结果、精排渲染和跨章节续读；原有取消导入、文本续读、书签及无障碍审计继续执行。UI 发生有意变化：主页阅读目标、书库列表/网格、阅读页悬浮控件和 EPUB 菜单；截图由 CI 导出。本地 Windows 未运行 Xcode 或真机验证。

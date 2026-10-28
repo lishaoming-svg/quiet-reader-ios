@@ -42,10 +42,10 @@ if [[ -f "$APP_PATH/QuietReader.debug.dylib" ]]; then
 fi
 /usr/bin/otool -L "$APP_BINARY" | /usr/bin/grep 'KindleDocumentKit.framework/KindleDocumentKit'
 
-rm -rf build/package build/QuietReader-unsigned.ipa
+rm -rf build/package build/iBooks.ipa
 mkdir -p build/package/Payload
 cp -R "$APP_PATH" build/package/Payload/
 
 cd build/package
-/usr/bin/zip -qry ../QuietReader-unsigned.ipa Payload
-echo "已生成 build/QuietReader-unsigned.ipa"
+/usr/bin/zip -qry ../iBooks.ipa Payload
+echo "已生成 build/iBooks.ipa"

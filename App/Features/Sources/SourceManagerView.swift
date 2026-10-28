@@ -98,7 +98,7 @@ struct SourceManagerView: View {
                 Button {
                     showingImporter = true
                 } label: {
-                    Label("导入", systemImage: "square.and.arrow.down")
+                    Label("导入书源", systemImage: "square.and.arrow.down")
                 }
             }
         }

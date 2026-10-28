@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SourceImportView: View {
+    var file: ImportedFileAccess? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query private var existingSources: [BookSourceRecord]
@@ -14,6 +15,7 @@ struct SourceImportView: View {
     @State private var isLoading = false
     @State private var showingFileImporter = false
     @State private var preserveLocalSettings = true
+    @State private var selectedFile: ImportedFileAccess?
 
     var body: some View {
         NavigationStack {
@@ -35,6 +37,8 @@ struct SourceImportView: View {
 
                         inputActions
 
+                        if isLoading { ProgressView("正在读取并校验书源…").frame(maxWidth: .infinity) }
+
                         if let errorMessage { InlineErrorView(message: errorMessage) }
                         if !warnings.isEmpty { warningList }
                         if !previewItems.isEmpty { previewList }
@@ -43,6 +47,7 @@ struct SourceImportView: View {
                 }
             }
             .navigationTitle("导入书源")
+            .task { if let file { parseFile(file) } }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -53,13 +58,16 @@ struct SourceImportView: View {
                         .disabled(!previewItems.contains(where: \.isSelected))
                 }
             }
-            .fileImporter(
-                isPresented: $showingFileImporter,
-                allowedContentTypes: [.json, .plainText]
-            ) { result in
-                switch result {
-                case .success(let url): parseFile(url)
-                case .failure(let error): errorMessage = error.localizedDescription
+            .sheet(isPresented: $showingFileImporter, onDismiss: {
+                if let selectedFile { parseFile(selectedFile) }
+                selectedFile = nil
+            }) {
+                DocumentImportPicker(multiple: false) { result in
+                    switch result {
+                    case .success(let urls): selectedFile = urls.first.map(ImportedFileAccess.init)
+                    case .failure(let error): errorMessage = error.localizedDescription
+                    }
+                    showingFileImporter = false
                 }
             }
         }
@@ -70,7 +78,7 @@ struct SourceImportView: View {
             Text("粘贴 JSON 或书源地址")
                 .font(AppTheme.sectionFont)
                 .foregroundStyle(AppTheme.ink)
-            Text("支持部分 Legado CSS、JSONPath 与正则规则；不会执行书源中的 JavaScript。")
+            Text("这里只导入 JSON / TXT 书源。EPUB、TXT、Word 和 Kindle 图书请到“书库”导入。支持部分 Legado CSS、JSONPath 与正则规则。")
                 .font(.callout)
                 .foregroundStyle(AppTheme.inkSoft)
         }
@@ -149,12 +157,12 @@ struct SourceImportView: View {
         }
     }
 
-    private func parseFile(_ url: URL) {
+    private func parseFile(_ access: ImportedFileAccess) {
         isLoading = true
         errorMessage = nil
         Task {
             do {
-                let result = try await SourceImporter().importFile(url)
+                let result = try await SourceImporter().importFile(access.url)
                 await MainActor.run { applyPreview(result) }
             } catch {
                 await MainActor.run { errorMessage = error.localizedDescription }

@@ -5,11 +5,11 @@ enum LocalBookError: LocalizedError {
     case unsupported, empty, invalid, encrypted, tooLarge, missing, unreadableText
     var errorDescription: String? {
         switch self {
-        case .unsupported: "暂不支持这个格式。请选择 TXT、DOCX、DOC、MOBI、AZW 或 AZW3 文件。"
+        case .unsupported: "请选择 EPUB、TXT、DOCX、DOC、MOBI、AZW 或 AZW3 图书。JSON 书源请在“搜索 → 书源管理”导入。"
         case .empty: "文件中没有可阅读的正文，请检查文件后重新导入。"
         case .invalid: "文件内容损坏或与扩展名不符，请重新导出后再导入。"
         case .encrypted: "这本书或文档已加密。请使用未加密、无需密码的版本。"
-        case .tooLarge: "文件过大。请选择小于 64 MB 的文件，或先拆分文档。"
+        case .tooLarge: "文件或解压后的内容过大。图书文件上限 256 MB；请压缩图片或拆分文档后重试。"
         case .missing: "本地书籍文件已丢失，请重新导入原文件以恢复阅读。"
         case .unreadableText: "无法识别文字编码。请将文本另存为 UTF-8 后重新导入。"
         }
@@ -27,6 +27,7 @@ struct LocalBookDocument: Codable, Sendable {
     var format: String
     var chapters: [Chapter]
     var cover: Data?
+    var publicationData: Data? = nil
 }
 
 enum ReadingTextPreparation {

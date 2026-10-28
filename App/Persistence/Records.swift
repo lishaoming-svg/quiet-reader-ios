@@ -113,6 +113,8 @@ final class ReadingProgressRecord {
     var chapterProgress: Double = 0
     var pageIndex: Int = 0
     var readingMode: String = "scroll"
+    var publicationLocator: String? = nil
+    var bookProgress: Double? = nil
     var updatedAt: Date
 
     init(bookID: String, chapter: BookChapter) {
@@ -261,6 +263,7 @@ final class BookmarkRecord {
     var locatorOffset: Int
     var chapterProgress: Double
     var excerpt: String
+    var publicationLocator: String? = nil
     var createdAt: Date
 
     init(

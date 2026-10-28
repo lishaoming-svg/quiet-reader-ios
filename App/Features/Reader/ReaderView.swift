@@ -114,18 +114,31 @@ struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityAction(named: "显示阅读菜单") { controlsVisible = true }
         .accessibilityAction(.escape) { dismiss() }
-        .toolbar(controlsVisible ? .visible : .hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .toolbarBackground(paper.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(paper == .night ? .dark : .light, for: .navigationBar)
         .environment(\.colorScheme, paper == .night ? .dark : .light)
-        .toolbar { readerToolbar }
+        .overlay(alignment: .top) { if controlsVisible { floatingHeader } }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if sentencePlaybackMode, !audiobookSegments.isEmpty {
                 sentencePlaybackControls
-            } else if controlsVisible {
-                readerControls
+            } else {
+                VStack(spacing: 8) {
+                    if controlsVisible { floatingActions; readerControls }
+                    HStack {
+                        Spacer(minLength: 56)
+                        Text(readerMode.usesPages ? "\(progressLabel) 页" : progressLabel)
+                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                            .padding(.horizontal, 14).frame(minHeight: 36).background(.regularMaterial, in: Capsule())
+                            .accessibilityLabel(readerMode.usesPages ? "本章第 \(progressLabel) 页" : "本章进度 \(progressLabel)")
+                        Spacer(minLength: 12)
+                        Button { controlsVisible.toggle() } label: {
+                            Image(systemName: "line.3.horizontal.decrease").font(.title2.bold()).frame(width: 48, height: 48)
+                        }.background(.regularMaterial, in: Circle()).accessibilityLabel("阅读菜单")
+                    }.foregroundStyle(paper.primaryText).padding(.horizontal, 24).padding(.bottom, 8)
+                }
             }
         }
         .sheet(isPresented: $showingSettings) {
@@ -194,6 +207,32 @@ struct ReaderView: View {
         .onChange(of: audiobookPlayer.currentLocatorOffset) { _, _ in
             followAudiobookText()
         }
+    }
+
+    private var floatingHeader: some View {
+        HStack {
+            Spacer(minLength: 56)
+            Text(book.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                .padding(.horizontal, 16).padding(.vertical, 9).background(.regularMaterial, in: Capsule())
+            Spacer(minLength: 12)
+            Button { dismiss() } label: { Image(systemName: "xmark").font(.title2.weight(.semibold)).frame(width: 48, height: 48) }
+                .background(.regularMaterial, in: Circle()).accessibilityLabel("关闭图书").accessibilityIdentifier("reader.close")
+        }.foregroundStyle(paper.primaryText).padding(.horizontal, 24).padding(.top, 4)
+    }
+
+    private var floatingActions: some View {
+        HStack(spacing: 24) {
+            Menu {
+                ForEach(chapters) { item in Button(item.title) { goToChapter(item.index, locatorOffset: 0) } }
+            } label: { Image(systemName: "list.bullet").frame(width: 44, height: 44) }
+                .accessibilityLabel("目录").accessibilityIdentifier("reader.toc")
+            Button { toggleBookmark() } label: { Image(systemName: currentBookmarkID == nil ? "bookmark" : "bookmark.fill").frame(width: 44, height: 44) }
+                .accessibilityLabel(currentBookmarkID == nil ? "添加书签" : "移除书签")
+            Button { showingAudiobook = true } label: { Image(systemName: "headphones").frame(width: 44, height: 44) }
+                .accessibilityLabel("听书")
+            Button { showingSettings = true } label: { Image(systemName: "textformat.size").frame(width: 44, height: 44) }
+                .accessibilityLabel("主题与设置").accessibilityIdentifier("reader.settings")
+        }.font(.title3).foregroundStyle(paper.primaryText).padding(.horizontal, 12).background(.regularMaterial, in: Capsule())
     }
 
     @ViewBuilder
@@ -1058,6 +1097,7 @@ struct ReaderView: View {
                 pageIndex: pageIndex,
                 readingMode: readerMode.rawValue
             )
+            progress.bookProgress = fullBookProgress
         } else {
             let progress = ReadingProgressRecord(bookID: bookID, chapter: chapter)
             progress.update(
@@ -1068,6 +1108,7 @@ struct ReaderView: View {
                 readingMode: readerMode.rawValue
             )
             modelContext.insert(progress)
+            progress.bookProgress = fullBookProgress
         }
 
         let bookDescriptor = FetchDescriptor<BookRecord>(
