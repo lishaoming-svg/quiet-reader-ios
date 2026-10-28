@@ -86,6 +86,9 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(book.waitForExistence(timeout: 10))
         book.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "夜色落在窗台上")).firstMatch.waitForExistence(timeout: 20))
+        let restoring = app.descendants(matching: .any).matching(identifier: "epub.restoring").firstMatch
+        let restored = expectation(for: NSPredicate { _, _ in !restoring.exists }, evaluatedWith: app)
+        wait(for: [restored], timeout: 20)
         capture(app, "08-epub-restored-location")
     }
 

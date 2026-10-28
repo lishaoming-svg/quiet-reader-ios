@@ -13,6 +13,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     @Published var locationTitle = ""
     @Published var bookmarkAdded = false
     @Published var tocLinks: [ReadiumShared.Link] = []
+    @Published var isRestoring = false
     private(set) var publication: Publication?
     private var navigationAdapter: DirectionalNavigationAdapter?
     private var tapToken: InputObservableToken?
@@ -23,6 +24,8 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     private var lastTick = Date.now
     private var lastActivity = Date.now
     private var active = true
+    private var pendingRestore: Locator?
+    private var restoreTask: Task<Void, Never>?
 
     func open(book: SearchBook, chapters: [BookChapter], context: ModelContext, preferences: EPUBPreferences) async {
         guard navigator == nil else { return }
@@ -40,9 +43,14 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             let id = book.id
             let saved = try context.fetch(FetchDescriptor<ReadingProgressRecord>(predicate: #Predicate { $0.bookID == id })).first
             let locator = saved?.publicationLocator.flatMap { try? Locator(jsonString: $0) }
+            pendingRestore = locator
+            isRestoring = locator != nil
             var config = EPUBNavigatorViewController.Configuration(preferences: preferences)
             config.contentInset = [.compact: (top: 80, bottom: 72), .regular: (top: 80, bottom: 72)]
-            let navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: locator, config: config)
+            // The navigator must attach and measure its first viewport before
+            // restoring a later resource. Restoring directly during controller
+            // construction can leave WebKit loading forever on iOS 26.
+            let navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: nil, config: config)
             navigator.delegate = self
             let adapter = DirectionalNavigationAdapter(animatedTransition: true) { [weak self] in self?.lastActivity = .now }
             adapter.bind(to: navigator)
@@ -61,6 +69,8 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     }
 
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
+        guard !isRestoring, let controller = navigator as? EPUBNavigatorViewController,
+              controller.viewport != nil else { return }
         guard let context, let book, let publication, !chapters.isEmpty else { return }
         let id = book.id
         let index = publication.readingOrder.firstIndex { $0.href.components(separatedBy: "#")[0] == locator.href.string.components(separatedBy: "#")[0] } ?? 0
@@ -78,6 +88,28 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             try context.save()
             bookmarkAdded = false; lastActivity = .now
         } catch { errorMessage = "阅读位置保存失败：\(error.localizedDescription)" }
+    }
+    func navigator(_ navigator: any ViewportObservingNavigator, viewportDidChange viewport: NavigatorViewport?) {
+        guard viewport != nil, let locator = pendingRestore, let controller = self.navigator else { return }
+        pendingRestore = nil
+        restoreTask = Task { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            let restored = await controller.go(to: locator)
+            guard !Task.isCancelled else { return }
+            self.isRestoring = false
+            if restored, let current = controller.currentLocation {
+                self.navigator(controller, locationDidChange: current)
+            } else {
+                self.errorMessage = "原阅读位置暂时无法定位，请从目录选择章节继续阅读。"
+            }
+        }
+    }
+
+    func finish() {
+        if let navigator, let locator = navigator.currentLocation { self.navigator(navigator, locationDidChange: locator) }
+        tick(isActive: false)
+        restoreTask?.cancel()
+        restoreTask = nil
     }
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) { errorMessage = "暂时无法完成这个阅读操作，请重试。" }
     func navigator(_ navigator: Navigator, didFailToLoadResourceAt href: RelativeURL, withError error: ReadError) {
@@ -138,6 +170,10 @@ struct EPUBReaderView: View {
             background.ignoresSafeArea()
             if let navigator = model.navigator { EPUBNavigatorHost(navigator: navigator).ignoresSafeArea(edges: .bottom) }
             else if model.errorMessage == nil { ProgressView("正在展开原书精排…") }
+            if model.isRestoring {
+                background.ignoresSafeArea()
+                ProgressView("正在恢复阅读位置…").accessibilityIdentifier("epub.restoring")
+            }
             if model.controlsVisible {
                 VStack {
                     HStack {
@@ -145,7 +181,7 @@ struct EPUBReaderView: View {
                         Text(book.name).font(.subheadline.weight(.semibold)).lineLimit(1)
                             .padding(.horizontal, 16).padding(.vertical, 9).background(.regularMaterial, in: Capsule())
                         Spacer(minLength: 12)
-                        Button { dismiss() } label: { Image(systemName: "xmark").font(.title2.weight(.semibold)).frame(width: 48, height: 48) }
+                        Button { model.finish(); dismiss() } label: { Image(systemName: "xmark").font(.title2.weight(.semibold)).frame(width: 48, height: 48) }
                             .background(.regularMaterial, in: Circle()).accessibilityLabel("关闭图书").accessibilityIdentifier("reader.close")
                     }
                     Spacer()
@@ -173,7 +209,7 @@ struct EPUBReaderView: View {
                 model.tick(isActive: scenePhase == .active)
             }
         }
-        .onDisappear { model.tick(isActive: false) }
+        .onDisappear { model.finish() }
         .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
         .onChange(of: publisherStyles) { _, _ in updatePreferences() }
         .onChange(of: fontSize) { _, _ in updatePreferences() }
