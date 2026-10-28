@@ -73,7 +73,7 @@ final class EPUBImportTests: XCTestCase {
 
 @MainActor
 final class DocumentImportFlowTests: XCTestCase {
-    func testPickerDismissesBeforeResultsAndSelectedDocumentIsSaved() async throws {
+    func testPickedDocumentKeepsParentFlowOpenAndSavesLibrary() async throws {
         let container = try ModelContainer(for: BookRecord.self, ChapterListCacheRecord.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let context = ModelContext(container)
@@ -82,11 +82,10 @@ final class DocumentImportFlowTests: XCTestCase {
         try Data("第一章 文件\n真实选取回调进入导入队列并保存书库。".utf8).write(to: file)
         let coordinator = BookImportCoordinator()
         coordinator.showingPicker = true
-        coordinator.pickedDocuments(.success([file]))
+        XCTAssertFalse(coordinator.showingResults)
+        coordinator.pickedDocuments(.success([file]), context: context)
         XCTAssertFalse(coordinator.showingPicker)
-        XCTAssertFalse(coordinator.showingResults, "文件选择器关闭前不能弹出结果页")
-        coordinator.pickerDidDismiss(context: context)
-        XCTAssertTrue(coordinator.showingResults)
+        XCTAssertTrue(coordinator.showingResults, "子选择器关闭后，原有导入页面应继续保留")
         let finished = expectation(description: "导入完成")
         let observation = coordinator.$isImporting.filter { !$0 }.first().sink { _ in finished.fulfill() }
         await fulfillment(of: [finished], timeout: 20)
@@ -105,8 +104,7 @@ final class DocumentImportFlowTests: XCTestCase {
         let container = try ModelContainer(for: BookRecord.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let coordinator = BookImportCoordinator()
         coordinator.showingPicker = true
-        coordinator.pickedDocuments(.success([]))
-        coordinator.pickerDidDismiss(context: container.mainContext)
+        coordinator.pickedDocuments(.success([]), context: container.mainContext)
         XCTAssertFalse(coordinator.showingResults)
         XCTAssertEqual(try container.mainContext.fetchCount(FetchDescriptor<BookRecord>()), 0)
     }

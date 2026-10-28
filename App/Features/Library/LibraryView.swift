@@ -33,6 +33,12 @@ struct BookshelfView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Text("书库").font(.largeTitle.bold())
+                    Spacer()
+                    sortMenu
+                    optionsMenu
+                }.padding(.top, 4).padding(.bottom, 2)
                 if filter != .all { HStack {
                     Menu {
                         Picker("藏书集", selection: $filter) {
@@ -65,24 +71,7 @@ struct BookshelfView: View {
         }
         .background(AppTheme.paperLight)
         .navigationTitle("书库")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("排序", selection: $order) { ForEach(LibraryOrder.allCases) { Text($0.rawValue).tag($0) } }
-                    Button(grid ? "列表视图" : "网格视图", systemImage: grid ? "list.bullet" : "square.grid.3x3") { grid.toggle() }
-                    Picker("藏书集", selection: $filter) { ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) } }
-                } label: { Image(systemName: grid ? "square.grid.2x2" : "line.3.horizontal.decrease").frame(minWidth: 36, minHeight: 36) }
-                    .accessibilityLabel("排序与显示")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("导入图书", systemImage: "square.and.arrow.down") { importer.showingPicker = true }
-                        .accessibilityIdentifier("library.import")
-                    Button("搜索书库", systemImage: "magnifyingglass") { searching = true }
-                } label: { Image(systemName: "ellipsis").frame(minWidth: 36, minHeight: 36) }
-                .accessibilityLabel("书库选项")
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $searching, onDismiss: { query = "" }) {
             NavigationStack {
                 List(visibleBooks) { book in libraryItem(book, compact: true) }
@@ -105,6 +94,23 @@ struct BookshelfView: View {
         .alert("无法完成操作", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("好", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("排序", selection: $order) { ForEach(LibraryOrder.allCases) { Text($0.rawValue).tag($0) } }
+            Button(grid ? "列表视图" : "网格视图", systemImage: grid ? "list.bullet" : "square.grid.3x3") { grid.toggle() }
+            Picker("藏书集", selection: $filter) { ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) } }
+        } label: { Image(systemName: grid ? "square.grid.2x2" : "line.3.horizontal.decrease").font(.title3.bold()).frame(width: 44, height: 44).background(.regularMaterial, in: Circle()).overlay { Circle().stroke(.quaternary, lineWidth: 0.5) } }
+            .accessibilityLabel("排序与显示")
+    }
+    private var optionsMenu: some View {
+        Menu {
+            Button("导入图书", systemImage: "square.and.arrow.down") { importer.showingPicker = true }
+                .accessibilityIdentifier("library.import")
+            Button("搜索书库", systemImage: "magnifyingglass") { searching = true }
+        } label: { Image(systemName: "ellipsis").font(.title3.bold()).frame(width: 44, height: 44).background(.regularMaterial, in: Circle()).overlay { Circle().stroke(.quaternary, lineWidth: 0.5) } }
+            .accessibilityLabel("书库选项")
     }
 
     private var libraryEmpty: some View {
@@ -180,11 +186,12 @@ struct LibraryBookCard: View {
     let book: BookRecord
     let progress: ReadingProgressRecord?
     var compact = false
+    var compactCoverHeight: CGFloat = 70
     var body: some View {
         Group {
             if compact {
                 HStack(spacing: 18) {
-                    BookCoverView(urlString: book.resolvedCoverURL, title: book.name, width: 48, height: 70)
+                    BookCoverView(urlString: book.resolvedCoverURL, title: book.name, width: compactCoverHeight * 0.686, height: compactCoverHeight).accessibilityHidden(true)
                     details
                     Spacer(minLength: 0)
                 }
@@ -237,6 +244,7 @@ struct ReadingHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
+                homeHeader
                 if readingBooks.isEmpty {
                     Label("你还没有正在阅读的图书。可将 EPUB、文档和其他本地内容添加到书库。", systemImage: "books.vertical")
                         .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
@@ -252,7 +260,7 @@ struct ReadingHomeView: View {
                         HStack(spacing: 16) {
                             ForEach((readingBooks.isEmpty ? books : readingBooks).prefix(8)) { book in
                                 LibraryBookLink(book: book, sources: sources) {
-                                    LibraryBookCard(book: book, progress: progresses.first { $0.bookID == book.bookID }, compact: true)
+                                    LibraryBookCard(book: book, progress: progresses.first { $0.bookID == book.bookID }, compact: true, compactCoverHeight: 58)
                                         .padding(12).frame(width: 260, alignment: .leading)
                                         .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 12))
                                         .shadow(color: .black.opacity(0.09), radius: 14, y: 6)
@@ -275,7 +283,7 @@ struct ReadingHomeView: View {
                             Button { showingGoal = true } label: {
                                 Text("（目标 \(goal) 分钟） ›").font(.subheadline.weight(.medium)).frame(minHeight: 44)
                             }
-                        }
+                        }.offset(y: 18)
                     }.frame(height: 170).padding(.horizontal, 18).padding(.top, 22)
                     Button("导入图书") { importer.showingPicker = true }
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 48)
@@ -317,21 +325,7 @@ struct ReadingHomeView: View {
             }.padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 32)
         }
         .background(AppTheme.paperLight).navigationTitle("主页")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showingGoal = true } label: {
-                    ZStack {
-                        Circle().stroke(Color.cyan.opacity(0.2), lineWidth: 3)
-                        Circle().trim(from: 0, to: fraction).stroke(Color.cyan, lineWidth: 3).rotationEffect(.degrees(-90))
-                        Text("\(secondsToday / 60)").font(.caption.bold()).foregroundStyle(.cyan)
-                    }.frame(width: 30, height: 30).padding(5)
-                }.accessibilityLabel("今天已阅读 \(secondsToday / 60) 分钟，目标 \(goal) 分钟")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showingAccount = true } label: { Image(systemName: "person.crop.circle").font(.title2).frame(width: 36, height: 36) }
-                    .accessibilityLabel("阅读与设置")
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showingAccount) { LibrarySettingsView() }
         .sheet(isPresented: $showingGoal) {
             NavigationStack {
@@ -340,6 +334,22 @@ struct ReadingHomeView: View {
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingGoal = false } } }
             }.presentationDetents([.medium])
         }
+    }
+    private var homeHeader: some View {
+        HStack(spacing: 12) {
+            Text("主页").font(.largeTitle.bold())
+            Spacer()
+            Button { showingGoal = true } label: {
+                ZStack {
+                    Circle().stroke(Color.cyan.opacity(0.2), lineWidth: 3)
+                    Circle().trim(from: 0, to: fraction).stroke(Color.cyan, lineWidth: 3).rotationEffect(.degrees(-90))
+                    Text("\(secondsToday / 60)").font(.caption.bold()).foregroundStyle(.cyan)
+                }.frame(width: 30, height: 30).padding(7).background(.regularMaterial, in: Circle())
+            }.accessibilityLabel("今天已阅读 \(secondsToday / 60) 分钟，目标 \(goal) 分钟")
+            Button { showingAccount = true } label: {
+                Image(systemName: "person.crop.circle").font(.system(size: 30)).frame(width: 44, height: 44).background(.regularMaterial, in: Circle())
+            }.accessibilityLabel("阅读与设置")
+        }.padding(.top, 4).padding(.bottom, 2)
     }
     private func weekDate(_ offset: Int) -> Date {
         let calendar = Calendar.current

@@ -94,6 +94,7 @@ final class LibraryFlowTests: XCTestCase {
         file.tap()
         let open = app.buttons["打开"]
         if open.waitForExistence(timeout: 3) { open.tap() }
+        capture(app, "picker-return-\(name)")
         XCTAssertTrue(app.navigationBars["导入结果"].waitForExistence(timeout: 30), app.debugDescription)
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已加入书库")).firstMatch.exists)
         capture(app, "import-result-\(name)")

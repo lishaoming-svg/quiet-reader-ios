@@ -15,7 +15,6 @@ struct SourceImportView: View {
     @State private var isLoading = false
     @State private var showingFileImporter = false
     @State private var preserveLocalSettings = true
-    @State private var selectedFile: ImportedFileAccess?
 
     var body: some View {
         NavigationStack {
@@ -58,13 +57,10 @@ struct SourceImportView: View {
                         .disabled(!previewItems.contains(where: \.isSelected))
                 }
             }
-            .sheet(isPresented: $showingFileImporter, onDismiss: {
-                if let selectedFile { parseFile(selectedFile) }
-                selectedFile = nil
-            }) {
+            .sheet(isPresented: $showingFileImporter) {
                 DocumentImportPicker(multiple: false) { result in
                     switch result {
-                    case .success(let urls): selectedFile = urls.first.map(ImportedFileAccess.init)
+                    case .success(let urls): if let url = urls.first { parseFile(ImportedFileAccess(url)) }
                     case .failure(let error): errorMessage = error.localizedDescription
                     }
                     showingFileImporter = false

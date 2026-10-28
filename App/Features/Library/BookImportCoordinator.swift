@@ -18,18 +18,11 @@ final class BookImportCoordinator: ObservableObject {
     @Published private(set) var results: [ResultItem] = []
     private var operation: Task<Void, Never>?
     private var queue: [ImportedFileAccess] = []
-    private var picked: Result<[URL], Error>?
-    private var pickedAccess: [ImportedFileAccess] = []
-
-    func pickedDocuments(_ selection: Result<[URL], Error>) {
-        if case .success(let urls) = selection { pickedAccess = urls.map(ImportedFileAccess.init) }
-        picked = selection
+    func pickedDocuments(_ selection: Result<[URL], Error>, context: ModelContext) {
+        // Results live in the already presented parent flow. No second sibling
+        // sheet needs to be presented while UIDocumentPicker dismisses itself.
+        accept(selection, context: context)
         showingPicker = false
-    }
-
-    func pickerDidDismiss(context: ModelContext) {
-        defer { picked = nil; pickedAccess = [] }
-        if let picked { accept(picked, context: context) }
     }
 
     func accept(_ selection: Result<[URL], Error>, context: ModelContext) {
@@ -138,7 +131,7 @@ struct BookImportResultsView: View {
                         }
                     }.padding(.vertical, 5)
                 }
-                if !importer.isImporting, importer.results.isEmpty { Text("导入已取消") }
+                if !importer.isImporting, importer.results.isEmpty { Text(importer.showingPicker ? "请在“文件”中选择图书" : "导入已取消") }
             }
             .navigationTitle(importer.isImporting ? "正在导入" : "导入结果")
             .navigationBarTitleDisplayMode(.inline)
@@ -150,5 +143,28 @@ struct BookImportResultsView: View {
             }
             .interactiveDismissDisabled(importer.isImporting)
         }
+    }
+}
+
+/// A persistent results page hosts the system picker as its child sheet. On
+/// selection, dismissing that child simply reveals this page; it cannot lose a
+/// second presentation request during the system dismissal animation.
+struct BookImportFlowView: View {
+    @ObservedObject var importer: BookImportCoordinator
+    @Environment(\.modelContext) private var context
+    @State private var selecting: Bool
+
+    init(importer: BookImportCoordinator) {
+        self.importer = importer
+        _selecting = State(initialValue: importer.showingPicker)
+    }
+    var body: some View {
+        BookImportResultsView(importer: importer)
+            .sheet(isPresented: $selecting) {
+                DocumentImportPicker { selection in
+                    importer.pickedDocuments(selection, context: context)
+                    selecting = false
+                }
+            }
     }
 }

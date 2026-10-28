@@ -8,6 +8,11 @@ struct RootView: View {
     @State private var selectedTab = 0
     @State private var sourceFile: SourceFile?
     private struct SourceFile: Identifiable { let id = UUID(); let access: ImportedFileAccess }
+    private var importFlow: Binding<Bool> {
+        Binding(get: { importer.showingPicker || importer.showingResults }, set: { presented in
+            if !presented { importer.showingPicker = false; importer.showingResults = false }
+        })
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -27,13 +32,9 @@ struct RootView: View {
         }
         .environmentObject(importer)
         .tint(AppTheme.vermilion)
-        .sheet(isPresented: $importer.showingPicker, onDismiss: {
-            selectedTab = 1
-            importer.pickerDidDismiss(context: modelContext)
-        }) {
-            DocumentImportPicker { importer.pickedDocuments($0) }
+        .sheet(isPresented: importFlow) {
+            BookImportFlowView(importer: importer)
         }
-        .sheet(isPresented: $importer.showingResults) { BookImportResultsView(importer: importer) }
         .sheet(item: $sourceFile) { SourceImportView(file: $0.access) }
         .onOpenURL { url in
             if url.pathExtension.lowercased() == "json" {
