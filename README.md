@@ -48,7 +48,16 @@ xcodegen generate
 open QuietReader.xcodeproj
 ```
 
-Windows 环境不能运行 Xcode。推送到 GitHub 后，可在 Actions 中运行 `构建 iOS 测试包`，下载 `QuietReader-unsigned-ipa` 构建产物，再使用 AltStore 或 Sideloadly 以自己的 Apple ID 签名安装。
+Windows 环境不能运行 Xcode。项目按 [ios-ci-workflows Skill](https://github.com/wenjinliuu/ios-ci-workflows/blob/df71d6096d6d39ea799179cb2635703548b07ae0/skills/ios-ci-workflows/SKILL.md) 接入 **Build & Test**，CI 是编译和测试入口。
+
+- 配置在 `.ios-ci.yml`，入口在 `.github/workflows/build-test.yml`；中央工作流固定为 [v1.1.0](https://github.com/wenjinliuu/ios-ci-workflows/releases/tag/v1.1.0) 的提交 `df71d6096d6d39ea799179cb2635703548b07ae0`。
+- 分支推送、PR 和手动运行都会执行 `QuietReader` scheme 的全部单元测试；仅修改 Markdown 或 `docs/` 时跳过。当前不拆快线和慢线，也没有快照测试；手动输入的 `fast / ui / full` 在未配置分层计划时均运行主 scheme 的全部测试。
+- 在运行页面的 job summary 查看“测试报告”，或下载 `build-test-<run>` 里的 `report/report.md`、`report/report.json`、`Test.xcresult` 和编译日志。
+- iOS 测试通过后继续运行 Windows 听书协议回归并生成 `QuietReader-unsigned-ipa`，产物保留 14 天。下载后可使用 AltStore 或 Sideloadly 以自己的 Apple ID 签名安装。
+- Xcode 固定为 `26.6`，模拟器为 `iPhone 17 Pro / iOS 26.4`。runner 不提供指定版本时，按 CI 报错中的可用列表更新 `.ios-ci.yml`；IPA job 中的 Xcode 版本也要同步更新。
+- 当前接入等级 1（Build & Test），无需 Secrets。后续按需接入 TestFlight、Live Preview 和 App Icon。
+
+`在线书源冒烟测试` 继续作为单独的手动工作流，使用 `QuietReaderLiveSources` scheme，避免第三方网站故障阻断固定回归。
 
 ## Windows 本地听书
 

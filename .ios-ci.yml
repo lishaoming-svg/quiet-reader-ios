@@ -1,0 +1,13 @@
+# 中央工作流固定到 v1.1.0；配置字段见上游 docs/config.md。
+workdir: .
+project: QuietReader.xcodeproj
+scheme: QuietReader
+bundle_id: com.quietreader.app
+display_name: 墨阅
+generate_command: xcodegen generate
+
+# 快照、模拟器测试使用固定的工具链；找不到版本时由 CI 明确报错。
+toolchain:
+  xcode: '26.6'
+  simulator: iPhone 17 Pro
+  ios: '26.4'
