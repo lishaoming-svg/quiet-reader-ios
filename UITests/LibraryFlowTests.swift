@@ -134,12 +134,22 @@ final class LibraryFlowTests: XCTestCase {
 
     private func importFile(_ app: XCUIApplication, name: String) {
         app.buttons["library.emptyImport"].tap()
-        let file = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
-        let folder = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "导入测试")).firstMatch
-        let ready = expectation(for: NSPredicate { _, _ in file.exists || folder.exists }, evaluatedWith: app)
+        // Files may use grid icons or list cells; match the named item regardless
+        // of its accessibility element type, without matching the whole container.
+        let file = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+        let folders = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "导入测试"))
+        var folder: XCUIElement?
+        let ready = expectation(for: NSPredicate { _, _ in
+            if file.exists { return true }
+            // A folder's navigation title can appear before its contents load.
+            // Only tap an item below the navigation bar, never the title itself.
+            let navigationBottom = app.navigationBars.allElementsBoundByIndex.map { $0.frame.maxY }.max() ?? 0
+            folder = folders.allElementsBoundByIndex.first { $0.isHittable && $0.frame.midY > navigationBottom }
+            return folder != nil
+        }, evaluatedWith: app)
         wait(for: [ready], timeout: 45)
         // File Provider may resolve directoryURL to the owning app's root on a cold start.
-        if !file.exists, folder.exists { folder.tap() }
+        if !file.exists, let folder { folder.tap() }
         XCTAssertTrue(file.waitForExistence(timeout: 20), app.debugDescription)
         file.tap()
         let open = app.buttons["打开"]
