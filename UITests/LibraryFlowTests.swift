@@ -57,6 +57,7 @@ final class LibraryFlowTests: XCTestCase {
     }
 
     func testSystemPickerActuallyImportsAndReadsSelectedTXT() {
+        executionTimeAllowance = 300
         let app = launch(empty: true, files: true)
         importFile(app, name: "从文件导入")
         let book = app.buttons["book.从文件导入"]
@@ -67,6 +68,7 @@ final class LibraryFlowTests: XCTestCase {
     }
 
     func testEPUBImportsRendersPublisherContentAndResumesChapter() {
+        executionTimeAllowance = 300
         let app = launch(empty: true, files: true)
         importFile(app, name: "精排示例")
         let book = app.buttons["book.精排示例"]
@@ -143,33 +145,26 @@ final class LibraryFlowTests: XCTestCase {
 
     private func importFile(_ app: XCUIApplication, name: String) {
         app.buttons["library.emptyImport"].tap()
-        // Files may use grid icons or list cells; match the named item regardless
-        // of its accessibility element type, without matching the whole container.
-        func item(_ name: String) -> XCUIElement {
-            let predicate = NSPredicate(format: "label CONTAINS %@", name)
-            for query in [app.collectionViews.cells, app.cells, app.staticTexts, app.buttons] {
-                let value = query.matching(predicate).firstMatch
-                if value.exists { return value }
-            }
-            return app.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
-        }
-        var folder: XCUIElement?
+        // Use one query per poll. On a cold simulator, querying five element
+        // types for both a file and a folder consumed the entire 45s timeout
+        // before the provider finished resolving directoryURL. Files exposes
+        // grid/list items as different types, but their labels start with the
+        // filename. Fixtures now live directly in the published Documents root.
+        let file = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
         let ready = expectation(for: NSPredicate { _, _ in
-            if item(name).exists { return true }
-            // A folder's navigation title can appear before its contents load.
-            // Only tap an item below the navigation bar, never the title itself.
-            let navigationBottom = app.navigationBars.allElementsBoundByIndex.map { $0.frame.maxY }.max() ?? 0
-            let candidate = item("导入测试")
-            folder = candidate.exists && candidate.isHittable && candidate.frame.midY > navigationBottom ? candidate : nil
-            return folder != nil
+            file.exists && file.isHittable
         }, evaluatedWith: app)
-        wait(for: [ready], timeout: 45)
-        // File Provider may resolve directoryURL to the owning app's root on a cold start.
-        if !item(name).exists, let folder { folder.tap() }
-        let visibleFile = expectation(for: NSPredicate { _, _ in item(name).exists }, evaluatedWith: app)
-        wait(for: [visibleFile], timeout: 20)
-        let file = item(name)
-        XCTAssertTrue(file.waitForExistence(timeout: 20), app.debugDescription)
+        let result = XCTWaiter.wait(for: [ready], timeout: 90)
+        if result != .completed {
+            capture(app, "picker-not-ready-\(name)")
+            let tree = (try? app.snapshot().debugDescription) ?? app.debugDescription
+            let attachment = XCTAttachment(string: tree)
+            attachment.name = "picker-hierarchy-\(name)"; attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTAssertEqual(result, .completed, "系统文件选择器中的 \(name) 应可见且可点击")
+        capture(app, "picker-selected-file-\(name)")
         file.tap()
         let open = app.buttons["打开"]
         if open.waitForExistence(timeout: 3) { open.tap() }

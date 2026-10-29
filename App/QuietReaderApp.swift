@@ -8,6 +8,9 @@ struct QuietReaderApp: App {
     init() {
         ImportedFontStore.registerAll()
         do {
+            #if DEBUG
+            try LibraryTestSeed.preparePickerFiles()
+            #endif
             let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
             modelContainer = try ModelContainer(

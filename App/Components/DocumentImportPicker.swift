@@ -20,7 +20,7 @@ struct DocumentImportPicker: UIViewControllerRepresentable {
         picker.shouldShowFileExtensions = true
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--picker-fixtures") {
-            picker.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("导入测试")
+            picker.directoryURL = LibraryTestSeed.pickerDirectory
         }
         #endif
         return picker

@@ -4,20 +4,29 @@ import Foundation
 
 /// UI tests get an in-memory database and original sample text, never the user's library.
 enum LibraryTestSeed {
-    @MainActor static func populate(context: ModelContext) throws {
-        if ProcessInfo.processInfo.arguments.contains("--picker-fixtures") {
-            let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("导入测试")
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let textFile = folder.appendingPathComponent("从文件导入.txt")
-            if !FileManager.default.fileExists(atPath: textFile.path) {
-                try Data("第一章 文件导入\n这段文字来自系统文件选择器，而非预先加入的书库。".utf8).write(to: textFile, options: .atomic)
-            }
-            if let sample = Bundle.main.url(forResource: "precision", withExtension: "epub", subdirectory: "ImportExamples")
-                ?? Bundle.main.url(forResource: "precision", withExtension: "epub") {
-                let epubFile = folder.appendingPathComponent("精排示例.epub")
-                if !FileManager.default.fileExists(atPath: epubFile.path) { try Data(contentsOf: sample).write(to: epubFile, options: .atomic) }
-            }
+    static var pickerDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    /// Finish fixture creation before showing any UI. The system File Provider
+    /// can index the app's published Documents root without resolving a new
+    /// nested-folder bookmark during the picker presentation.
+    static func preparePickerFiles() throws {
+        guard ProcessInfo.processInfo.arguments.contains("--picker-fixtures") else { return }
+        let folder = pickerDirectory
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let textFile = folder.appendingPathComponent("从文件导入.txt")
+        if !FileManager.default.fileExists(atPath: textFile.path) {
+            try Data("第一章 文件导入\n这段文字来自系统文件选择器，而非预先加入的书库。".utf8).write(to: textFile, options: .atomic)
         }
+        if let sample = Bundle.main.url(forResource: "precision", withExtension: "epub", subdirectory: "ImportExamples")
+            ?? Bundle.main.url(forResource: "precision", withExtension: "epub") {
+            let epubFile = folder.appendingPathComponent("精排示例.epub")
+            if !FileManager.default.fileExists(atPath: epubFile.path) { try Data(contentsOf: sample).write(to: epubFile, options: .atomic) }
+        }
+    }
+
+    @MainActor static func populate(context: ModelContext) throws {
         guard !ProcessInfo.processInfo.arguments.contains("--empty-library") else { return }
         guard try context.fetchCount(FetchDescriptor<BookRecord>()) == 0 else { return }
         let titles = ["山海之间", "漫长的午后", "雨停之后", "远方来信", "小岛散步", "时间的纹理"]
