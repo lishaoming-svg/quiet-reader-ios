@@ -15,3 +15,5 @@ Kindle 材料来自 libmobi 的公开测试集，按其 LGPL-3.0-or-later 许可
 ## EPUB 原创精排样本
 
 `precision.epub` 与 App 内同名示例相同，包含中文元数据、百分号编码路径、相对 CSS、SVG 插图、注音、装饰、表格、跨章锚点与导航目录。`fixed-layout.epub` 使用同一份原创内容及 pre-paginated 元数据、viewport。用于验证原始归档逐字节保留，以及 Readium 真正可打开两类出版物。文字与 SVG 均为项目生成，无第三方书籍内容。
+
+`imported-font.base64` 是项目用 FontTools 生成的原创最小 TrueType 字体，只有一个几何三角形 A 字形，不含第三方字体或用户字体数据。用于验证字体注册后确实能创建 UIFont，以及重复导入不产生重复记录。

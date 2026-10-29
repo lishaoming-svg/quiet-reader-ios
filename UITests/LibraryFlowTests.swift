@@ -180,7 +180,11 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["import.done"].tap()
     }
 
-    func testAccessibilityAcrossLibraryAndReader() throws {
+    // Audits can spend two minutes per screen inside the system AX service.
+    // Run them after functional flows and allow both screens to finish, so an
+    // audit timeout cannot restart the runner before a document-picker test.
+    func testZZAccessibilityAcrossLibraryAndReader() throws {
+        executionTimeAllowance = 300
         let app = launch()
         let book = app.buttons["book.山海之间"]
         XCTAssertTrue(book.waitForExistence(timeout: 20))

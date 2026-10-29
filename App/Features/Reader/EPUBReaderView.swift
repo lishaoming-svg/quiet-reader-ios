@@ -49,10 +49,11 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             let id = book.id
             let saved = try context.fetch(FetchDescriptor<ReadingProgressRecord>(predicate: #Predicate { $0.bookID == id })).first
             var locator = saved?.publicationLocator.flatMap { try? Locator(jsonString: $0) }
-            if locator == nil, let saved, saved.importedSectionURI != nil, !publication.readingOrder.isEmpty {
+            if locator == nil, let saved, saved.importedParagraphIndex != nil, !publication.readingOrder.isEmpty {
                 let uri = saved.importedSectionURI?.removingPercentEncoding ?? saved.importedSectionURI ?? ""
-                let index = publication.readingOrder.firstIndex { uri.hasSuffix(($0.href.removingPercentEncoding ?? $0.href).components(separatedBy: "#")[0]) }
+                let matchedIndex = publication.readingOrder.firstIndex { uri.hasSuffix(($0.href.removingPercentEncoding ?? $0.href).components(separatedBy: "#")[0]) }
                     ?? min(max(saved.chapterIndex, 0), publication.readingOrder.count - 1)
+                let index = saved.bookProgress == 1 ? publication.readingOrder.count - 1 : matchedIndex
                 let link = publication.readingOrder[index]
                 let body = chapters.indices.contains(index) ? (try? LocalBookStorage.content(at: chapters[index].url)) ?? "" : ""
                 let paragraphs = body.components(separatedBy: CharacterSet.newlines).filter { !$0.trimmingCharacters(in: CharacterSet.whitespaces).isEmpty }

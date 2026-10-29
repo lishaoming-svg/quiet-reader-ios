@@ -94,6 +94,10 @@ final class ReedenMigrationTests: XCTestCase {
         XCTAssertEqual(result.chapterIndex, 1)
         XCTAssertEqual(try LocalBookStorage.content(at: result.imported.chapters[1].url, root: root), second)
         XCTAssertEqual(result.locatorOffset, ("卷二标题\n" as NSString).length + 2)
+        let finished = try JSONDecoder().decode(ReedenBook.self, from: Data(#"{"id":"T1","title":"已读完","type":"txt","read_progress":10000,"last_read_section_index":0}"#.utf8))
+        let completed = try await archive.prepare(finished, root: root)
+        XCTAssertEqual(completed.chapterIndex, 1)
+        XCTAssertEqual(completed.locatorOffset, (second as NSString).length, "已读完应恢复到最后一章末尾")
     }
     func testPDFPreservesOriginalAndIndexesPages() async throws {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 400, height: 600))
@@ -121,6 +125,16 @@ final class ReedenMigrationTests: XCTestCase {
         let previous = ImportedFontStore.fonts.map(\.id)
         XCTAssertThrowsError(try ImportedFontStore.install(Data("这不是字体文件".utf8), name: "无效字体"))
         XCTAssertEqual(ImportedFontStore.fonts.map(\.id), previous)
+    }
+    func testValidFontIsRegisteredAndRepeatedImportKeepsOneEntry() throws {
+        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "imported-font", withExtension: "base64", subdirectory: "Fixtures"))
+        let data = try XCTUnwrap(Data(base64Encoded: String(contentsOf: fixture, encoding: .ascii), options: .ignoreUnknownCharacters))
+        let fontsRoot = root.appendingPathComponent("fonts")
+        let font = try ImportedFontStore.install(data, name: "迁移字体", root: fontsRoot)
+        XCTAssertEqual(font.postScriptName, "iBooksMigrationFixture-Regular")
+        XCTAssertNotNil(UIFont(name: font.postScriptName, size: 18), "导入的字体必须能实际用于阅读")
+        try ImportedFontStore.install(data, name: "迁移字体", root: fontsRoot)
+        XCTAssertEqual(ImportedFontStore.fonts(in: fontsRoot).map(\.id), [font.id])
     }
     func testEPUBExportRoundTripsLiteralTextAndFullDirectory() throws {
         let source = SearchBook(sourceID: "test", sourceName: "测试", name: "书名 & <标题>", author: "作者", intro: "", kind: "", lastChapter: "", updateTime: "", bookURL: "https://example.org/book?a=1&b=2", coverURL: "", tocURL: "")

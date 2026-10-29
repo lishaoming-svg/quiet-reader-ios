@@ -145,10 +145,13 @@ actor ReedenBackupArchive {
         let originalIndex = max(0, book.last_read_section_index ?? 0)
         if sections.indices.contains(originalIndex) { sectionURI = sections[originalIndex].uri }
         let count = imported.chapters.count
-        let index = sections.count == count || book.type.lowercased() == "epub" || book.type.lowercased() == "pdf"
+        let restoredIndex = sections.count == count || book.type.lowercased() == "epub" || book.type.lowercased() == "pdf"
             ? min(originalIndex, count - 1) : min(Int(book.progress * Double(count)), count - 1)
+        let index = book.progress == 1 ? count - 1 : restoredIndex
+        if book.progress == 1 { sectionURI = sections.last?.uri }
         let body = try LocalBookStorage.content(at: imported.chapters[index].url, root: root)
-        let offset = ReedenTextPosition.offset(in: body, paragraph: book.last_read_para_index ?? 0, element: book.last_read_element_index ?? 0)
+        let offset = book.progress == 1 ? (body as NSString).length
+            : ReedenTextPosition.offset(in: body, paragraph: book.last_read_para_index ?? 0, element: book.last_read_element_index ?? 0)
         return ReedenPreparedBook(imported: imported, sectionURI: sectionURI, chapterIndex: index, locatorOffset: offset)
     }
     func installFont(_ font: ReedenFont) throws {
