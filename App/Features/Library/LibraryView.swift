@@ -15,6 +15,8 @@ struct BookshelfView: View {
     @State private var query = ""
     @State private var deleting: BookRecord?
     @State private var errorMessage: String?
+    @State private var showingNotes = false
+    @State private var showingFonts = false
 
     private var visibleBooks: [BookRecord] {
         books.filter { book in
@@ -70,6 +72,8 @@ struct BookshelfView: View {
             }.padding(.horizontal, 28).padding(.bottom, 32)
         }
         .background(AppTheme.paperLight)
+        .sheet(isPresented: $showingNotes) { ImportedNotesView() }
+        .sheet(isPresented: $showingFonts) { ImportedFontsView() }
         .navigationTitle("书库")
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $searching, onDismiss: { query = "" }) {
@@ -109,6 +113,9 @@ struct BookshelfView: View {
             Button("导入图书", systemImage: "square.and.arrow.down") { importer.showingPicker = true }
                 .accessibilityIdentifier("library.import")
             Button("搜索书库", systemImage: "magnifyingglass") { searching = true }
+            Button("导入 Reeden 备份", systemImage: "archivebox") { importer.showingPicker = true }
+            Button("笔记与书签", systemImage: "note.text") { showingNotes = true }
+            Button("已导入的字体", systemImage: "textformat") { showingFonts = true }
         } label: { Image(systemName: "ellipsis").font(.title3.bold()).frame(width: 44, height: 44).background(.regularMaterial, in: Circle()).overlay { Circle().stroke(.quaternary, lineWidth: 0.5) } }
             .accessibilityLabel("书库选项")
     }
@@ -124,7 +131,7 @@ struct BookshelfView: View {
                 Button("导入图书") { importer.showingPicker = true }
                     .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                     .controlSize(.large).accessibilityIdentifier("library.emptyImport")
-                Text("EPUB · TXT · DOCX · DOC\nMOBI · AZW · AZW3")
+                Text("EPUB · TXT · DOCX · DOC · PDF\nMOBI · AZW · AZW3 · Reeden 备份 ZIP")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.top, 4)
             }
         }.frame(maxWidth: .infinity).padding(.vertical, 86)
@@ -251,6 +258,15 @@ struct ReadingHomeView: View {
                         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 }
+                if let current = readingBooks.first {
+                    Text("继续阅读").font(.title2.bold())
+                    LibraryBookLink(book: current, sources: sources) {
+                        LibraryBookCard(book: current, progress: progresses.first { $0.bookID == current.bookID }, compact: true, compactCoverHeight: 62)
+                            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(LinearGradient(colors: [Color(white: 0.48), Color(white: 0.27)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
+                            .environment(\.colorScheme, .dark)
+                    }.shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+                }
                 if !books.isEmpty {
                     HStack(spacing: 6) {
                         Text(readingBooks.isEmpty ? "最近加入" : "之前读过").font(.title2.bold())
@@ -285,16 +301,23 @@ struct ReadingHomeView: View {
                             }
                         }.offset(y: 18)
                     }.frame(height: 170).padding(.horizontal, 18).padding(.top, 22)
-                    Button("导入图书") { importer.showingPicker = true }
-                        .font(.headline).frame(maxWidth: .infinity, minHeight: 48)
-                        .foregroundStyle(Color(.systemBackground)).background(Color.primary, in: Capsule())
-                        .padding(.top, 12).accessibilityIdentifier("home.import")
+                    if let current = readingBooks.first {
+                        LibraryBookLink(book: current, sources: sources) {
+                            VStack(spacing: 3) { Text("继续阅读").font(.headline); Text(current.name).font(.caption).lineLimit(1) }
+                                .frame(maxWidth: .infinity, minHeight: 52).foregroundStyle(Color(.systemBackground)).background(Color.primary, in: Capsule())
+                        }.padding(.top, 12)
+                    } else {
+                        Button("导入图书") { importer.showingPicker = true }
+                            .font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+                            .foregroundStyle(Color(.systemBackground)).background(Color.primary, in: Capsule())
+                            .padding(.top, 12).accessibilityIdentifier("home.import")
+                    }
                     HStack(spacing: 10) {
                         ForEach(0..<7) { offset in
                             let date = weekDate(offset)
                             let today = Calendar.current.isDateInToday(date)
                             let done = seconds(on: date) >= goal * 60
-                            Text(["日", "一", "二", "三", "四", "五", "六"][Calendar.current.component(.weekday, from: date) - 1])
+                            Text(["周日", "周一", "周二", "周三", "周四", "周五", "周六"][Calendar.current.component(.weekday, from: date) - 1])
                                 .font(.caption.bold()).frame(maxWidth: .infinity).frame(height: 32)
                                 .background(done ? Color.cyan.opacity(0.2) : Color.clear, in: Circle())
                                 .overlay { Circle().stroke(today ? Color.primary : Color(.systemGray4), lineWidth: today ? 2 : 1) }
@@ -313,13 +336,15 @@ struct ReadingHomeView: View {
                     if completed.isEmpty {
                         Text("读完的图书会出现在这里。").font(.subheadline).foregroundStyle(.secondary).padding(.bottom, 20)
                     } else {
-                        HStack(alignment: .bottom, spacing: 10) {
-                            ForEach(completed.prefix(4)) { book in
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 10) {
+                            ForEach(completed.prefix(12)) { book in
                                 LibraryBookLink(book: book, sources: sources) {
                                     BookCoverView(urlString: book.resolvedCoverURL, title: book.name, width: 60, height: 88)
+                                        .overlay(alignment: .bottomTrailing) { Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(.white, .cyan).offset(x: 6, y: 6) }
                                 }
                             }
                         }
+                        Text("已读完 \(completed.count) 本图书").font(.subheadline).foregroundStyle(.secondary).padding(.top, 8)
                     }
                 }.frame(maxWidth: .infinity).padding(.top, 10)
             }.padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 32)
@@ -379,9 +404,13 @@ struct LibrarySettingsView: View {
                     NavigationLink { SourceManagerView() } label: { Label("书源管理", systemImage: "network") }
                 }
                 Section("本地图书") {
-                    Text("支持 EPUB、TXT、DOCX、DOC、MOBI、AZW、AZW3。单文件上限 256 MB，Kindle 解析上限 64 MB。")
+                    Text("支持 EPUB、TXT、DOCX、DOC、MOBI、AZW、AZW3、PDF。单文件上限 256 MB，Kindle 解析上限 64 MB。")
                     Text("EPUB 保留原书精排、插图、字体与 CSS。Word 提取正文和表格文字；Kindle 支持未加密 KF7 / KF8 的文字阅读。所有文件均在本机解析。")
                 }.font(.subheadline)
+                Section("Reeden 迁移") {
+                    Text("在书库右上角选“导入 Reeden 备份”，选择完整 ZIP。迁移书籍、笔记、字体、阅读进度和时长，跳过主题、背景与排版配置。原文件缺失或损坏会单独列出。")
+                        .font(.subheadline)
+                }
                 Section("开源许可") {
                     NavigationLink("Readium EPUB 阅读引擎许可") { LicenseTextView(filename: "Readium") }
                     NavigationLink("ZIPFoundation 许可") { LicenseTextView(filename: "ZIPFoundation") }

@@ -15,6 +15,7 @@ struct SourceEngine {
         page: Int = 1,
         source: BookSourceDefinition
     ) async throws -> [SearchBook] {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).search(keyword: keyword, page: page) }
         guard let template = source.searchUrl?.nilIfBlank,
               let rules = source.ruleSearch,
               rules.bookList?.nilIfBlank != nil else {
@@ -82,6 +83,7 @@ struct SourceEngine {
         book: SearchBook,
         source: BookSourceDefinition
     ) async throws -> SearchBook {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).details(book) }
         guard let rules = source.ruleBookInfo else { return book }
         let url = try URLTemplateRenderer.render(book.bookURL)
         let resource = try await client.fetch(url, source: source)
@@ -107,6 +109,7 @@ struct SourceEngine {
         book: SearchBook,
         source: BookSourceDefinition
     ) async throws -> [BookChapter] {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).chapters(book) }
         if source.id == LocalBookStorage.sourceID {
             return try LocalBookStorage.book(at: book.bookURL).chapters
         }
@@ -158,6 +161,7 @@ struct SourceEngine {
         chapter: BookChapter,
         source: BookSourceDefinition
     ) async throws -> String {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).content(chapter) }
         if source.id == LocalBookStorage.sourceID {
             return try LocalBookStorage.content(at: chapter.url)
         }

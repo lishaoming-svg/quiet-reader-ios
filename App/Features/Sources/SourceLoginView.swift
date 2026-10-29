@@ -15,6 +15,7 @@ struct SourceLoginView: View {
     }
 
     private var loginURL: URL? {
+        if NativeLofterAdapter.accepts(source) { return NativeLofterAdapter.loginURL }
         guard let value = source.loginUrl?.nilIfBlank else { return nil }
         return try? URLTemplateRenderer.render(value, relativeTo: source.bookSourceUrl)
     }

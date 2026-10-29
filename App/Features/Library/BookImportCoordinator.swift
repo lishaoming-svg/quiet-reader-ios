@@ -49,6 +49,17 @@ final class BookImportCoordinator: ObservableObject {
                 let url = access.url
                 currentFilename = url.lastPathComponent
                 do {
+                    if url.pathExtension.lowercased() == "zip" {
+                        defer { withExtendedLifetime(access) {} }
+                        let migration = try await ReedenMigration.restore(url: url, context: context) { done, count, title in
+                            self.currentFilename = "\(done)/\(count) · \(title)"
+                        }
+                        withExtendedLifetime(access) {}
+                        results.append(.init(filename: url.lastPathComponent, message: migration.summary, succeeded: true))
+                        results += migration.failures.map { .init(filename: "未迁移项目", message: $0, succeeded: false) }
+                        completed += 1
+                        continue
+                    }
                     let worker = Task.detached(priority: .userInitiated) {
                         try withExtendedLifetime(access) { try LocalBookImporter.prepare(url: access.url) }
                     }

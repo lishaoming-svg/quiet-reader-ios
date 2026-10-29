@@ -116,6 +116,7 @@ struct ReaderView: View {
         .accessibilityAction(.escape) { dismiss() }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        .statusBarHidden(!controlsVisible)
         .toolbarBackground(paper.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(paper == .night ? .dark : .light, for: .navigationBar)
@@ -124,7 +125,7 @@ struct ReaderView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if sentencePlaybackMode, !audiobookSegments.isEmpty {
                 sentencePlaybackControls
-            } else {
+            } else if controlsVisible {
                 VStack(spacing: 8) {
                     if controlsVisible { floatingActions; readerControls }
                     HStack {

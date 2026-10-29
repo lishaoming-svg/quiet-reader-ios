@@ -12,7 +12,7 @@ enum ReaderMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .scroll: "滚动"
-        case .pageCurl: "翻页"
+        case .pageCurl: "仿真翻页"
         case .pageSlide: "滑动"
         case .pageNone: "无动画"
         }
@@ -125,6 +125,8 @@ enum ReaderTypography {
     }
 
     static func bodyUIFont(size: CGFloat, usesSerif: Bool) -> UIFont {
+        if let name = UserDefaults.standard.string(forKey: "reader.importedFont"), !name.isEmpty,
+           let font = UIFont(name: name, size: size) { return font }
         if usesSerif {
             if let songti = UIFont(name: "STSongti-SC-Regular", size: size) {
                 return songti

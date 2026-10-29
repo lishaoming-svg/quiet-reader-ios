@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import ImageIO
 import KindleDocumentKit
+import PDFKit
 import SwiftSoup
 import UniformTypeIdentifiers
 
@@ -11,7 +12,7 @@ struct LocalBookImport: Sendable {
 }
 
 enum LocalBookImporter {
-    static let supportedExtensions = ["epub", "txt", "docx", "doc", "mobi", "azw", "azw3"]
+    static let supportedExtensions = ["epub", "txt", "docx", "doc", "mobi", "azw", "azw3", "pdf"]
     static let maximumFileSize = 256 * 1_024 * 1_024
     static var contentTypes: [UTType] {
         supportedExtensions.compactMap { UTType(filenameExtension: $0) }
@@ -47,6 +48,16 @@ enum LocalBookImporter {
         let fallbackTitle = (filename as NSString).deletingPathExtension
         if format == "epub" {
             return try LocalBookStorage.save(EPUBDocumentParser.parse(data, fallbackTitle: fallbackTitle), digest: digest, root: root)
+        }
+        if format == "pdf" {
+            guard let pdf = PDFDocument(data: data), pdf.pageCount > 0 else { throw LocalBookError.invalid }
+            guard !pdf.isLocked else { throw LocalBookError.encrypted }
+            let chapters = (0..<pdf.pageCount).map { index in
+                LocalBookDocument.Chapter(title: "第 \(index + 1) 页", content: pdf.page(at: index)?.string?.nilIfBlank ?? "第 \(index + 1) 页")
+            }
+            return try LocalBookStorage.save(LocalBookDocument(title: pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String ?? fallbackTitle,
+                author: pdf.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String ?? "", format: "PDF", chapters: chapters,
+                cover: pdf.page(at: 0)?.thumbnail(of: CGSize(width: 320, height: 480), for: .mediaBox).jpegData(compressionQuality: 0.85), pdfData: data), digest: digest, root: root)
         }
         var title = fallbackTitle
         var author = ""
@@ -123,6 +134,7 @@ enum LocalBookStorage {
         if let publication = document.publicationData {
             try publication.write(to: staging.appendingPathComponent("publication.epub"), options: .atomic)
         }
+        if let pdf = document.pdfData { try pdf.write(to: staging.appendingPathComponent("publication.pdf"), options: .atomic) }
         if let cover { try cover.write(to: staging.appendingPathComponent("cover.jpg"), options: .atomic) }
         let manifest = Manifest(title: document.title, author: document.author, format: document.format,
                                 chapterTitles: document.chapters.map(\.title), hasCover: cover != nil)
@@ -167,6 +179,11 @@ enum LocalBookStorage {
 
     static func publicationURL(for address: String, root: URL = LocalBookStorage.root) throws -> URL {
         let url = root.appendingPathComponent(try identifier(from: address)).appendingPathComponent("publication.epub")
+        guard FileManager.default.fileExists(atPath: url.path) else { throw LocalBookError.missing }
+        return url
+    }
+    static func pdfURL(for address: String, root: URL = LocalBookStorage.root) throws -> URL {
+        let url = root.appendingPathComponent(try identifier(from: address)).appendingPathComponent("publication.pdf")
         guard FileManager.default.fileExists(atPath: url.path) else { throw LocalBookError.missing }
         return url
     }

@@ -52,6 +52,8 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSCameraUsageDescription: 用于扫描用户电脑上显示的听书生成器配对二维码。
@@ -71,6 +73,7 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - org.idpf.epub-container
+              - com.adobe.pdf
               - public.plain-text
               - org.openxmlformats.wordprocessingml.document
               - com.microsoft.word.doc
@@ -81,6 +84,10 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.json]
+          - CFBundleTypeName: Reeden 完整备份
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.zip-archive]
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.quietreader.mobi
             UTTypeDescription: Kindle MOBI 图书
@@ -112,7 +119,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.quietreader.app
         MARKETING_VERSION: 0.9.0
-        CURRENT_PROJECT_VERSION: 34
+        CURRENT_PROJECT_VERSION: 35
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic

@@ -28,6 +28,7 @@ struct LocalBookDocument: Codable, Sendable {
     var chapters: [Chapter]
     var cover: Data?
     var publicationData: Data? = nil
+    var pdfData: Data? = nil
 }
 
 enum ReadingTextPreparation {

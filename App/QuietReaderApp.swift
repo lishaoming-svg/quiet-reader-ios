@@ -6,6 +6,7 @@ struct QuietReaderApp: App {
     private let modelContainer: ModelContainer
 
     init() {
+        ImportedFontStore.registerAll()
         do {
             modelContainer = try ModelContainer(
                 for: BookSourceRecord.self,
@@ -16,6 +17,7 @@ struct QuietReaderApp: App {
                 ReadingSessionRecord.self,
                 BookmarkRecord.self,
                 SearchHistoryRecord.self,
+                MigrationReceiptRecord.self,
                 configurations: ModelConfiguration(isStoredInMemoryOnly: ProcessInfo.processInfo.arguments.contains("--ui-testing"))
             )
         } catch {

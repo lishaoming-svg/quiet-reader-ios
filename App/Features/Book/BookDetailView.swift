@@ -15,6 +15,11 @@ struct BookDetailView: View {
     @State private var resumeIndex: Int?
     @State private var cacheTask: Task<Void, Never>?
     @State private var cacheProgress: BatchCacheProgress?
+    @State private var showingLogin = false
+    @State private var showingExport = false
+    @State private var isExporting = false
+    @State private var exportDocument: EPUBExportDocument?
+    @State private var chapterQuery = ""
 
     init(
         book: SearchBook,
@@ -51,6 +56,23 @@ struct BookDetailView: View {
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .task { await loadBook() }
+        .sheet(isPresented: $showingLogin) {
+            SourceLoginView(source: source) { Task { await loadBook() } }
+        }
+        .fileExporter(isPresented: $showingExport, document: exportDocument, contentType: .epub,
+                      defaultFilename: book.name) { result in
+            if case .failure(let error) = result, (error as NSError).code != NSUserCancelledError {
+                errorMessage = "导出失败：\(error.localizedDescription)"
+            }
+            exportDocument = nil
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if source.loginUrl?.nilIfBlank != nil {
+                    Button("登录书源", systemImage: "person.crop.circle") { showingLogin = true }
+                }
+            }
+        }
     }
 
     private var header: some View {
@@ -58,7 +80,7 @@ struct BookDetailView: View {
             BookCoverView(urlString: book.coverURL, title: book.name, width: 104, height: 148)
             VStack(alignment: .leading, spacing: 8) {
                 Text(book.name)
-                    .font(.system(size: 24, weight: .bold, design: .serif))
+                    .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(AppTheme.ink)
                 Text(book.author.nilIfBlank ?? "作者未知")
                     .font(.headline)
@@ -149,6 +171,8 @@ struct BookDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 18)
             } else {
+                TextField("搜索章节", text: $chapterQuery)
+                    .textFieldStyle(.roundedBorder).padding(.vertical, 8)
                 if let resumeIndex, chapters.indices.contains(resumeIndex) {
                     NavigationLink {
                         ReaderView(
@@ -170,7 +194,8 @@ struct BookDetailView: View {
                     .buttonStyle(.plain)
                     Divider().overlay(AppTheme.line.opacity(0.5))
                 }
-                ForEach(chapters) { chapter in
+                LazyVStack(spacing: 0) {
+                ForEach(chapters.filter { chapterQuery.isEmpty || $0.title.localizedStandardContains(chapterQuery) }) { chapter in
                     NavigationLink {
                         ReaderView(
                             book: book,
@@ -181,7 +206,7 @@ struct BookDetailView: View {
                     } label: {
                         HStack {
                             Text(chapter.title)
-                                .font(.system(.body, design: .serif))
+                                .font(.body)
                                 .foregroundStyle(AppTheme.ink)
                                 .lineLimit(2)
                             Spacer()
@@ -195,6 +220,7 @@ struct BookDetailView: View {
                     if chapter.id != chapters.last?.id {
                         Divider().overlay(AppTheme.line.opacity(0.5))
                     }
+                }
                 }
             }
         }
@@ -214,9 +240,11 @@ struct BookDetailView: View {
                 } else {
                     Menu {
                         Button("缓存后续 20 章") { startCaching(maximumCount: 20) }
-                        Button("缓存全书") { startCaching(maximumCount: nil) }
+                        Button("下载全书到书库") { startCaching(maximumCount: nil) }
+                        Button(isExporting ? "正在生成 EPUB…" : "导出已下载的全书 EPUB") { exportBook() }
+                            .disabled(isExporting)
                     } label: {
-                        Label("批量缓存", systemImage: "arrow.down.circle")
+                        Label("下载与导出", systemImage: "arrow.down.circle")
                             .font(.caption.bold())
                     }
                     .disabled(chapters.isEmpty || isLoading)
@@ -248,6 +276,8 @@ struct BookDetailView: View {
     }
 
     private func loadBook() async {
+        errorMessage = nil
+        isLoading = chapters.isEmpty
         refreshBookshelfState()
         do {
             let detailed = try await SourceEngine().loadDetails(book: book, source: source)
@@ -321,9 +351,11 @@ struct BookDetailView: View {
 
     private func startCaching(maximumCount: Int?) {
         guard !chapters.isEmpty else { return }
+        if !isInBookshelf { toggleBookshelf() }
+        errorMessage = nil
         let startIndex = min(max(resumeIndex ?? 0, 0), chapters.count - 1)
         let remaining = chapters.dropFirst(startIndex)
-        let targets = maximumCount.map { Array(remaining.prefix($0)) } ?? Array(remaining)
+        let targets = maximumCount.map { Array(remaining.prefix($0)) } ?? chapters
         cacheTask?.cancel()
         cacheProgress = BatchCacheProgress(total: targets.count)
         cacheTask = Task { await cache(targets) }
@@ -355,6 +387,11 @@ struct BookDetailView: View {
                     try modelContext.save()
                 } catch {
                     failed += 1
+                    if (error as? SourceEngineError)?.requiresAuthentication == true {
+                        errorMessage = "书源需要登录，请点右上角“登录书源”，完成后重新下载。"
+                        cacheProgress?.failed = failed
+                        break
+                    }
                 }
             }
             completed += 1
@@ -364,6 +401,38 @@ struct BookDetailView: View {
 
         cacheProgress?.isRunning = false
         cacheProgress?.wasCancelled = Task.isCancelled
+    }
+
+    private func exportBook() {
+        guard !isExporting else { return }
+        isExporting = true
+        Task {
+            defer { isExporting = false }
+            do {
+                var contents: [ExportBookChapter] = []
+                var missing = 0
+                var bytes = 0
+                for chapter in chapters {
+                    let key = "\(source.id)::\(chapter.url)"
+                    var query = FetchDescriptor<ChapterCacheRecord>(predicate: #Predicate { $0.cacheKey == key })
+                    query.fetchLimit = 1
+                    guard let cache = try modelContext.fetch(query).first, !cache.content.isEmpty else {
+                        missing += 1; continue
+                    }
+                    bytes += cache.content.utf8.count
+                    guard bytes <= BookEPUBExporter.maximumTextBytes else { throw BookExportError.tooLarge }
+                    contents.append(ExportBookChapter(title: chapter.title, content: cache.content))
+                }
+                guard missing == 0 else { throw BookExportError.missing(missing) }
+                let exportedBook = book
+                let exportedChapters = contents
+                let data = try await Task.detached(priority: .userInitiated) {
+                    try BookEPUBExporter.build(book: exportedBook, chapters: exportedChapters)
+                }.value
+                exportDocument = EPUBExportDocument(data: data)
+                showingExport = true
+            } catch { errorMessage = error.localizedDescription }
+        }
     }
 }
 

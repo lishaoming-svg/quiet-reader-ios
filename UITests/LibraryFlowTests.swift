@@ -75,15 +75,23 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "海边的清晨")).firstMatch.waitForExistence(timeout: 30))
         capture(app, "06-epub-publisher-layout")
+        XCTAssertFalse(app.buttons["reader.menu"].exists, "阅读默认隐藏浮动按钮")
+        revealControls(app)
         app.buttons["reader.menu"].tap()
+        app.buttons["主题与设置"].tap()
         XCTAssertTrue(app.switches["epub.publisherStyles"].waitForExistence(timeout: 5))
         capture(app, "07-epub-reading-menu")
+        app.buttons["完成"].tap()
+        if !app.buttons["reader.menu"].exists { revealControls(app) }
+        app.buttons["reader.menu"].tap()
+        app.buttons["目录"].tap()
         let chapter = app.buttons["灯下的书页"]
         app.swipeUp()
         XCTAssertTrue(chapter.waitForExistence(timeout: 5))
         chapter.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "夜色落在窗台上")).firstMatch.waitForExistence(timeout: 20))
         let progress = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "全书进度")).firstMatch
+        revealControls(app)
         let chapterPosition = expectation(for: NSPredicate { _, _ in progress.label == "全书进度 50%" }, evaluatedWith: app)
         wait(for: [chapterPosition], timeout: 15)
         waitForVisibleEPUBBody(app)
@@ -96,6 +104,7 @@ final class LibraryFlowTests: XCTestCase {
         let restoring = app.descendants(matching: .any).matching(identifier: "epub.restoring").firstMatch
         let restored = expectation(for: NSPredicate { _, _ in !restoring.exists }, evaluatedWith: app)
         wait(for: [restored], timeout: 20)
+        revealControls(app)
         XCTAssertEqual(progress.label, savedPosition)
         waitForVisibleEPUBBody(app)
         capture(app, "08-epub-restored-location")

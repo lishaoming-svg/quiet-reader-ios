@@ -47,6 +47,7 @@ struct BookmarkListView: View {
                                     Text(bookmark.createdAt.formatted(date: .abbreviated, time: .shortened))
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
+                                    if !bookmark.note.isEmpty { Text(bookmark.note).font(.callout).foregroundStyle(.primary).textSelection(.enabled) }
                                 }
                                 .padding(.vertical, 5)
                             }

@@ -38,7 +38,9 @@ struct BookshelfReaderDestination: View {
 
     var body: some View {
         Group {
-            if book.sourceID == LocalBookStorage.sourceID, book.kind == "EPUB", !chapters.isEmpty {
+            if book.sourceID == LocalBookStorage.sourceID, book.kind == "PDF", !chapters.isEmpty {
+                PDFReaderView(book: book, chapters: chapters)
+            } else if book.sourceID == LocalBookStorage.sourceID, book.kind == "EPUB", !chapters.isEmpty {
                 EPUBReaderView(book: book, chapters: chapters)
             } else if !chapters.isEmpty {
                 ReaderView(

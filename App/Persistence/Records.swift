@@ -115,6 +115,8 @@ final class ReadingProgressRecord {
     var readingMode: String = "scroll"
     var publicationLocator: String? = nil
     var bookProgress: Double? = nil
+    var importedSectionURI: String? = nil
+    var importedParagraphIndex: Int? = nil
     var updatedAt: Date
 
     init(bookID: String, chapter: BookChapter) {
@@ -264,6 +266,11 @@ final class BookmarkRecord {
     var chapterProgress: Double
     var excerpt: String
     var publicationLocator: String? = nil
+    var note: String = ""
+    var noteKind: String = "bookmark"
+    var importedParagraphIndex: Int? = nil
+    var importedEndParagraphIndex: Int? = nil
+    var importedEndOffset: Int? = nil
     var createdAt: Date
 
     init(
@@ -310,6 +317,13 @@ final class SearchHistoryRecord {
         searchedAt = .now
         useCount += 1
     }
+}
+
+@Model
+final class MigrationReceiptRecord {
+    @Attribute(.unique) var externalID: String
+    var bookID: String
+    init(externalID: String, bookID: String) { self.externalID = externalID; self.bookID = bookID }
 }
 
 extension JSONEncoder {
