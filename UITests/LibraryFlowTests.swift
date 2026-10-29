@@ -158,7 +158,9 @@ final class LibraryFlowTests: XCTestCase {
         let result = XCTWaiter.wait(for: [ready], timeout: 90)
         if result != .completed {
             capture(app, "picker-not-ready-\(name)")
-            let tree = (try? app.snapshot().debugDescription) ?? app.debugDescription
+            // XCUIElementSnapshot does not expose XCUIElement.debugDescription.
+            // Convert the public snapshot value instead of calling that member.
+            let tree = (try? String(describing: app.snapshot())) ?? app.debugDescription
             let attachment = XCTAttachment(string: tree)
             attachment.name = "picker-hierarchy-\(name)"; attachment.lifetime = .keepAlways
             add(attachment)
