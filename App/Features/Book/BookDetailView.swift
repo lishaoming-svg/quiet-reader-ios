@@ -61,7 +61,7 @@ struct BookDetailView: View {
             SourceLoginView(source: source) { Task { await loadBook() } }
         }
         .fileExporter(isPresented: $showingExport, document: exportDocument, contentType: .epub,
-                      defaultFilename: book.name) { result in
+                      defaultFilename: BookEPUBExporter.filename(book.name)) { result in
             if case .failure(let error) = result, (error as NSError).code != NSUserCancelledError {
                 errorMessage = "导出失败：\(error.localizedDescription)"
             }

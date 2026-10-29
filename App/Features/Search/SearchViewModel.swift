@@ -69,13 +69,19 @@ final class SearchViewModel: ObservableObject {
             // Keep sockets available for opening a book while searching large catalogs.
             while next < min(8, sources.count) { enqueue(next); next += 1 }
             var values: [SourceSearchOutcome] = []
+            var lastPublication = Date.distantPast
             for await outcome in group {
                 guard !Task.isCancelled, generation == request else { group.cancelAll(); break }
                 values.append(outcome)
                 completedSources = values.count
-                publish(values, keyword: keyword)
+                let now = Date.now
+                if (results.isEmpty && !outcome.books.isEmpty) || now.timeIntervalSince(lastPublication) >= 0.08 {
+                    publish(values, keyword: keyword)
+                    lastPublication = now
+                }
                 if next < sources.count { enqueue(next); next += 1 }
             }
+            if !Task.isCancelled, generation == request { publish(values, keyword: keyword) }
           }
           if generation == request { isSearching = false }
         }

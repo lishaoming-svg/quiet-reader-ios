@@ -10,11 +10,13 @@ struct PDFReaderView: View {
     @Environment(\.scenePhase) private var phase
     @State private var document: PDFDocument?
     @State private var visible = false
+    @State private var showingNotes = false
     @State private var error: String?
     @State private var page = 0
     @State private var session: ReadingSessionRecord?
     @State private var lastTick = Date.now
     @State private var lastActivity = Date.now
+    @State private var sessionWasActive = true
     @AppStorage("pdf.scroll") private var scroll = false
     var body: some View {
         ZStack {
@@ -36,6 +38,7 @@ struct PDFReaderView: View {
                     Spacer()
                     HStack {
                         Text("\(page + 1) / \(document?.pageCount ?? 1)").monospacedDigit(); Spacer()
+                        Button("笔记", systemImage: "note.text") { showingNotes = true }.labelStyle(.iconOnly).frame(width: 44, height: 44)
                         Toggle("上下滚动", isOn: $scroll).fixedSize()
                     }.padding(16).background(.regularMaterial, in: Capsule())
                 }.padding(20)
@@ -45,6 +48,12 @@ struct PDFReaderView: View {
         .statusBarHidden(!visible).toolbar(.hidden, for: .navigationBar, .tabBar).navigationBarBackButtonHidden()
         .accessibilityAction(named: "显示阅读菜单") { visible = true }
         .accessibilityAction(.escape) { save(); dismiss() }
+        .sheet(isPresented: $showingNotes) {
+            BookmarkListView(bookID: book.id) { mark in
+                page = min(max(0, mark.chapterIndex), max(0, (document?.pageCount ?? 1) - 1))
+                showingNotes = false
+            }
+        }
         .task {
             do {
                 let id = book.id
@@ -67,7 +76,8 @@ struct PDFReaderView: View {
     }
     private func tick() {
         let now = Date.now
-        if phase == .active, now.timeIntervalSince(lastActivity) <= 300 { session?.activeSeconds += min(30, max(0, now.timeIntervalSince(lastTick))) }
+        if sessionWasActive, now.timeIntervalSince(lastActivity) <= 300 { session?.activeSeconds += min(30, max(0, now.timeIntervalSince(lastTick))) }
+        sessionWasActive = phase == .active
         session?.endedAt = now; lastTick = now; try? context.save()
     }
     private func save() {
@@ -78,6 +88,7 @@ struct PDFReaderView: View {
             if progress.modelContext == nil { context.insert(progress) }
             progress.update(chapter: chapter, readingMode: "pdf")
             progress.bookProgress = Double(page + 1) / Double(max(1, chapters.count))
+            if let record = try context.fetch(FetchDescriptor<BookRecord>(predicate: #Predicate { $0.bookID == id })).first { record.lastReadAt = .now }
             try context.save()
         } catch { self.error = "位置保存失败：" + error.localizedDescription }
     }
@@ -98,6 +109,7 @@ private struct PDFCanvas: UIViewRepresentable {
     }
     func updateUIView(_ view: PDFView, context: Context) {
         if view.displayMode != (scroll ? .singlePageContinuous : .singlePage) { configure(view) }
+        if let target = document.page(at: initialPage), target !== view.currentPage { view.go(to: target) }
     }
     private func configure(_ view: PDFView) {
         view.usePageViewController(!scroll, withViewOptions: nil)

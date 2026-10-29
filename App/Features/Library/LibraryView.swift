@@ -404,7 +404,7 @@ struct LibrarySettingsView: View {
                     NavigationLink { SourceManagerView() } label: { Label("书源管理", systemImage: "network") }
                 }
                 Section("本地图书") {
-                    Text("支持 EPUB、TXT、DOCX、DOC、MOBI、AZW、AZW3、PDF。单文件上限 256 MB，Kindle 解析上限 64 MB。")
+                    Text("支持 EPUB、TXT、DOCX、DOC、MOBI、AZW、AZW3、PDF。普通图书上限 256 MB，Kindle 解析上限 64 MB，PDF 文件可达 2 GB。")
                     Text("EPUB 保留原书精排、插图、字体与 CSS。Word 提取正文和表格文字；Kindle 支持未加密 KF7 / KF8 的文字阅读。所有文件均在本机解析。")
                 }.font(.subheadline)
                 Section("Reeden 迁移") {

@@ -95,7 +95,7 @@ final class ReedenMigrationTests: XCTestCase {
         XCTAssertEqual(try LocalBookStorage.content(at: result.imported.chapters[1].url, root: root), second)
         XCTAssertEqual(result.locatorOffset, ("卷二标题\n" as NSString).length + 2)
     }
-    func testPDFPreservesOriginalAndIndexesPages() throws {
+    func testPDFPreservesOriginalAndIndexesPages() async throws {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 400, height: 600))
         let data = renderer.pdfData { context in
             context.beginPage(); ("第一页" as NSString).draw(at: CGPoint(x: 20, y: 20), withAttributes: [.font: UIFont.systemFont(ofSize: 20)])
@@ -104,6 +104,18 @@ final class ReedenMigrationTests: XCTestCase {
         let book = try LocalBookImporter.prepare(data: data, filename: "原版.pdf", root: root)
         XCTAssertEqual(book.book.kind, "PDF"); XCTAssertEqual(book.chapters.count, 2)
         XCTAssertEqual(try Data(contentsOf: LocalBookStorage.pdfURL(for: book.book.bookURL, root: root)), data)
+        let input = root.appendingPathComponent("streamed.pdf"); try data.write(to: input)
+        let streamed = try LocalBookImporter.prepare(url: input, root: root)
+        XCTAssertEqual(streamed.book.id, book.book.id, "文件路径导入应流式哈希并保持稳定的图书 ID")
+        XCTAssertEqual(try Data(contentsOf: LocalBookStorage.pdfURL(for: streamed.book.bookURL, root: root)), data)
+        let metadata = try zip(["book.json": Data(#"[{"id":"P1","title":"PDF 迁移","type":"pdf"}]"#.utf8)])
+        let backup = try zip(["manifest.json": Data(#"{"format":"reeden_full_backup","version":1}"#.utf8), "metadata.zip": metadata, "books/P1/P1": data])
+        let backupURL = root.appendingPathComponent("pdf-backup.zip"); try backup.write(to: backupURL)
+        let archive = try ReedenBackupArchive(url: backupURL)
+        let plan = try await archive.plan()
+        let restored = try await archive.prepare(XCTUnwrap(plan.books.first), root: root)
+        XCTAssertEqual(restored.imported.book.id, book.book.id)
+        XCTAssertEqual(restored.imported.book.name, "PDF 迁移")
     }
     func testInvalidFontDoesNotEnterAvailableFonts() {
         let previous = ImportedFontStore.fonts.map(\.id)
@@ -118,5 +130,7 @@ final class ReedenMigrationTests: XCTestCase {
         XCTAssertEqual(document.chapters.map(\.title), ["章节一", "章节二"])
         XCTAssertTrue(document.chapters[0].content.contains("1 < 2 && 3 > 2"))
         XCTAssertThrowsError(try BookEPUBExporter.build(book: source, chapters: []))
+        XCTAssertEqual(BookEPUBExporter.filename("狂色（鸣佐/完结）"), "狂色（鸣佐 完结）")
+        XCTAssertLessThanOrEqual(BookEPUBExporter.filename(String(repeating: "阅读🌊", count: 100)).utf8.count, 200)
     }
 }

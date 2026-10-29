@@ -109,9 +109,12 @@ actor ReedenBackupArchive {
         guard Self.validIdentifier(book.id) else { throw ReedenBackupError.unsafeEntry }
         let base = "books/" + book.id + "/"
         guard archive[base + book.id] != nil else { throw ReedenBackupError.missingBook }
-        let data = try read(base + book.id, limit: LocalBookImporter.maximumFileSize)
         let sections = (try? JSONDecoder().decode([ReedenSection].self, from: read(base + "sections.json", limit: 8 * 1_024 * 1_024))) ?? []
         var imported: LocalBookImport
+        if book.type.lowercased() == "pdf" {
+            imported = try preparePDF(base + book.id, root: root)
+        } else {
+        let data = try read(base + book.id, limit: LocalBookImporter.maximumFileSize)
         if book.type.lowercased() == "txt", !sections.isEmpty,
            sections.allSatisfy({ ($0.startOffset ?? -1) >= 0 && ($0.endOffset ?? -1) > ($0.startOffset ?? 0) && ($0.endOffset ?? Int.max) <= data.count }) {
             struct Toc: Decodable { let title: String; let sectionIndex: Int }
@@ -132,6 +135,7 @@ actor ReedenBackupArchive {
         } else {
             imported = try LocalBookImporter.prepare(data: data, filename: "reeden." + book.type.lowercased(), root: root)
         }
+        }
         // Reeden metadata can contain corrections absent from the original file.
         imported = LocalBookImport(book: SearchBook(sourceID: imported.book.sourceID, sourceName: imported.book.sourceName,
             name: book.title, author: book.author?.nilIfBlank ?? imported.book.author,
@@ -150,6 +154,25 @@ actor ReedenBackupArchive {
     func installFont(_ font: ReedenFont) throws {
         guard Self.validIdentifier(font.id) else { throw ReedenBackupError.unsafeEntry }
         try ImportedFontStore.install(read("fonts/" + font.id, limit: 48 * 1_024 * 1_024), name: font.display_name?.nilIfBlank ?? font.name)
+    }
+    private func preparePDF(_ path: String, root: URL) throws -> LocalBookImport {
+        guard let entry = archive[path], entry.type == .file else { throw ReedenBackupError.invalid }
+        guard entry.uncompressedSize <= LocalBookImporter.maximumPDFSize else { throw LocalBookError.tooLarge }
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else { throw LocalBookError.invalid }
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let handle = try FileHandle(forWritingTo: temporary)
+        defer { try? handle.close() }
+        var size = 0
+        let crc = try archive.extract(entry) { chunk in
+            try Task.checkCancellation()
+            size += chunk.count
+            guard size <= LocalBookImporter.maximumPDFSize else { throw LocalBookError.tooLarge }
+            try handle.write(contentsOf: chunk)
+        }
+        try handle.close()
+        guard crc == entry.checksum else { throw ReedenBackupError.invalid }
+        return try LocalBookImporter.preparePDF(url: temporary, root: root)
     }
     static func validIdentifier(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 128 && id.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_" )).contains($0) }

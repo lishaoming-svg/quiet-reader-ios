@@ -28,13 +28,30 @@ final class EPUBMediaLayoutTests: XCTestCase {
             let ready = expectation(description: "插图页面已排版 \(size)")
             let probe = MediaProbe(ready: ready); navigator.delegate = probe
             let container = UIViewController()
-            let window = UIWindow(frame: CGRect(origin: .zero, size: size))
-            window.rootViewController = container; window.isHidden = false
+            let window: UIWindow
+            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first { window = UIWindow(windowScene: scene) }
+            else { window = UIWindow(frame: CGRect(origin: .zero, size: size)) }
+            window.frame = CGRect(origin: .zero, size: size)
+            window.rootViewController = container
             container.addChild(navigator); container.view.addSubview(navigator.view)
             container.setOverrideTraitCollection(UITraitCollection(horizontalSizeClass: .regular), forChild: navigator)
-            navigator.view.frame = CGRect(origin: .zero, size: size); navigator.didMove(toParent: container)
+            navigator.view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                navigator.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+                navigator.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+                navigator.view.widthAnchor.constraint(equalToConstant: size.width),
+                navigator.view.heightAnchor.constraint(equalToConstant: size.height)
+            ])
+            navigator.didMove(toParent: container); window.makeKeyAndVisible()
+            window.layoutIfNeeded(); container.view.layoutIfNeeded()
             navigator.view.setNeedsLayout(); navigator.view.layoutIfNeeded()
             await fulfillment(of: [ready], timeout: 30)
+            guard probe.sent else {
+                // The unmet expectation remains a test failure. Do not then call
+                // Readium's API that waits indefinitely for a missing spread.
+                navigator.delegate = nil; window.isHidden = true
+                return
+            }
             let result = try await navigator.evaluateJavaScript("""
             (() => {
               const image = document.querySelector('img');
@@ -44,6 +61,8 @@ final class EPUBMediaLayoutTests: XCTestCase {
             let json = try XCTUnwrap(result as? String)
             let dimensions = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
             func number(_ key: String) throws -> Double { try XCTUnwrap(dimensions[key] as? NSNumber).doubleValue }
+            XCTAssertGreaterThan(try number("width"), 500, "必须在有效平板视口中验证插图")
+            XCTAssertGreaterThan(try number("height"), 500)
             XCTAssertEqual(dimensions["complete"] as? Bool, true)
             XCTAssertGreaterThan(try number("natural"), 0)
             XCTAssertGreaterThanOrEqual(try number("left"), -1)

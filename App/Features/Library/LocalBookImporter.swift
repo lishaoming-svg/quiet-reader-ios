@@ -14,6 +14,7 @@ struct LocalBookImport: Sendable {
 enum LocalBookImporter {
     static let supportedExtensions = ["epub", "txt", "docx", "doc", "mobi", "azw", "azw3", "pdf"]
     static let maximumFileSize = 256 * 1_024 * 1_024
+    static let maximumPDFSize = 2 * 1_024 * 1_024 * 1_024
     static var contentTypes: [UTType] {
         supportedExtensions.compactMap { UTType(filenameExtension: $0) }
     }
@@ -23,6 +24,16 @@ enum LocalBookImporter {
         guard supportedExtensions.contains(format) else { throw LocalBookError.unsupported }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        if format == "pdf" {
+            var failure: NSError?
+            var value: Result<LocalBookImport, Error>?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &failure) { coordinated in
+                value = Result { try preparePDF(url: coordinated, root: root) }
+            }
+            if let failure { throw failure }
+            guard let value else { throw LocalBookError.invalid }
+            return try value.get()
+        }
         var coordinationError: NSError?
         var result: Result<Data, Error>?
         NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinated in
@@ -37,6 +48,41 @@ enum LocalBookImporter {
         if let coordinationError { throw coordinationError }
         guard let result else { throw LocalBookError.invalid }
         return try prepare(data: result.get(), filename: url.lastPathComponent, root: root)
+    }
+
+    /// PDFKit reads from a file URL; hashing and copying are streamed so a large
+    /// scanned book never needs a full Data allocation.
+    static func preparePDF(url: URL, root: URL = LocalBookStorage.root) throws -> LocalBookImport {
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size <= maximumPDFSize else { throw LocalBookError.tooLarge }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hash = SHA256()
+        var total = 0
+        while let chunk = try handle.read(upToCount: 512 * 1_024), !chunk.isEmpty {
+            try Task.checkCancellation()
+            total += chunk.count; guard total <= maximumPDFSize else { throw LocalBookError.tooLarge }
+            hash.update(data: chunk)
+        }
+        guard let pdf = PDFDocument(url: url) else { throw LocalBookError.invalid }
+        guard !pdf.isLocked else { throw LocalBookError.encrypted }
+        guard pdf.pageCount > 0 else { throw LocalBookError.invalid }
+        guard pdf.pageCount <= 10_000 else { throw LocalBookError.tooLarge }
+        var chapters: [LocalBookDocument.Chapter] = []
+        var textBytes = 0
+        for index in 0..<pdf.pageCount {
+            try Task.checkCancellation()
+            let title = "第 \(index + 1) 页"
+            let text = pdf.page(at: index)?.string?.nilIfBlank ?? title
+            textBytes += text.utf8.count
+            guard textBytes <= 64 * 1_024 * 1_024 else { throw LocalBookError.tooLarge }
+            chapters.append(.init(title: title, content: text))
+        }
+        let document = LocalBookDocument(title: pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String ?? url.deletingPathExtension().lastPathComponent,
+            author: pdf.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String ?? "", format: "PDF", chapters: chapters,
+            cover: pdf.page(at: 0)?.thumbnail(of: CGSize(width: 320, height: 480), for: .mediaBox).jpegData(compressionQuality: 0.85))
+        let digest = hash.finalize().map { String(format: "%02x", $0) }.joined()
+        return try LocalBookStorage.save(document, digest: digest, root: root, originalPDF: url)
     }
 
     static func prepare(data: Data, filename: String, root: URL = LocalBookStorage.root) throws -> LocalBookImport {
@@ -122,7 +168,7 @@ enum LocalBookStorage {
         let hasCover: Bool
     }
 
-    static func save(_ document: LocalBookDocument, digest: String, root: URL) throws -> LocalBookImport {
+    static func save(_ document: LocalBookDocument, digest: String, root: URL, originalPDF: URL? = nil) throws -> LocalBookImport {
         let manager = FileManager.default
         try manager.createDirectory(at: root, withIntermediateDirectories: true)
         let staging = root.appendingPathComponent(".import-\(UUID().uuidString)", isDirectory: true)
@@ -137,6 +183,7 @@ enum LocalBookStorage {
             try publication.write(to: staging.appendingPathComponent("publication.epub"), options: .atomic)
         }
         if let pdf = document.pdfData { try pdf.write(to: staging.appendingPathComponent("publication.pdf"), options: .atomic) }
+        if let originalPDF { try manager.copyItem(at: originalPDF, to: staging.appendingPathComponent("publication.pdf")) }
         if let cover { try cover.write(to: staging.appendingPathComponent("cover.jpg"), options: .atomic) }
         let manifest = Manifest(title: document.title, author: document.author, format: document.format,
                                 chapterTitles: document.chapters.map(\.title), hasCover: cover != nil)

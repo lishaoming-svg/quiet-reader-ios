@@ -175,6 +175,7 @@ jobs:
           xcodebuild test -project "$PROJECT" -scheme "$SCHEME" -configuration Debug ${args[@]+"${args[@]}"} \
             -destination "platform=iOS Simulator,id=${{ steps.prep.outputs.udid }}" \
             -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$OUT/Test.xcresult" \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 180 -maximum-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$OUT/xcodebuild.log" \
             | "$RUNNER_TEMP/xcbeautify/xcbeautify" --renderer github-actions
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"

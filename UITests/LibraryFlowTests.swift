@@ -145,20 +145,30 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["library.emptyImport"].tap()
         // Files may use grid icons or list cells; match the named item regardless
         // of its accessibility element type, without matching the whole container.
-        let file = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
-        let folders = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "导入测试"))
+        func item(_ name: String) -> XCUIElement {
+            let predicate = NSPredicate(format: "label CONTAINS %@", name)
+            for query in [app.collectionViews.cells, app.cells, app.staticTexts, app.buttons] {
+                let value = query.matching(predicate).firstMatch
+                if value.exists { return value }
+            }
+            return app.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+        }
         var folder: XCUIElement?
         let ready = expectation(for: NSPredicate { _, _ in
-            if file.exists { return true }
+            if item(name).exists { return true }
             // A folder's navigation title can appear before its contents load.
             // Only tap an item below the navigation bar, never the title itself.
             let navigationBottom = app.navigationBars.allElementsBoundByIndex.map { $0.frame.maxY }.max() ?? 0
-            folder = folders.allElementsBoundByIndex.first { $0.isHittable && $0.frame.midY > navigationBottom }
+            let candidate = item("导入测试")
+            folder = candidate.exists && candidate.isHittable && candidate.frame.midY > navigationBottom ? candidate : nil
             return folder != nil
         }, evaluatedWith: app)
         wait(for: [ready], timeout: 45)
         // File Provider may resolve directoryURL to the owning app's root on a cold start.
-        if !file.exists, let folder { folder.tap() }
+        if !item(name).exists, let folder { folder.tap() }
+        let visibleFile = expectation(for: NSPredicate { _, _ in item(name).exists }, evaluatedWith: app)
+        wait(for: [visibleFile], timeout: 20)
+        let file = item(name)
         XCTAssertTrue(file.waitForExistence(timeout: 20), app.debugDescription)
         file.tap()
         let open = app.buttons["打开"]

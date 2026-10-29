@@ -5,11 +5,11 @@ enum LocalBookError: LocalizedError {
     case unsupported, empty, invalid, encrypted, tooLarge, missing, unreadableText
     var errorDescription: String? {
         switch self {
-        case .unsupported: "请选择 EPUB、TXT、DOCX、DOC、MOBI、AZW 或 AZW3 图书。JSON 书源请在“搜索 → 书源管理”导入。"
+        case .unsupported: "请选择 EPUB、TXT、DOCX、DOC、MOBI、AZW、AZW3、PDF 或 Reeden 完整备份 ZIP。JSON 书源请在“搜索 → 书源管理”导入。"
         case .empty: "文件中没有可阅读的正文，请检查文件后重新导入。"
         case .invalid: "文件内容损坏或与扩展名不符，请重新导出后再导入。"
         case .encrypted: "这本书或文档已加密。请使用未加密、无需密码的版本。"
-        case .tooLarge: "文件或解压后的内容过大。普通图书上限 256 MB，Kindle 上限 64 MB，压缩包另有展开限制。请压缩图片或拆分文档后重试。"
+        case .tooLarge: "文件或解压后的内容过大。普通图书上限 256 MB，Kindle 上限 64 MB；从文件或备份导入的 PDF 上限 2 GB、10000 页。压缩包另有展开限制，请压缩图片或拆分后重试。"
         case .missing: "本地书籍文件已丢失，请重新导入原文件以恢复阅读。"
         case .unreadableText: "无法识别文字编码。请将文本另存为 UTF-8 后重新导入。"
         }

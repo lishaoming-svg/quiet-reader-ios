@@ -29,6 +29,7 @@ struct SearchView: View {
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .onDisappear { viewModel.cancel() }
+        .onChange(of: selectedSource) { _, _ in performSearch() }
     }
 
     private var shouldShowHistory: Bool {

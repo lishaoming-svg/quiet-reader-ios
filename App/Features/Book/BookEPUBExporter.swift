@@ -10,6 +10,13 @@ struct ExportBookChapter: Sendable {
 
 enum BookEPUBExporter {
     static let maximumTextBytes = 64 * 1024 * 1024
+    static func filename(_ title: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\:").union(.controlCharacters)
+        var name = title.components(separatedBy: invalid).filter { !$0.isEmpty }.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
+        while name.utf8.count > 200 { name.removeLast() }
+        return name.nilIfBlank ?? "图书"
+    }
 
     static func build(book: SearchBook, chapters: [ExportBookChapter]) throws -> Data {
         guard !chapters.isEmpty, chapters.allSatisfy({ !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {

@@ -179,7 +179,7 @@ struct NativeLofterAdapter {
         let parts = address.components(separatedBy: ",{")
         var body = ""
         if parts.count > 1, let o = try? JSONDecoder().decode([String: String].self, from: Data(("{" + parts[1]).utf8)) { body = o["body"] ?? "" }
-        let query = URLComponents(string: parts[0])?.query ?? ""
+        let query = URLComponents(string: parts[0])?.percentEncodedQuery ?? ""
         return (query + "&" + body).split(separator: "&").reduce(into: [:]) { result, pair in
             let values = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             if values.count == 2 { result[String(values[0])] = String(values[1]).removingPercentEncoding ?? String(values[1]) }

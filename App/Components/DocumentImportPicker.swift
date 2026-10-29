@@ -10,7 +10,11 @@ struct DocumentImportPicker: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        // File providers handle the file hierarchy (.data) more reliably than
+        // the common parent of files and directories (.item). Explicit formats
+        // also keep EPUB/Office packages visible on older provider databases.
+        let types = LocalBookImporter.contentTypes + [.data, .zip, .json]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.allowsMultipleSelection = multiple
         picker.delegate = context.coordinator
         picker.shouldShowFileExtensions = true
