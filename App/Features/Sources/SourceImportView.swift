@@ -74,7 +74,7 @@ struct SourceImportView: View {
             Text("粘贴 JSON 或书源地址")
                 .font(AppTheme.sectionFont)
                 .foregroundStyle(AppTheme.ink)
-            Text("这里只导入 JSON / TXT 书源。EPUB、TXT、Word 和 Kindle 图书请到“书库”导入。支持部分 Legado CSS、JSONPath 与正则规则。")
+            Text("这里只导入 JSON / TXT 书源。图书和 Reeden 备份请到“书库”导入。支持部分 Legado CSS、JSONPath、正则，以及 LOFTER LF 格式的原生适配；其他 JavaScript 规则不会执行。")
                 .font(.callout)
                 .foregroundStyle(AppTheme.inkSoft)
         }

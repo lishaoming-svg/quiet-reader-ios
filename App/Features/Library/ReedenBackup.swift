@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import ZIPFoundation
 
 // Only these five metadata tables are decoded. Theme/layout/settings, per-book
@@ -52,6 +53,26 @@ struct ReedenFont: Decodable, Sendable {
 struct ReedenPreparedBook: Sendable {
     let imported: LocalBookImport
     let sectionURI: String?
+    let chapterIndex: Int
+    let locatorOffset: Int
+}
+
+struct ReedenSection: Decodable, Sendable {
+    let uri: String?
+    let startOffset: Int?
+    let endOffset: Int?
+    let title: String?
+}
+enum ReedenTextPosition {
+    static func offset(in text: String, paragraph: Int, element: Int) -> Int {
+        var paragraphs: [NSRange] = []
+        text.enumerateSubstrings(in: text.startIndex..., options: [.byParagraphs]) { value, range, _, _ in
+            if value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { paragraphs.append(NSRange(range, in: text)) }
+        }
+        guard !paragraphs.isEmpty else { return 0 }
+        let target = paragraphs[min(max(0, paragraph), paragraphs.count - 1)]
+        return target.location + min(max(0, element), target.length)
+    }
 }
 enum ReedenBackupError: LocalizedError {
     case invalid, missingBook, unsupportedVersion, unsafeEntry
@@ -89,19 +110,42 @@ actor ReedenBackupArchive {
         let base = "books/" + book.id + "/"
         guard archive[base + book.id] != nil else { throw ReedenBackupError.missingBook }
         let data = try read(base + book.id, limit: LocalBookImporter.maximumFileSize)
-        var imported = try LocalBookImporter.prepare(data: data, filename: "reeden." + book.type.lowercased(), root: root)
+        let sections = (try? JSONDecoder().decode([ReedenSection].self, from: read(base + "sections.json", limit: 8 * 1_024 * 1_024))) ?? []
+        var imported: LocalBookImport
+        if book.type.lowercased() == "txt", !sections.isEmpty,
+           sections.allSatisfy({ ($0.startOffset ?? -1) >= 0 && ($0.endOffset ?? -1) > ($0.startOffset ?? 0) && ($0.endOffset ?? Int.max) <= data.count }) {
+            struct Toc: Decodable { let title: String; let sectionIndex: Int }
+            let toc = (try? JSONDecoder().decode([Toc].self, from: read(base + "toc.json", limit: 8 * 1_024 * 1_024))) ?? []
+            let labels = Dictionary(toc.map { ($0.sectionIndex, $0.title) }, uniquingKeysWith: { first, _ in first })
+            var chapters: [LocalBookDocument.Chapter] = []
+            var textBytes = 0
+            for (index, section) in sections.enumerated() {
+                try Task.checkCancellation()
+                let text = try LocalTextDecoder.decode(data.subdata(in: section.startOffset!..<section.endOffset!))
+                textBytes += text.utf8.count
+                guard textBytes <= 64 * 1_024 * 1_024 else { throw LocalBookError.tooLarge }
+                let title = labels[index]?.nilIfBlank ?? section.title?.nilIfBlank ?? "第 \(index + 1) 节"
+                chapters.append(.init(title: title, content: text.nilIfBlank ?? title))
+            }
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            imported = try LocalBookStorage.save(LocalBookDocument(title: book.title, author: book.author ?? "", format: "TXT", chapters: chapters), digest: digest, root: root)
+        } else {
+            imported = try LocalBookImporter.prepare(data: data, filename: "reeden." + book.type.lowercased(), root: root)
+        }
         // Reeden metadata can contain corrections absent from the original file.
         imported = LocalBookImport(book: SearchBook(sourceID: imported.book.sourceID, sourceName: imported.book.sourceName,
             name: book.title, author: book.author?.nilIfBlank ?? imported.book.author,
             intro: book.description ?? imported.book.intro, kind: imported.book.kind, lastChapter: "", updateTime: "",
             bookURL: imported.book.bookURL, coverURL: imported.book.coverURL, tocURL: imported.book.tocURL), chapters: imported.chapters)
-        struct Section: Decodable { let uri: String }
         var sectionURI: String?
-        if let sections = try? JSONDecoder().decode([Section].self, from: read(base + "sections.json", limit: 8 * 1_024 * 1_024)) {
-            let index = book.last_read_section_index ?? 0
-            if sections.indices.contains(index) { sectionURI = sections[index].uri }
-        }
-        return ReedenPreparedBook(imported: imported, sectionURI: sectionURI)
+        let originalIndex = max(0, book.last_read_section_index ?? 0)
+        if sections.indices.contains(originalIndex) { sectionURI = sections[originalIndex].uri }
+        let count = imported.chapters.count
+        let index = sections.count == count || book.type.lowercased() == "epub" || book.type.lowercased() == "pdf"
+            ? min(originalIndex, count - 1) : min(Int(book.progress * Double(count)), count - 1)
+        let body = try LocalBookStorage.content(at: imported.chapters[index].url, root: root)
+        let offset = ReedenTextPosition.offset(in: body, paragraph: book.last_read_para_index ?? 0, element: book.last_read_element_index ?? 0)
+        return ReedenPreparedBook(imported: imported, sectionURI: sectionURI, chapterIndex: index, locatorOffset: offset)
     }
     func installFont(_ font: ReedenFont) throws {
         guard Self.validIdentifier(font.id) else { throw ReedenBackupError.unsafeEntry }

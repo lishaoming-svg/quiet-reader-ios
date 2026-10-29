@@ -77,6 +77,24 @@ final class ReedenMigrationTests: XCTestCase {
         XCTAssertFalse(ReedenBackupArchive.validIdentifier("a/b"))
         XCTAssertTrue(ReedenBackupArchive.validIdentifier("ABC123-def"))
     }
+    func testTXTBackupUsesByteBoundariesAndRestoresParagraphWithinItsOriginalSection() async throws {
+        let first = "这是一段中文。\n分卷边界来自备份。\n"
+        let second = "卷二标题\n继续读到这里。\n最后一段。"
+        let a = Data(first.utf8), b = Data(second.utf8)
+        let metadata = try zip(["book.json": Data(#"[{"id":"T1","title":"自定义分卷","type":"txt","read_progress":5000,"last_read_section_index":1,"last_read_para_index":1,"last_read_element_index":2}]"#.utf8)])
+        let sections = "[{\"uri\":null,\"startOffset\":0,\"endOffset\":\(a.count)},{\"uri\":null,\"startOffset\":\(a.count),\"endOffset\":\(a.count+b.count)}]"
+        let data = try zip(["manifest.json": Data(#"{"format":"reeden_full_backup","version":1}"#.utf8), "metadata.zip": metadata,
+            "books/T1/T1": a + b, "books/T1/sections.json": Data(sections.utf8),
+            "books/T1/toc.json": Data(#"[{"title":"甲卷","sectionIndex":0},{"title":"乙卷","sectionIndex":1}]"#.utf8)])
+        let url = root.appendingPathComponent("byte-offsets.zip"); try data.write(to: url)
+        let archive = try ReedenBackupArchive(url: url)
+        let plan = try await archive.plan()
+        let result = try await archive.prepare(XCTUnwrap(plan.books.first), root: root)
+        XCTAssertEqual(result.imported.chapters.map(\.title), ["甲卷", "乙卷"])
+        XCTAssertEqual(result.chapterIndex, 1)
+        XCTAssertEqual(try LocalBookStorage.content(at: result.imported.chapters[1].url, root: root), second)
+        XCTAssertEqual(result.locatorOffset, ("卷二标题\n" as NSString).length + 2)
+    }
     func testPDFPreservesOriginalAndIndexesPages() throws {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 400, height: 600))
         let data = renderer.pdfData { context in
@@ -86,6 +104,11 @@ final class ReedenMigrationTests: XCTestCase {
         let book = try LocalBookImporter.prepare(data: data, filename: "原版.pdf", root: root)
         XCTAssertEqual(book.book.kind, "PDF"); XCTAssertEqual(book.chapters.count, 2)
         XCTAssertEqual(try Data(contentsOf: LocalBookStorage.pdfURL(for: book.book.bookURL, root: root)), data)
+    }
+    func testInvalidFontDoesNotEnterAvailableFonts() {
+        let previous = ImportedFontStore.fonts.map(\.id)
+        XCTAssertThrowsError(try ImportedFontStore.install(Data("这不是字体文件".utf8), name: "无效字体"))
+        XCTAssertEqual(ImportedFontStore.fonts.map(\.id), previous)
     }
     func testEPUBExportRoundTripsLiteralTextAndFullDirectory() throws {
         let source = SearchBook(sourceID: "test", sourceName: "测试", name: "书名 & <标题>", author: "作者", intro: "", kind: "", lastChapter: "", updateTime: "", bookURL: "https://example.org/book?a=1&b=2", coverURL: "", tocURL: "")

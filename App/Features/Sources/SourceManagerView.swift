@@ -200,7 +200,7 @@ private struct SourceRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(source.sourceName)
-                    .font(.system(size: 17, weight: .semibold, design: .serif))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(AppTheme.ink)
                 Text("\(source.sourceGroup) · \(source.sourceURL)")
                     .font(.caption)

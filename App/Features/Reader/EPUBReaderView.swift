@@ -51,7 +51,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             var locator = saved?.publicationLocator.flatMap { try? Locator(jsonString: $0) }
             if locator == nil, let saved, saved.importedSectionURI != nil, !publication.readingOrder.isEmpty {
                 let uri = saved.importedSectionURI?.removingPercentEncoding ?? saved.importedSectionURI ?? ""
-                let index = publication.readingOrder.firstIndex { uri.hasSuffix($0.href.components(separatedBy: "#")[0]) }
+                let index = publication.readingOrder.firstIndex { uri.hasSuffix(($0.href.removingPercentEncoding ?? $0.href).components(separatedBy: "#")[0]) }
                     ?? min(max(saved.chapterIndex, 0), publication.readingOrder.count - 1)
                 let link = publication.readingOrder[index]
                 let body = chapters.indices.contains(index) ? (try? LocalBookStorage.content(at: chapters[index].url)) ?? "" : ""
@@ -136,6 +136,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
         controlsVisible = false
     }
     func navigator(_ navigator: EPUBNavigatorViewController, setupUserScripts userContentController: WKUserContentController) {
+        guard publication?.metadata.layout != .fixed else { return }
         userContentController.addUserScript(WKUserScript(source: EPUBReadingLayout.imageScript,
             injectionTime: .atDocumentStart, forMainFrameOnly: false))
     }
@@ -214,42 +215,57 @@ struct EPUBReaderView: View {
     }
 
     var body: some View {
+        lifecycleCanvas
+            .sheet(isPresented: $showingMenu) { menu.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
+            .alert("阅读提示", isPresented: errorPresented) { errorActions } message: { Text(model.errorMessage ?? "") }
+    }
+    private var errorPresented: SwiftUI.Binding<Bool> {
+        SwiftUI.Binding(get: { model.errorMessage != nil }, set: { visible in if !visible { model.errorMessage = nil } })
+    }
+    @ViewBuilder private var errorActions: some View {
+        if model.navigator == nil {
+            Button("重新打开") { Task { await openBook() } }
+        } else {
+            Button("继续阅读") { model.errorMessage = nil }
+        }
+        Button("返回书库", role: .cancel) { model.close(); dismiss() }
+    }
+    private var lifecycleCanvas: some View {
+        preferenceCanvas
+            .task { await openBook() }
+            .task { await sessionTimer() }
+            .onDisappear { if showingMenu { model.finish() } else { model.close() } }
+            .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
+            .onChange(of: model.controlsVisible) { _, visible in if !visible { showingToolbox = false } }
+    }
+    private var preferenceCanvas: some View {
+        appearanceCanvas
+            .onChange(of: publisherStyles) { _, _ in updatePreferences() }
+            .onChange(of: fontSize) { _, _ in updatePreferences() }
+            .onChange(of: modeValue) { _, _ in updatePreferences() }
+            .onChange(of: directionValue) { _, _ in updatePreferences() }
+            .onChange(of: reduceMotion) { _, _ in updatePreferences() }
+            .onChange(of: theme) { _, _ in updatePreferences() }
+    }
+    private var appearanceCanvas: some View {
         readingCanvas
-        .foregroundStyle(theme == "dark" ? SwiftUI.Color.white : SwiftUI.Color.black)
-        .environment(\.colorScheme, theme == "dark" ? .dark : .light)
-        .navigationBarBackButtonHidden().toolbar(.hidden, for: .navigationBar, .tabBar)
-        .statusBarHidden(!model.controlsVisible)
-        .accessibilityAction(named: "显示阅读菜单") { model.controlsVisible = true }
-        .accessibilityAction(.escape) { model.close(); dismiss() }
-        .task {
-            if UserDefaults.standard.object(forKey: "epub.mode") == nil, legacyScroll { modeValue = ReaderMode.scroll.rawValue }
-            model.readingMode = readingMode
-            await model.open(book: book, chapters: chapters, context: context, preferences: preferences)
+            .foregroundStyle(theme == "dark" ? SwiftUI.Color.white : SwiftUI.Color.black)
+            .environment(\.colorScheme, theme == "dark" ? .dark : .light)
+            .navigationBarBackButtonHidden().toolbar(.hidden, for: .navigationBar, .tabBar)
+            .statusBarHidden(!model.controlsVisible)
+            .accessibilityAction(named: "显示阅读菜单") { model.controlsVisible = true }
+            .accessibilityAction(.escape) { model.close(); dismiss() }
+    }
+    private func openBook() async {
+        if UserDefaults.standard.object(forKey: "epub.mode") == nil, legacyScroll { modeValue = ReaderMode.scroll.rawValue }
+        model.readingMode = readingMode
+        await model.open(book: book, chapters: chapters, context: context, preferences: preferences)
+    }
+    private func sessionTimer() async {
+        while !Task.isCancelled {
+            do { try await Task.sleep(for: .seconds(15)) } catch { break }
+            model.tick(isActive: scenePhase == .active)
         }
-        .task {
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(15)) } catch { break }
-                model.tick(isActive: scenePhase == .active)
-            }
-        }
-        .onDisappear { if showingMenu { model.finish() } else { model.close() } }
-        .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
-        .onChange(of: publisherStyles) { _, _ in updatePreferences() }
-        .onChange(of: fontSize) { _, _ in updatePreferences() }
-        .onChange(of: modeValue) { _, _ in updatePreferences() }
-        .onChange(of: directionValue) { _, _ in updatePreferences() }
-        .onChange(of: reduceMotion) { _, _ in updatePreferences() }
-        .onChange(of: theme) { _, _ in updatePreferences() }
-        .onChange(of: model.controlsVisible) { _, visible in if !visible { showingToolbox = false } }
-        .sheet(isPresented: $showingMenu) { menu.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
-        .alert("阅读提示", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
-            if model.navigator == nil {
-                Button("重新打开") { Task { await model.open(book: book, chapters: chapters, context: context, preferences: preferences) } }
-            } else {
-                Button("继续阅读") { model.errorMessage = nil }
-            }
-            Button("返回书库", role: .cancel) { model.close(); dismiss() }
-        } message: { Text(model.errorMessage ?? "") }
     }
 
     private var readingCanvas: some View {

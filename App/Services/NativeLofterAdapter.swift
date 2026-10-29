@@ -171,6 +171,7 @@ struct NativeLofterAdapter {
         var html = Self.string(p["content"] ?? long["content"] ?? p["caption"])
         for value in Self.rows(p["returnContent"]) { html += "\n" + Self.string(value["content"]) }
         let text = ReadableTextNormalizer.normalize(ReadableContentFormatter.plainText(from: html))
+        if let message = SourceEngine.authenticationMessage(in: text) { throw SourceEngineError.authenticationRequired(message) }
         guard !text.isEmpty else { throw SourceEngineError.emptyContent }
         return text
     }

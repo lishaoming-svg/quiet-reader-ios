@@ -107,8 +107,13 @@ actor SourceHTTPClient {
     }
 
     func lofterHeaders() -> [String: String] {
+        // LOFTER's protocol expects an opaque local device token, not an Apple
+        // advertising/device identifier. It is never included in exports.
+        let key = "source.lofter.deviceToken"
+        let device = UserDefaults.standard.string(forKey: key) ?? String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        UserDefaults.standard.set(device, forKey: key)
         var values = ["User-Agent": "LOFTER/8.3.20", "Referer": "https://www.lofter.com/",
-                      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8"]
+                      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8", "deviceid": device]
         for cookie in HTTPCookieStorage.shared.cookies ?? [] {
             let domain = cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
             guard domain == "lofter.com" || domain.hasSuffix(".lofter.com") else { continue }

@@ -48,10 +48,10 @@ enum ReedenMigration {
                 // A second restore cannot move an actively read book back in time.
                 if !duplicate || progressRecord == nil {
                     let chapters = prepared.imported.chapters
-                    let index = min(max(book.last_read_section_index ?? 0, 0), chapters.count - 1)
+                    let index = prepared.chapterIndex
                     let record = progressRecord ?? ReadingProgressRecord(bookID: id, chapter: chapters[index])
                     if record.modelContext == nil { context.insert(record) }
-                    record.update(chapter: chapters[index], locatorOffset: book.last_read_element_index ?? 0)
+                    record.update(chapter: chapters[index], locatorOffset: prepared.locatorOffset)
                     record.bookProgress = book.progress
                     record.importedSectionURI = prepared.sectionURI
                     record.importedParagraphIndex = max(0, book.last_read_para_index ?? 0)
@@ -76,12 +76,12 @@ enum ReedenMigration {
             do { try await archive.installFont(font); report.fonts += 1 }
             catch { report.failures.append("字体“\(font.name)”：" + error.localizedDescription) }
         }
-        report.notes = try restoreNotes(plan.notes, books: plan.books, mapping: mapping, context: context)
+        report.notes = try restoreNotes(plan.notes, books: plan.books, mapping: mapping, context: context, root: root)
         report.sessions = try restoreSessions(plan.records, books: plan.books, mapping: mapping, context: context)
         progress(total, total, "迁移完成")
         return report
     }
-    static func restoreNotes(_ notes: [ReedenNote], books: [ReedenBook], mapping: [String: String], context: ModelContext) throws -> Int {
+    static func restoreNotes(_ notes: [ReedenNote], books: [ReedenBook], mapping: [String: String], context: ModelContext, root: URL = LocalBookStorage.root) throws -> Int {
         var seen = Set(try context.fetch(FetchDescriptor<BookmarkRecord>()).map(\.bookmarkID))
         let titles = Dictionary(books.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
         let lists = Dictionary(try context.fetch(FetchDescriptor<ChapterListCacheRecord>()).map { ($0.bookID, $0.chapters) }, uniquingKeysWith: { first, _ in first })
@@ -96,6 +96,10 @@ enum ReedenMigration {
                 ?? BookChapter(title: note.section_name?.nilIfBlank ?? "导入的笔记", url: "", index: index)
             let placeholder = SearchBook(sourceID: LocalBookStorage.sourceID, sourceName: "Reeden 迁移", name: titles[note.book_id] ?? "原图书未在备份中", author: "", intro: "", kind: "", lastChapter: "", updateTime: "", bookURL: "", coverURL: "", tocURL: "")
             let mark = BookmarkRecord(book: placeholder, chapter: chapter, locatorOffset: note.start_index ?? 0, chapterProgress: 0, excerpt: note.description ?? "")
+            if !chapter.url.isEmpty, let body = try? LocalBookStorage.content(at: chapter.url, root: root) {
+                mark.locatorOffset = ReedenTextPosition.offset(in: body, paragraph: note.paragraph_index ?? 0, element: note.start_index ?? 0)
+                mark.chapterProgress = Double(mark.locatorOffset) / Double(max(1, (body as NSString).length))
+            }
             mark.bookmarkID = noteID; mark.bookID = id; mark.note = note.comment ?? ""; mark.noteKind = note.type ?? "underline"
             mark.importedParagraphIndex = note.paragraph_index
             mark.importedEndParagraphIndex = note.end_paragraph_index; mark.importedEndOffset = note.end_index
