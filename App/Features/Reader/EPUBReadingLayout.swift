@@ -33,7 +33,7 @@ enum EPUBReadingLayout {
     // Only constrain media dimensions and fragmentation; keep publisher typography,
     // inline illustrations, chat bubbles, ruby and ornaments intact.
     static let imageStyles = """
-    img, svg, video { max-width: 100%; max-height: 85vh; object-fit: contain; }
+    img, svg, video { max-width: 100% !important; max-height: 85vh !important; object-fit: contain; }
     img, svg, video, .ibooks-illustration { break-inside: avoid; page-break-inside: avoid; }
     .ibooks-illustration > img, .ibooks-illustration > svg { object-fit: contain; }
     """

@@ -55,7 +55,7 @@ final class EPUBCurlController: UIViewController {
         configurePans(in: navigator.view)
     }
     func update(mode: ReaderMode, paper: UIColor, onTurn: @escaping () -> Void) {
-        self.mode = mode; self.paper = paper; self.onTurn = onTurn
+        self.mode = navigator.settings.scroll ? .scroll : mode; self.paper = paper; self.onTurn = onTurn
         if isViewLoaded { view.backgroundColor = paper; configurePans(in: navigator.view) }
     }
     private func configurePans(in content: UIView) {

@@ -51,14 +51,14 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             var locator = saved?.publicationLocator.flatMap { try? Locator(jsonString: $0) }
             if locator == nil, let saved, saved.importedSectionURI != nil, !publication.readingOrder.isEmpty {
                 let uri = saved.importedSectionURI?.removingPercentEncoding ?? saved.importedSectionURI ?? ""
-                let index = publication.readingOrder.firstIndex { uri.hasSuffix($0.href.string.components(separatedBy: "#")[0]) }
+                let index = publication.readingOrder.firstIndex { uri.hasSuffix($0.href.components(separatedBy: "#")[0]) }
                     ?? min(max(saved.chapterIndex, 0), publication.readingOrder.count - 1)
                 let link = publication.readingOrder[index]
                 let body = chapters.indices.contains(index) ? (try? LocalBookStorage.content(at: chapters[index].url)) ?? "" : ""
-                let paragraphs = body.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                let paragraphs = body.components(separatedBy: CharacterSet.newlines).filter { !$0.trimmingCharacters(in: CharacterSet.whitespaces).isEmpty }
                 let paragraph = saved.importedParagraphIndex ?? 0
                 let quote = paragraphs.indices.contains(paragraph) ? String(paragraphs[paragraph].prefix(80)) : nil
-                locator = Locator(href: link.href, mediaType: .xhtml, title: link.title,
+                locator = Locator(href: link.url(), mediaType: .xhtml, title: link.title,
                     locations: .init(progression: saved.bookProgress == 1 ? 1 : nil, totalProgression: saved.bookProgress), text: .init(highlight: quote))
             }
             isRestoring = locator != nil
@@ -147,7 +147,8 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     func go(_ link: ReadiumShared.Link) { Task { _ = await navigator?.go(to: link) } }
     func go(index: Int, excerpt: String) {
         guard let publication, publication.readingOrder.indices.contains(index) else { return }
-        let locator = Locator(href: publication.readingOrder[index].href, mediaType: .xhtml, text: .init(highlight: excerpt))
+        let href = publication.readingOrder[index].url()
+        let locator = Locator(href: href, mediaType: .xhtml, text: .init(highlight: excerpt))
         Task { _ = await navigator?.go(to: locator) }
     }
     func bookmark() {
@@ -163,7 +164,8 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     func go(bookmark: BookmarkRecord) {
         let imported = publication.flatMap { publication -> Locator? in
             guard publication.readingOrder.indices.contains(bookmark.chapterIndex) else { return nil }
-            return Locator(href: publication.readingOrder[bookmark.chapterIndex].href, mediaType: .xhtml,
+            let href = publication.readingOrder[bookmark.chapterIndex].url()
+            return Locator(href: href, mediaType: .xhtml,
                 locations: .init(progression: bookmark.chapterProgress), text: .init(highlight: bookmark.excerpt.nilIfBlank))
         }
         guard let locator = bookmark.publicationLocator.flatMap({ try? Locator(jsonString: $0) }) ?? imported else { return }
@@ -199,6 +201,7 @@ struct EPUBReaderView: View {
     @Query private var bookmarks: [BookmarkRecord]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var readingMode: ReaderMode {
+        if directionValue == EPUBTextDirection.vertical.rawValue { return .scroll }
         let selected = ReaderMode(rawValue: modeValue) ?? .pageCurl
         return reduceMotion && selected == .pageCurl ? .pageNone : selected
     }
@@ -211,6 +214,45 @@ struct EPUBReaderView: View {
     }
 
     var body: some View {
+        readingCanvas
+        .foregroundStyle(theme == "dark" ? SwiftUI.Color.white : SwiftUI.Color.black)
+        .environment(\.colorScheme, theme == "dark" ? .dark : .light)
+        .navigationBarBackButtonHidden().toolbar(.hidden, for: .navigationBar, .tabBar)
+        .statusBarHidden(!model.controlsVisible)
+        .accessibilityAction(named: "显示阅读菜单") { model.controlsVisible = true }
+        .accessibilityAction(.escape) { model.close(); dismiss() }
+        .task {
+            if UserDefaults.standard.object(forKey: "epub.mode") == nil, legacyScroll { modeValue = ReaderMode.scroll.rawValue }
+            model.readingMode = readingMode
+            await model.open(book: book, chapters: chapters, context: context, preferences: preferences)
+        }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(15)) } catch { break }
+                model.tick(isActive: scenePhase == .active)
+            }
+        }
+        .onDisappear { if showingMenu { model.finish() } else { model.close() } }
+        .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
+        .onChange(of: publisherStyles) { _, _ in updatePreferences() }
+        .onChange(of: fontSize) { _, _ in updatePreferences() }
+        .onChange(of: modeValue) { _, _ in updatePreferences() }
+        .onChange(of: directionValue) { _, _ in updatePreferences() }
+        .onChange(of: reduceMotion) { _, _ in updatePreferences() }
+        .onChange(of: theme) { _, _ in updatePreferences() }
+        .onChange(of: model.controlsVisible) { _, visible in if !visible { showingToolbox = false } }
+        .sheet(isPresented: $showingMenu) { menu.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
+        .alert("阅读提示", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+            if model.navigator == nil {
+                Button("重新打开") { Task { await model.open(book: book, chapters: chapters, context: context, preferences: preferences) } }
+            } else {
+                Button("继续阅读") { model.errorMessage = nil }
+            }
+            Button("返回书库", role: .cancel) { model.close(); dismiss() }
+        } message: { Text(model.errorMessage ?? "") }
+    }
+
+    private var readingCanvas: some View {
         ZStack {
             background.ignoresSafeArea()
             if let navigator = model.navigator {
@@ -257,41 +299,6 @@ struct EPUBReaderView: View {
                 }.padding(.horizontal, 24).padding(.bottom, 72) }
             }
         }
-        .foregroundStyle(theme == "dark" ? SwiftUI.Color.white : SwiftUI.Color.black)
-        .environment(\.colorScheme, theme == "dark" ? .dark : .light)
-        .navigationBarBackButtonHidden().toolbar(.hidden, for: .navigationBar, .tabBar)
-        .statusBarHidden(!model.controlsVisible)
-        .accessibilityAction(named: "显示阅读菜单") { model.controlsVisible = true }
-        .accessibilityAction(.escape) { model.close(); dismiss() }
-        .task {
-            if UserDefaults.standard.object(forKey: "epub.mode") == nil, legacyScroll { modeValue = ReaderMode.scroll.rawValue }
-            model.readingMode = readingMode
-            await model.open(book: book, chapters: chapters, context: context, preferences: preferences)
-        }
-        .task {
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(15)) } catch { break }
-                model.tick(isActive: scenePhase == .active)
-            }
-        }
-        .onDisappear { if showingMenu { model.finish() } else { model.close() } }
-        .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
-        .onChange(of: publisherStyles) { _, _ in updatePreferences() }
-        .onChange(of: fontSize) { _, _ in updatePreferences() }
-        .onChange(of: modeValue) { _, _ in updatePreferences() }
-        .onChange(of: directionValue) { _, _ in updatePreferences() }
-        .onChange(of: reduceMotion) { _, _ in updatePreferences() }
-        .onChange(of: theme) { _, _ in updatePreferences() }
-        .onChange(of: model.controlsVisible) { _, visible in if !visible { showingToolbox = false } }
-        .sheet(isPresented: $showingMenu) { menu.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
-        .alert("阅读提示", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
-            if model.navigator == nil {
-                Button("重新打开") { Task { await model.open(book: book, chapters: chapters, context: context, preferences: preferences) } }
-            } else {
-                Button("继续阅读") { model.errorMessage = nil }
-            }
-            Button("返回书库", role: .cancel) { model.close(); dismiss() }
-        } message: { Text(model.errorMessage ?? "") }
     }
 
     private func updatePreferences() { model.readingMode = readingMode; model.navigator?.submitPreferences(preferences) }
@@ -316,6 +323,7 @@ struct EPUBReaderView: View {
                     Picker("文字方向", selection: $directionValue) {
                         ForEach(EPUBTextDirection.allCases) { direction in Text(direction.title).tag(direction.rawValue) }
                     }.accessibilityIdentifier("epub.textDirection")
+                    if directionValue == EPUBTextDirection.vertical.rawValue { Text("竖排文字从右向左横向滚动，保留原书注音与标点方向。").font(.footnote).foregroundStyle(.secondary) }
                     Button(model.bookmarkAdded ? "书签已添加" : "添加书签", systemImage: "bookmark") { model.bookmark() }
                         .disabled(model.bookmarkAdded)
                 }

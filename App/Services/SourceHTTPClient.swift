@@ -22,6 +22,7 @@ actor SourceHTTPClient {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw SourceEngineError.invalidURL(url.absoluteString)
         }
+        try Task.checkCancellation()
         let key = source.id + "|" + url.absoluteString + "|" + method + "|" + (body?.base64EncodedString() ?? "") + "|" + (source.header ?? "")
         if cacheSeconds > 0, let cached = responseCache[key], Date.now.timeIntervalSince(cached.0) < cacheSeconds { return cached.1 }
         var lastError: Error?
@@ -33,6 +34,10 @@ actor SourceHTTPClient {
                 if cacheSeconds > 0 {
                     if responseCache.count >= 48, let oldest = responseCache.min(by: { $0.value.0 < $1.value.0 })?.key { responseCache.removeValue(forKey: oldest) }
                     responseCache[key] = (.now, result)
+                    while responseCache.values.reduce(0, { $0 + $1.1.data.count }) > 24 * 1_024 * 1_024 {
+                        guard let oldest = responseCache.min(by: { $0.value.0 < $1.value.0 })?.key else { break }
+                        responseCache.removeValue(forKey: oldest)
+                    }
                 }
                 return result
             } catch is CancellationError {

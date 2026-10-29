@@ -14,6 +14,7 @@ struct BookDetailView: View {
     @State private var isInBookshelf = false
     @State private var resumeIndex: Int?
     @State private var cacheTask: Task<Void, Never>?
+    @State private var cacheGeneration = UUID()
     @State private var cacheProgress: BatchCacheProgress?
     @State private var showingLogin = false
     @State private var showingExport = false
@@ -147,6 +148,7 @@ struct BookDetailView: View {
     private func switchSource(to candidate: SearchBook, source definition: BookSourceDefinition) {
         guard definition.id != source.id || candidate.bookURL != book.bookURL else { return }
         cacheTask?.cancel()
+        cacheGeneration = UUID()
         source = definition
         book = candidate
         chapters = []
@@ -358,47 +360,66 @@ struct BookDetailView: View {
         let targets = maximumCount.map { Array(remaining.prefix($0)) } ?? chapters
         cacheTask?.cancel()
         cacheProgress = BatchCacheProgress(total: targets.count)
-        cacheTask = Task { await cache(targets) }
+        cacheGeneration = UUID()
+        let generation = cacheGeneration
+        cacheTask = Task { await cache(targets, generation: generation) }
     }
 
-    private func cache(_ targets: [BookChapter]) async {
+    private func cache(_ targets: [BookChapter], generation: UUID) async {
+        let downloadSource = source, downloadBookID = book.id
         var completed = 0
         var failed = 0
-
+        var pending: [BookChapter] = []
         for chapter in targets {
-            if Task.isCancelled { break }
-            cacheProgress?.currentTitle = chapter.title
-
-            let key = "\(source.id)::\(chapter.url)"
+            let key = "\(downloadSource.id)::\(chapter.url)"
             let descriptor = FetchDescriptor<ChapterCacheRecord>(
                 predicate: #Predicate { $0.cacheKey == key }
             )
-            if ((try? modelContext.fetchCount(descriptor)) ?? 0) == 0 {
-                do {
-                    let content = try await SourceEngine().loadContent(chapter: chapter, source: source)
-                    modelContext.insert(
-                        ChapterCacheRecord(
-                            sourceID: source.id,
-                            bookID: book.id,
-                            chapter: chapter,
-                            content: content
-                        )
-                    )
-                    try modelContext.save()
-                } catch {
-                    failed += 1
-                    if (error as? SourceEngineError)?.requiresAuthentication == true {
-                        errorMessage = "书源需要登录，请点右上角“登录书源”，完成后重新下载。"
-                        cacheProgress?.failed = failed
-                        break
+            if ((try? modelContext.fetchCount(descriptor)) ?? 0) > 0 { completed += 1 }
+            else { pending.append(chapter) }
+        }
+        cacheProgress?.completed = completed
+        await withTaskGroup(of: ChapterDownloadOutcome.self) { group in
+            var next = 0
+            func enqueue(_ index: Int) {
+                let chapter = pending[index]
+                group.addTask {
+                    do {
+                        try Task.checkCancellation()
+                        let content = try await SourceEngine().loadContent(chapter: chapter, source: downloadSource)
+                        return ChapterDownloadOutcome(chapter: chapter, content: content)
+                    } catch {
+                        return ChapterDownloadOutcome(chapter: chapter, error: error.localizedDescription,
+                            authentication: (error as? SourceEngineError)?.requiresAuthentication == true)
                     }
                 }
             }
-            completed += 1
-            cacheProgress?.completed = completed
-            cacheProgress?.failed = failed
+            let concurrency = NativeLofterAdapter.accepts(downloadSource) ? 2 : 4
+            while next < min(concurrency, pending.count) { enqueue(next); next += 1 }
+            for await outcome in group {
+                guard !Task.isCancelled, cacheGeneration == generation else { group.cancelAll(); break }
+                cacheProgress?.currentTitle = outcome.chapter.title
+                if let content = outcome.content {
+                    do {
+                        modelContext.insert(ChapterCacheRecord(sourceID: downloadSource.id, bookID: downloadBookID, chapter: outcome.chapter, content: content))
+                        try modelContext.save()
+                    } catch { failed += 1 }
+                } else {
+                    failed += 1
+                    if outcome.authentication {
+                        errorMessage = "书源需要登录，请点右上角“登录书源”，完成后重新下载。"
+                        cacheProgress?.failed = failed
+                        group.cancelAll(); break
+                    }
+                }
+                completed += 1
+                cacheProgress?.completed = completed
+                cacheProgress?.failed = failed
+                if next < pending.count { enqueue(next); next += 1 }
+            }
         }
 
+        guard cacheGeneration == generation else { return }
         cacheProgress?.isRunning = false
         cacheProgress?.wasCancelled = Task.isCancelled
     }
@@ -460,4 +481,11 @@ private struct BatchCacheProgress {
         }
         return "缓存完成 \(completed)/\(total)，失败 \(failed) 章"
     }
+}
+
+private struct ChapterDownloadOutcome: Sendable {
+    let chapter: BookChapter
+    var content: String? = nil
+    var error: String? = nil
+    var authentication = false
 }

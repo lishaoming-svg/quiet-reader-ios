@@ -52,6 +52,7 @@ enum LocalBookImporter {
         if format == "pdf" {
             guard let pdf = PDFDocument(data: data), pdf.pageCount > 0 else { throw LocalBookError.invalid }
             guard !pdf.isLocked else { throw LocalBookError.encrypted }
+            guard pdf.pageCount <= 10_000 else { throw LocalBookError.tooLarge }
             let chapters = (0..<pdf.pageCount).map { index in
                 LocalBookDocument.Chapter(title: "第 \(index + 1) 页", content: pdf.page(at: index)?.string?.nilIfBlank ?? "第 \(index + 1) 页")
             }
