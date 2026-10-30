@@ -53,7 +53,7 @@ struct BookshelfView: View {
                             Text(collectionTitle).font(.subheadline.weight(.medium))
                             Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                         }
-                    }.foregroundStyle(.secondary).accessibilityIdentifier("library.collections")
+                    }.frame(minHeight: 44).contentShape(Rectangle()).foregroundStyle(.secondary).accessibilityIdentifier("library.collections")
                     Spacer()
                     Text("\(visibleBooks.count) 本").font(.subheadline).foregroundStyle(.secondary)
                 }

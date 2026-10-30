@@ -154,7 +154,15 @@ final class LibraryFlowTests: XCTestCase {
         revealControls(app)
         app.buttons["reader.menu"].tap()
         app.buttons["主题与设置"].tap()
-        XCTAssertTrue(app.switches["epub.publisherStyles"].waitForExistence(timeout: 5))
+        let publisherStyles = app.switches["epub.publisherStyles"]
+        // Theme cards and font controls precede the original-style switch.
+        // Scroll the actual settings list, which also expands the medium sheet.
+        for _ in 0..<6 {
+            if publisherStyles.exists && publisherStyles.isHittable { break }
+            app.collectionViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(publisherStyles.waitForExistence(timeout: 5))
+        XCTAssertTrue(publisherStyles.isHittable)
         capture(app, "07-epub-reading-menu")
         app.buttons["完成"].tap()
         if !app.buttons["reader.menu"].exists { revealControls(app) }
