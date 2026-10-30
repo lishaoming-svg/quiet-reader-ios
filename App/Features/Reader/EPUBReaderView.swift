@@ -95,19 +95,14 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             currentLocator = locator
             var config = EPUBNavigatorViewController.Configuration(preferences: preferences)
             if source == nil {
-                config.editingActions += [EditingAction(title: "高亮", action: #selector(BooksEPUBNavigator.highlightSelection)),
-                    EditingAction(title: "添加笔记", action: #selector(BooksEPUBNavigator.noteSelection))]
+                config.editingActions += [EditingAction(title: "高亮", action: #selector(EPUBCurlController.highlightSelection)),
+                    EditingAction(title: "添加笔记", action: #selector(EPUBCurlController.noteSelection))]
             }
             config.disablePageTurnsWhileScrolling = true
             config.contentInset = [.compact: (top: 12, bottom: 12), .regular: (top: 16, bottom: 16)]
             // Each opening owns a fresh controller. Let Readium lay out the saved
             // resource directly instead of jumping while its first spread loads.
-            let navigator: EPUBNavigatorViewController
-            if source == nil {
-                let local = try BooksEPUBNavigator(publication: publication, initialLocation: locator, config: config)
-                local.annotate = { [weak self] locator, edit in self?.annotate(locator, edit: edit) }
-                navigator = local
-            } else { navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: locator, config: config) }
+            let navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: locator, config: config)
             navigator.delegate = self
             // Readium consumes links and selection before this observer. Edge taps
             // use the same turn controller as swipe gestures; the center reveals tools.
@@ -445,7 +440,8 @@ struct EPUBReaderView: View {
                     .ignoresSafeArea(edges: .bottom)
             } else if let navigator = model.navigator {
                 EPUBPageCurlHost(navigator: navigator, mode: readingMode, paper: UIColor(background),
-                    onTurn: { model.controlsVisible = false }, installTurnHandler: { model.requestTurn = $0 })
+                    onTurn: { model.controlsVisible = false }, installTurnHandler: { model.requestTurn = $0 },
+                    onAnnotation: source == nil ? { locator, edit in model.annotate(locator, edit: edit) } : nil)
                     .ignoresSafeArea(edges: .bottom)
             }
             else if model.errorMessage == nil { ProgressView("正在展开原书精排…") }

@@ -1,4 +1,6 @@
+import Foundation
 import ReadiumNavigator
+import ReadiumShared
 import SwiftUI
 import WebKit
 
@@ -10,15 +12,18 @@ struct EPUBPageCurlHost: UIViewControllerRepresentable {
     let paper: UIColor
     let onTurn: () -> Void
     let installTurnHandler: (@escaping (Int) -> Void) -> Void
+    var onAnnotation: ((Locator, Bool) -> Void)? = nil
 
     func makeUIViewController(context: Context) -> EPUBCurlController {
         let controller = EPUBCurlController(navigator: navigator)
         controller.update(mode: mode, paper: paper, onTurn: onTurn)
+        controller.annotate = onAnnotation
         installTurnHandler { [weak controller] direction in controller?.turn(direction) }
         return controller
     }
     func updateUIViewController(_ controller: EPUBCurlController, context: Context) {
         controller.update(mode: mode, paper: paper, onTurn: onTurn)
+        controller.annotate = onAnnotation
     }
     static func dismantleUIViewController(_ controller: EPUBCurlController, coordinator: ()) { controller.stop() }
 }
@@ -26,6 +31,7 @@ struct EPUBPageCurlHost: UIViewControllerRepresentable {
 @MainActor
 final class EPUBCurlController: UIViewController {
     let navigator: EPUBNavigatorViewController
+    var annotate: ((Locator, Bool) -> Void)?
     private var mode = ReaderMode.pageCurl
     private var paper = UIColor.systemBackground
     private var onTurn: () -> Void = {}
@@ -39,6 +45,14 @@ final class EPUBCurlController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+    @objc func highlightSelection() {
+        guard let locator = navigator.currentSelection?.locator else { return }
+        annotate?(locator, false); navigator.clearSelection()
+    }
+    @objc func noteSelection() {
+        guard let locator = navigator.currentSelection?.locator else { return }
+        annotate?(locator, true); navigator.clearSelection()
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
