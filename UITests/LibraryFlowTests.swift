@@ -80,7 +80,16 @@ final class LibraryFlowTests: XCTestCase {
         wait(for: [secondVisible], timeout: 10)
         revealControls(app); app.buttons["reader.menu"].tap(); app.buttons["主题与设置"].tap()
         let toggle = app.switches["reader.lineGuide"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5)); toggle.tap(); app.buttons["完成"].tap()
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(toggle.value as? String, "0", "逐行导读默认关闭")
+        // SwiftUI exposes the entire labelled List row as a Switch. Its centre
+        // is the label, outside the UISwitch's touch target on iOS 26. Tap the
+        // trailing control and verify its value before dismissing settings.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        let enabled = expectation(for: NSPredicate(format: "value == %@", "1"), evaluatedWith: toggle)
+        wait(for: [enabled], timeout: 5)
+        capture(app, "10-line-guide-enabled-settings")
+        app.buttons["完成"].tap()
         let guide = app.descendants(matching: .any).matching(identifier: "reader.lineGuideWindow").firstMatch
         XCTAssertTrue(guide.waitForExistence(timeout: 10))
         let before = guide.frame.midY
