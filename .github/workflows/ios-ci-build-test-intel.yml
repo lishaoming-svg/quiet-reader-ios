@@ -132,6 +132,8 @@ jobs:
           ref: df71d6096d6d39ea799179cb2635703548b07ae0
           path: .ci-workflows
           persist-credentials: false
+      - name: Verify runner failures block packaging
+        run: python3 scripts/test-ci-report-policy.py .ci-workflows/scripts/xcresult-report.py
       - name: Install xcbeautify
         run: |
           set -euo pipefail

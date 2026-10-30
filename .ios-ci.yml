@@ -6,6 +6,12 @@ bundle_id: com.quietreader.app
 display_name: iBooks
 generate_command: xcodegen generate
 
+# Only our audit assertions may be warnings. XCTest runner / AX service
+# initialization errors mention Accessibility too, but must block packaging.
+build_test:
+  accessibility_audit: warn
+  accessibility_test_pattern: '^failed - Accessibility audit（'
+
 # 快照、模拟器测试使用固定的工具链；找不到版本时由 CI 明确报错。
 toolchain:
   xcode: '26.6'
