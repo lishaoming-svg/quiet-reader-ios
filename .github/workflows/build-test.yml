@@ -21,6 +21,7 @@ permissions:
   contents: read
 
 # PR 和它的分支推送共用一组，新提交取消还在跑的旧运行；main 上每次合并都跑完，供 TestFlight 复用
+# 调度记录（2026-10-30）：重新分配 macOS 运行器，重跑初始化阶段停滞的构建。
 concurrency:
   group: build-test-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
