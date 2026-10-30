@@ -26,6 +26,19 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     private var lastTick = Date.now
     private var lastActivity = Date.now
     private var active = true
+    var continuousNavigation: ((ContinuousReadingPosition) -> Void)?
+    var continuousActive = false
+    private var currentLocator: Locator?
+
+    var continuousPosition: ContinuousReadingPosition {
+        guard let publication, !publication.readingOrder.isEmpty else { return .init(index: 0) }
+        let locator = currentLocator ?? navigator?.currentLocation
+        let href = locator?.href.string.components(separatedBy: "#")[0] ?? ""
+        let index = publication.readingOrder.firstIndex { $0.href.components(separatedBy: "#")[0] == href } ?? 0
+        return .init(index: index, fraction: locator?.locations.progression ?? 0,
+            fragment: locator?.href.string.components(separatedBy: "#").dropFirst().joined(separator: "#") ?? "",
+            quote: locator?.text.highlight ?? "")
+    }
 
     static func preferences(publisherStyles: Bool, fontSizePercent: Double, scroll: Bool, theme: String,
                             direction: EPUBTextDirection = .publisher) -> EPUBPreferences {
@@ -33,22 +46,35 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
                                       scroll: scroll, theme: theme, direction: direction)
     }
 
-    func open(book: SearchBook, chapters: [BookChapter], context: ModelContext, preferences: EPUBPreferences) async {
+    func open(book: SearchBook, chapters: [BookChapter], context: ModelContext, preferences: EPUBPreferences,
+              source: BookSourceDefinition? = nil, initialIndex: Int = 0) async {
         guard navigator == nil else { return }
         self.book = book; self.chapters = chapters; self.context = context; errorMessage = nil
         do {
-            let url = try LocalBookStorage.publicationURL(for: book.bookURL)
-            guard let fileURL = FileURL(url: url) else { throw LocalBookError.missing }
-            let client = DefaultHTTPClient()
-            let retriever = AssetRetriever(httpClient: client)
-            let asset = try await retriever.retrieve(url: fileURL).get()
-            let publication = try await PublicationOpener(parser: EPUBParser()).open(asset: asset, allowUserInteraction: false).get()
+            let publication: Publication
+            if let source {
+                let repository = SourceChapterRepository(book: book, chapters: chapters, source: source, context: context)
+                repository.failure = { [weak self] message in self?.errorMessage = message }
+                publication = repository.publication()
+            } else {
+                let url = try LocalBookStorage.publicationURL(for: book.bookURL)
+                guard let fileURL = FileURL(url: url) else { throw LocalBookError.missing }
+                let asset = try await AssetRetriever(httpClient: DefaultHTTPClient()).retrieve(url: fileURL).get()
+                publication = try await PublicationOpener(parser: EPUBParser()).open(asset: asset, allowUserInteraction: false).get()
+            }
             let contents = (try? await publication.tableOfContents().get()) ?? []
             tocLinks = contents.isEmpty ? publication.readingOrder : contents
             try Task.checkCancellation()
             let id = book.id
             let saved = try context.fetch(FetchDescriptor<ReadingProgressRecord>(predicate: #Predicate { $0.bookID == id })).first
             var locator = saved?.publicationLocator.flatMap { try? Locator(jsonString: $0) }
+            if source != nil, saved?.chapterIndex != initialIndex { locator = nil }
+            if source != nil, locator == nil, !publication.readingOrder.isEmpty {
+                let index = min(max(initialIndex, 0), publication.readingOrder.count - 1)
+                let link = publication.readingOrder[index]
+                locator = Locator(href: link.url(), mediaType: .xhtml, title: link.title,
+                    locations: .init(progression: saved?.chapterIndex == index ? saved?.chapterProgress ?? 0 : 0))
+            }
             if locator == nil, let saved, saved.importedParagraphIndex != nil, !publication.readingOrder.isEmpty {
                 let uri = saved.importedSectionURI?.removingPercentEncoding ?? saved.importedSectionURI ?? ""
                 let matchedIndex = publication.readingOrder.firstIndex { uri.hasSuffix(($0.href.removingPercentEncoding ?? $0.href).components(separatedBy: "#")[0]) }
@@ -63,7 +89,9 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
                     locations: .init(progression: saved.bookProgress == 1 ? 1 : nil, totalProgression: saved.bookProgress), text: .init(highlight: quote))
             }
             isRestoring = locator != nil
+            currentLocator = locator
             var config = EPUBNavigatorViewController.Configuration(preferences: preferences)
+            config.disablePageTurnsWhileScrolling = true
             config.contentInset = [.compact: (top: 12, bottom: 12), .regular: (top: 16, bottom: 16)]
             // Each opening owns a fresh controller. Let Readium lay out the saved
             // resource directly instead of jumping while its first spread loads.
@@ -89,15 +117,20 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             active = true
             try context.save()
         } catch is CancellationError { return
-        } catch { errorMessage = "无法打开 EPUB：\(error.localizedDescription)\n请重新导入未加密、完整的原文件。" }
+        } catch { errorMessage = source == nil ? "无法打开 EPUB：\(error.localizedDescription)\n请重新导入未加密、完整的原文件。" : "书籍暂时无法打开：\(error.localizedDescription)" }
     }
 
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
-        guard !isRestoring, let controller = navigator as? EPUBNavigatorViewController,
+        guard !continuousActive, !isRestoring, let controller = navigator as? EPUBNavigatorViewController,
               controller.viewport != nil else { return }
-        guard let context, let book, let publication, !chapters.isEmpty else { return }
-        let id = book.id
+        guard let publication else { return }
         let index = publication.readingOrder.firstIndex { $0.href.components(separatedBy: "#")[0] == locator.href.string.components(separatedBy: "#")[0] } ?? 0
+        persist(locator, index: index)
+    }
+    private func persist(_ locator: Locator, index: Int) {
+        guard let context, let book, !chapters.isEmpty else { return }
+        currentLocator = locator
+        let id = book.id
         let chapter = chapters[min(index, chapters.count - 1)]
         progress = min(1, max(0, locator.locations.totalProgression ?? Double(index) / Double(chapters.count)))
         locationTitle = locator.title ?? chapter.title
@@ -114,6 +147,14 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             bookmarkAdded = false; lastActivity = .now
         } catch { errorMessage = "阅读位置保存失败：\(error.localizedDescription)" }
     }
+    func continuousChanged(_ position: ContinuousReadingPosition) {
+        guard let publication, publication.readingOrder.indices.contains(position.index), !isRestoring else { return }
+        let link = publication.readingOrder[position.index]
+        let locator = Locator(href: link.url(), mediaType: .xhtml, title: link.title,
+            locations: .init(progression: position.fraction,
+                totalProgression: (Double(position.index) + position.fraction) / Double(max(1, publication.readingOrder.count))))
+        persist(locator, index: position.index)
+    }
     func navigator(_ navigator: any ViewportObservingNavigator, viewportDidChange viewport: NavigatorViewport?) {
         guard isRestoring, viewport != nil, let controller = self.navigator,
               let current = controller.currentLocation else { return }
@@ -122,7 +163,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     }
 
     func finish() {
-        if let navigator, let locator = navigator.currentLocation { self.navigator(navigator, locationDidChange: locator) }
+        if !continuousActive, let navigator, let locator = navigator.currentLocation { self.navigator(navigator, locationDidChange: locator) }
         tick(isActive: false)
     }
 
@@ -135,6 +176,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
         publication = nil
         isRestoring = false
         controlsVisible = false
+        continuousNavigation = nil; continuousActive = false; currentLocator = nil
     }
     func navigator(_ navigator: EPUBNavigatorViewController, setupUserScripts userContentController: WKUserContentController) {
         guard publication?.metadata.layout != .fixed else { return }
@@ -143,18 +185,24 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     }
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) { errorMessage = "暂时无法完成这个阅读操作，请重试。" }
     func navigator(_ navigator: Navigator, didFailToLoadResourceAt href: RelativeURL, withError error: ReadError) {
-        errorMessage = "原书资源无法读取：\(href.string)。请检查原 EPUB 是否完整。"
+        if errorMessage == nil { errorMessage = "正文或插图无法读取：\(href.string)。请检查文件、网络或书源访问权限。" }
     }
 
-    func go(_ link: ReadiumShared.Link) { Task { _ = await navigator?.go(to: link) } }
+    func go(_ link: ReadiumShared.Link) {
+        if continuousActive, let publication,
+           let index = publication.readingOrder.firstIndex(where: { $0.href.components(separatedBy: "#")[0] == link.href.components(separatedBy: "#")[0] }) {
+            continuousNavigation?(.init(index: index, fragment: link.href.components(separatedBy: "#").dropFirst().joined(separator: "#")))
+        } else { Task { _ = await navigator?.go(to: link) } }
+    }
     func go(index: Int, excerpt: String) {
         guard let publication, publication.readingOrder.indices.contains(index) else { return }
+        if continuousActive { continuousNavigation?(.init(index: index, quote: excerpt)); return }
         let href = publication.readingOrder[index].url()
         let locator = Locator(href: href, mediaType: .xhtml, text: .init(highlight: excerpt))
         Task { _ = await navigator?.go(to: locator) }
     }
     func bookmark() {
-        guard let context, let book, let locator = navigator?.currentLocation, !chapters.isEmpty else { return }
+        guard let context, let book, let locator = continuousActive ? currentLocator : navigator?.currentLocation, !chapters.isEmpty else { return }
         do {
             let index = publication?.readingOrder.firstIndex { $0.href == locator.href.string } ?? 0
             let mark = BookmarkRecord(book: book, chapter: chapters[min(index, chapters.count - 1)], locatorOffset: 0,
@@ -171,7 +219,15 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
                 locations: .init(progression: bookmark.chapterProgress), text: .init(highlight: bookmark.excerpt.nilIfBlank))
         }
         guard let locator = bookmark.publicationLocator.flatMap({ try? Locator(jsonString: $0) }) ?? imported else { return }
+        if continuousActive, let publication,
+           let index = publication.readingOrder.firstIndex(where: { $0.href.components(separatedBy: "#")[0] == locator.href.string.components(separatedBy: "#")[0] }) {
+            continuousNavigation?(.init(index: index, fraction: locator.locations.progression ?? 0, quote: locator.text.highlight ?? "")); return
+        }
         Task { _ = await navigator?.go(to: locator) }
+    }
+    func switchFromContinuous() {
+        continuousActive = false
+        if let currentLocator { Task { _ = await navigator?.go(to: currentLocator, options: .init(animated: false)) } }
     }
     func tick(isActive: Bool) {
         let now = Date.now
@@ -187,6 +243,8 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
 struct EPUBReaderView: View {
     let book: SearchBook
     let chapters: [BookChapter]
+    var source: BookSourceDefinition? = nil
+    var initialIndex = 0
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -197,9 +255,15 @@ struct EPUBReaderView: View {
     @AppStorage("epub.mode") private var modeValue = ReaderMode.pageCurl.rawValue
     @AppStorage("epub.direction") private var directionValue = EPUBTextDirection.publisher.rawValue
     @AppStorage("epub.theme") private var theme = "sepia"
+    @AppStorage("reader.lineGuideEnabled") private var lineGuideEnabled = false
     @State private var showingMenu = false
     @State private var showingToolbox = false
     @State private var menuSection = "主题与设置"
+    @State private var showingSourceLogin = false
+    @State private var showingAudiobook = false
+    @State private var showingSentenceReader = false
+    @State private var pendingAudio: String?
+    @State private var audioIndex = 0
     @Query private var bookmarks: [BookmarkRecord]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var readingMode: ReaderMode {
@@ -208,7 +272,7 @@ struct EPUBReaderView: View {
         return reduceMotion && selected == .pageCurl ? .pageNone : selected
     }
     private var background: SwiftUI.Color {
-        theme == "dark" ? .black : theme == "sepia" ? SwiftUI.Color(red: 250/255, green: 244/255, blue: 232/255) : .white
+        theme == "dark" ? .black : theme == "sepia" ? SwiftUI.Color(red: 242/255, green: 227/255, blue: 200/255) : .white
     }
     private var preferences: EPUBPreferences {
         EPUBReaderModel.preferences(publisherStyles: publisherStyles, fontSizePercent: fontSize, scroll: readingMode == .scroll,
@@ -217,16 +281,35 @@ struct EPUBReaderView: View {
 
     var body: some View {
         lifecycleCanvas
-            .sheet(isPresented: $showingMenu) { menu.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
+            .sheet(isPresented: $showingMenu, onDismiss: {
+                guard let action = pendingAudio else { return }
+                pendingAudio = nil
+                if action == "audio" { showingAudiobook = true } else { showingSentenceReader = true }
+            }) { menu.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
+            .sheet(isPresented: $showingSourceLogin) {
+                if let source { SourceLoginView(source: source) { Task { model.close(); await openBook() } } }
+            }
+            .sheet(isPresented: $showingAudiobook) {
+                AudiobookView(book: book, chapters: chapters, source: source ?? LocalBookStorage.source,
+                    currentIndex: audioIndex)
+            }
+            .fullScreenCover(isPresented: $showingSentenceReader) {
+                NavigationStack { NativeTextReaderView(book: book, chapters: chapters,
+                    initialIndex: audioIndex, source: source ?? LocalBookStorage.source) }
+            }
             .alert("阅读提示", isPresented: errorPresented) { errorActions } message: { Text(model.errorMessage ?? "") }
     }
     private var errorPresented: SwiftUI.Binding<Bool> {
         SwiftUI.Binding(get: { model.errorMessage != nil }, set: { visible in if !visible { model.errorMessage = nil } })
     }
     @ViewBuilder private var errorActions: some View {
+        if let source, NativeLofterAdapter.accepts(source) || source.loginUrl?.hasPrefix("http") == true {
+            Button("登录书源") { showingSourceLogin = true }
+        }
         if model.navigator == nil {
             Button("重新打开") { Task { await openBook() } }
         } else {
+            Button("重新加载本章") { Task { model.close(); await openBook() } }
             Button("继续阅读") { model.errorMessage = nil }
         }
         Button("返回书库", role: .cancel) { model.close(); dismiss() }
@@ -235,7 +318,7 @@ struct EPUBReaderView: View {
         preferenceCanvas
             .task { await openBook() }
             .task { await sessionTimer() }
-            .onDisappear { if showingMenu { model.finish() } else { model.close() } }
+            .onDisappear { if showingMenu || showingAudiobook || showingSentenceReader || showingSourceLogin || pendingAudio != nil { model.finish() } else { model.close() } }
             .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
             .onChange(of: model.controlsVisible) { _, visible in if !visible { showingToolbox = false } }
     }
@@ -260,7 +343,7 @@ struct EPUBReaderView: View {
     private func openBook() async {
         if UserDefaults.standard.object(forKey: "epub.mode") == nil, legacyScroll { modeValue = ReaderMode.scroll.rawValue }
         model.readingMode = readingMode
-        await model.open(book: book, chapters: chapters, context: context, preferences: preferences)
+        await model.open(book: book, chapters: chapters, context: context, preferences: preferences, source: source, initialIndex: initialIndex)
     }
     private func sessionTimer() async {
         while !Task.isCancelled {
@@ -272,7 +355,16 @@ struct EPUBReaderView: View {
     private var readingCanvas: some View {
         ZStack {
             background.ignoresSafeArea()
-            if let navigator = model.navigator {
+            if readingMode == .scroll, directionValue != EPUBTextDirection.vertical.rawValue,
+               model.navigator?.settings.verticalText != true,
+               let publication = model.publication, publication.metadata.layout != .fixed {
+                ContinuousPublicationView(publication: publication, initial: model.continuousPosition, theme: theme,
+                    publisherStyles: publisherStyles, fontSize: fontSize,
+                    changed: { model.continuousChanged($0) }, tapped: { model.controlsVisible.toggle() },
+                    ready: { model.isRestoring = false }, failure: { model.errorMessage = $0 },
+                    installNavigation: { model.continuousNavigation = $0; model.continuousActive = true })
+                    .ignoresSafeArea(edges: .bottom)
+            } else if let navigator = model.navigator {
                 EPUBPageCurlHost(navigator: navigator, mode: readingMode, paper: UIColor(background),
                     onTurn: { model.controlsVisible = false }, installTurnHandler: { model.requestTurn = $0 })
                     .ignoresSafeArea(edges: .bottom)
@@ -282,6 +374,7 @@ struct EPUBReaderView: View {
                 background.ignoresSafeArea()
                 ProgressView("正在恢复阅读位置…").accessibilityIdentifier("epub.restoring")
             }
+            if lineGuideEnabled { ReaderLineGuide(paper: background, lineHeight: 27 * fontSize / 100) }
             if model.controlsVisible {
                 VStack {
                     HStack {
@@ -312,23 +405,28 @@ struct EPUBReaderView: View {
                     ReaderToolbox(contents: { openMenu("目录") }, search: { openMenu("在图书中搜索") }, settings: { openMenu("主题与设置") },
                         direction: { directionValue = directionValue == EPUBTextDirection.vertical.rawValue ? EPUBTextDirection.horizontal.rawValue : EPUBTextDirection.vertical.rawValue; showingToolbox = false },
                         scroll: { modeValue = readingMode == .scroll ? ReaderMode.pageCurl.rawValue : ReaderMode.scroll.rawValue; showingToolbox = false },
-                        bookmark: { model.bookmark(); showingToolbox = false }, shareURL: try? LocalBookStorage.publicationURL(for: book.bookURL))
+                        bookmark: { model.bookmark(); showingToolbox = false }, shareURL: try? LocalBookStorage.publicationURL(for: book.bookURL),
+                        lineGuide: { lineGuideEnabled.toggle(); showingToolbox = false; model.controlsVisible = false })
                 }.padding(.horizontal, 24).padding(.bottom, 72) }
             }
         }
     }
 
-    private func updatePreferences() { model.readingMode = readingMode; model.navigator?.submitPreferences(preferences) }
+    private func updatePreferences() {
+        if model.continuousActive, readingMode != .scroll { model.switchFromContinuous() }
+        model.readingMode = readingMode; model.navigator?.submitPreferences(preferences)
+    }
     private func openMenu(_ section: String) { menuSection = section; showingToolbox = false; showingMenu = true }
     private var menu: some View {
         NavigationStack {
           Group {
             if menuSection == "在图书中搜索" {
-                EPUBTextSearchView(chapters: chapters) { index, excerpt in showingMenu = false; model.go(index: index, excerpt: excerpt) }
+                EPUBTextSearchView(book: book, chapters: chapters, source: source) { index, excerpt in showingMenu = false; model.go(index: index, excerpt: excerpt) }
             } else {
             List {
               if menuSection == "主题与设置" {
                 Section("主题与排版") {
+                    Toggle("逐行导读", isOn: $lineGuideEnabled).accessibilityIdentifier("reader.lineGuide")
                     Toggle("原书精排", isOn: $publisherStyles).accessibilityIdentifier("epub.publisherStyles")
                     Text("保留原书插图、字体、标题装饰、注音和 CSS。关闭后可统一正文字号；固定版式遵循原书布局。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -343,6 +441,8 @@ struct EPUBReaderView: View {
                     if directionValue == EPUBTextDirection.vertical.rawValue { Text("竖排文字从右向左横向滚动，保留原书注音与标点方向。").font(.footnote).foregroundStyle(.secondary) }
                     Button(model.bookmarkAdded ? "书签已添加" : "添加书签", systemImage: "bookmark") { model.bookmark() }
                         .disabled(model.bookmarkAdded)
+                    Button("听书", systemImage: "headphones") { audioIndex = model.continuousPosition.index; pendingAudio = "audio"; showingMenu = false }
+                    Button("逐句点播", systemImage: "play.circle") { audioIndex = model.continuousPosition.index; pendingAudio = "sentence"; showingMenu = false }
                 }
               }
                 if menuSection == "目录", !model.tocLinks.isEmpty {
@@ -384,8 +484,11 @@ struct EPUBReaderView: View {
 }
 
 private struct EPUBTextSearchView: View {
+    let book: SearchBook
     let chapters: [BookChapter]
+    let source: BookSourceDefinition?
     let select: (Int, String) -> Void
+    @Environment(\.modelContext) private var context
     @State private var query = ""
     @State private var results: [Hit] = []
     @State private var searching = false
@@ -405,6 +508,20 @@ private struct EPUBTextSearchView: View {
             searching = true
             do {
                 try await Task.sleep(for: .milliseconds(250))
+                if let source {
+                    let repository = SourceChapterRepository(book: book, chapters: chapters, source: source, context: context)
+                    var found: [Hit] = []
+                    for index in chapters.indices {
+                        try Task.checkCancellation()
+                        let body = try await repository.load(index).text
+                        for paragraph in body.components(separatedBy: .newlines) where paragraph.localizedStandardContains(keyword) {
+                            found.append(Hit(index: index, title: chapters[index].title, excerpt: paragraph))
+                            if found.count == 100 { break }
+                        }
+                        if found.count == 100 { break }
+                    }
+                    results = found; searching = false; return
+                }
                 let worker = Task.detached(priority: .userInitiated) { () throws -> [Hit] in
                     var hits: [Hit] = []
                     for (index, chapter) in chapters.enumerated() {

@@ -18,6 +18,7 @@ struct PDFReaderView: View {
     @State private var lastActivity = Date.now
     @State private var sessionWasActive = true
     @AppStorage("pdf.scroll") private var scroll = false
+    @AppStorage("reader.lineGuideEnabled") private var lineGuide = false
     var body: some View {
         ZStack {
             Color(.systemBackground).ignoresSafeArea()
@@ -29,6 +30,7 @@ struct PDFReaderView: View {
                     if event.location.x > 70 { visible.toggle(); lastActivity = .now }
                 })
             } else if error == nil { ProgressView("正在打开 PDF…") }
+            if lineGuide { ReaderLineGuide(paper: Color(.systemBackground), lineHeight: 28) }
             if visible {
                 VStack {
                     HStack {
@@ -39,6 +41,8 @@ struct PDFReaderView: View {
                     HStack {
                         Text("\(page + 1) / \(document?.pageCount ?? 1)").monospacedDigit(); Spacer()
                         Button("笔记", systemImage: "note.text") { showingNotes = true }.labelStyle(.iconOnly).frame(width: 44, height: 44)
+                        Button("逐行导读", systemImage: "line.3.horizontal") { lineGuide.toggle(); visible = false }
+                            .labelStyle(.iconOnly).frame(width: 44, height: 44)
                         Toggle("上下滚动", isOn: $scroll).fixedSize()
                     }.padding(16).background(.regularMaterial, in: Capsule())
                 }.padding(20)

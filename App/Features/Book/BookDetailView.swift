@@ -21,6 +21,9 @@ struct BookDetailView: View {
     @State private var isExporting = false
     @State private var exportDocument: EPUBExportDocument?
     @State private var chapterQuery = ""
+    @State private var downloadFailures: [String: ChapterDownloadFailure] = [:]
+    @State private var showingFailures = false
+    @State private var exportAfterDownload = false
 
     init(
         book: SearchBook,
@@ -60,6 +63,7 @@ struct BookDetailView: View {
         .sheet(isPresented: $showingLogin) {
             SourceLoginView(source: source) { Task { await loadBook() } }
         }
+        .sheet(isPresented: $showingFailures) { failureList }
         .fileExporter(isPresented: $showingExport, document: exportDocument, contentType: .epub,
                       defaultFilename: BookEPUBExporter.filename(book.name)) { result in
             if case .failure(let error) = result, (error as NSError).code != NSUserCancelledError {
@@ -127,7 +131,7 @@ struct BookDetailView: View {
                 .tint(isInBookshelf ? AppTheme.jade : AppTheme.vermilion)
             }
         }
-        .inkCard()
+        .padding(.vertical, 12)
     }
 
     private var availableAlternatives: [BookSourceChoice] {
@@ -154,6 +158,7 @@ struct BookDetailView: View {
         chapters = []
         resumeIndex = nil
         cacheProgress = nil
+        downloadFailures = [:]
         errorMessage = nil
         isLoading = true
         refreshBookshelfState()
@@ -243,6 +248,9 @@ struct BookDetailView: View {
                     Menu {
                         Button("缓存后续 20 章") { startCaching(maximumCount: 20) }
                         Button("下载全书到书库") { startCaching(maximumCount: nil) }
+                        Button("下载全书并导出 EPUB") { startCaching(maximumCount: nil, exportAfter: true) }
+                        Button("重试失败章节（\(downloadFailures.count)）") { startCaching(maximumCount: nil, retryOnly: true) }
+                            .disabled(downloadFailures.isEmpty)
                         Button(isExporting ? "正在生成 EPUB…" : "导出已下载的全书 EPUB") { exportBook() }
                             .disabled(isExporting)
                     } label: {
@@ -253,12 +261,16 @@ struct BookDetailView: View {
                 }
             }
             if let progress = cacheProgress {
-                ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
+                ProgressView(value: Double(progress.succeeded), total: Double(max(progress.total, 1)))
                     .tint(AppTheme.vermilion)
                 Text(progress.statusText)
                     .font(.caption)
                     .foregroundStyle(progress.failed > 0 ? AppTheme.vermilion : AppTheme.inkSoft)
                     .lineLimit(2)
+            }
+            if !downloadFailures.isEmpty {
+                Button("查看 \(downloadFailures.count) 章失败原因", systemImage: "exclamationmark.triangle") { showingFailures = true }
+                    .font(.subheadline)
             }
             Divider().overlay(AppTheme.line.opacity(0.5))
         }
@@ -274,7 +286,7 @@ struct BookDetailView: View {
                 .foregroundStyle(AppTheme.ink)
             content()
         }
-        .inkCard()
+        .padding(.vertical, 12)
     }
 
     private func loadBook() async {
@@ -285,6 +297,7 @@ struct BookDetailView: View {
             let detailed = try await SourceEngine().loadDetails(book: book, source: source)
             book = detailed
             chapters = try await SourceEngine().loadChapters(book: detailed, source: source)
+            restoreDownloadFailures()
             try? ChapterListCacheStore.save(
                 chapters: chapters,
                 bookID: detailed.id,
@@ -351,13 +364,16 @@ struct BookDetailView: View {
         )
     }
 
-    private func startCaching(maximumCount: Int?) {
+    private func startCaching(maximumCount: Int?, retryOnly: Bool = false, exportAfter: Bool = false) {
         guard !chapters.isEmpty else { return }
         if !isInBookshelf { toggleBookshelf() }
         errorMessage = nil
         let startIndex = min(max(resumeIndex ?? 0, 0), chapters.count - 1)
         let remaining = chapters.dropFirst(startIndex)
-        let targets = maximumCount.map { Array(remaining.prefix($0)) } ?? chapters
+        let targets = retryOnly ? chapters.filter { downloadFailures[$0.url] != nil }
+            : maximumCount.map { Array(remaining.prefix($0)) } ?? chapters
+        guard !targets.isEmpty else { return }
+        exportAfterDownload = exportAfter || (retryOnly && exportAfterDownload)
         cacheTask?.cancel()
         cacheProgress = BatchCacheProgress(total: targets.count)
         cacheGeneration = UUID()
@@ -375,7 +391,7 @@ struct BookDetailView: View {
             let descriptor = FetchDescriptor<ChapterCacheRecord>(
                 predicate: #Predicate { $0.cacheKey == key }
             )
-            if ((try? modelContext.fetchCount(descriptor)) ?? 0) > 0 { completed += 1 }
+            if let cached = try? modelContext.fetch(descriptor).first, !cached.content.isEmpty, cached.htmlContent != nil, cached.downloadError == nil { completed += 1 }
             else { pending.append(chapter) }
         }
         cacheProgress?.completed = completed
@@ -386,7 +402,7 @@ struct BookDetailView: View {
                 group.addTask {
                     do {
                         try Task.checkCancellation()
-                        let content = try await SourceEngine().loadContent(chapter: chapter, source: downloadSource)
+                        let content = try await SourceEngine().loadDocument(chapter: chapter, source: downloadSource)
                         return ChapterDownloadOutcome(chapter: chapter, content: content)
                     } catch {
                         return ChapterDownloadOutcome(chapter: chapter, error: error.localizedDescription,
@@ -401,14 +417,26 @@ struct BookDetailView: View {
                 cacheProgress?.currentTitle = outcome.chapter.title
                 if let content = outcome.content {
                     do {
-                        modelContext.insert(ChapterCacheRecord(sourceID: downloadSource.id, bookID: downloadBookID, chapter: outcome.chapter, content: content))
+                        let key = "\(downloadSource.id)::\(outcome.chapter.url)"
+                        let query = FetchDescriptor<ChapterCacheRecord>(predicate: #Predicate { $0.cacheKey == key })
+                        let record = try modelContext.fetch(query).first ?? ChapterCacheRecord(sourceID: downloadSource.id,
+                            bookID: downloadBookID, chapter: outcome.chapter, content: content.text)
+                        record.content = content.text; record.htmlContent = content.html; record.cachedAt = .now; record.downloadError = nil
+                        if record.modelContext == nil { modelContext.insert(record) }
                         try modelContext.save()
-                    } catch { failed += 1 }
+                        downloadFailures.removeValue(forKey: outcome.chapter.url)
+                    } catch {
+                        failed += 1
+                        downloadFailures[outcome.chapter.url] = ChapterDownloadFailure(chapter: outcome.chapter, reason: "保存失败：" + error.localizedDescription)
+                    }
                 } else {
                     failed += 1
+                    downloadFailures[outcome.chapter.url] = ChapterDownloadFailure(chapter: outcome.chapter, reason: outcome.error ?? "正文加载失败")
+                    saveDownloadFailure(outcome.chapter, reason: outcome.error ?? "正文加载失败", sourceID: downloadSource.id, bookID: downloadBookID)
                     if outcome.authentication {
                         errorMessage = "书源需要登录，请点右上角“登录书源”，完成后重新下载。"
                         cacheProgress?.failed = failed
+                        cacheProgress?.completed = completed + 1
                         group.cancelAll(); break
                     }
                 }
@@ -422,10 +450,12 @@ struct BookDetailView: View {
         guard cacheGeneration == generation else { return }
         cacheProgress?.isRunning = false
         cacheProgress?.wasCancelled = Task.isCancelled
+        if exportAfterDownload, !Task.isCancelled, failed == 0, completed == targets.count { exportAfterDownload = false; exportBook() }
     }
 
     private func exportBook() {
         guard !isExporting else { return }
+        let exportBookID = book.id
         isExporting = true
         Task {
             defer { isExporting = false }
@@ -442,18 +472,55 @@ struct BookDetailView: View {
                     }
                     bytes += cache.content.utf8.count
                     guard bytes <= BookEPUBExporter.maximumTextBytes else { throw BookExportError.tooLarge }
-                    contents.append(ExportBookChapter(title: chapter.title, content: cache.content))
+                    contents.append(ExportBookChapter(title: chapter.title, content: cache.content, html: cache.htmlContent))
                 }
                 guard missing == 0 else { throw BookExportError.missing(missing) }
                 let exportedBook = book
                 let exportedChapters = contents
-                let data = try await Task.detached(priority: .userInitiated) {
-                    try BookEPUBExporter.build(book: exportedBook, chapters: exportedChapters)
-                }.value
+                let data = try await BookEPUBExporter.prepare(book: exportedBook, chapters: exportedChapters, source: source)
+                guard book.id == exportBookID else { return }
                 exportDocument = EPUBExportDocument(data: data)
                 showingExport = true
             } catch { errorMessage = error.localizedDescription }
         }
+    }
+
+    private var failureList: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("已下载章节会保留。网络中断可以重试；已删除或没有访问权限的文章需要在原站确认，不能当作下载成功。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button("重试全部失败章节") { showingFailures = false; startCaching(maximumCount: nil, retryOnly: true) }
+                }
+                ForEach(downloadFailures.values.sorted { $0.chapter.index < $1.chapter.index }) { failure in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(failure.chapter.title).font(.headline)
+                        Text(failure.reason).font(.subheadline).foregroundStyle(.secondary)
+                    }.padding(.vertical, 6)
+                }
+            }.navigationTitle("下载失败章节").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingFailures = false } } }
+        }
+    }
+    private func restoreDownloadFailures() {
+        let id = book.id
+        let query = FetchDescriptor<ChapterCacheRecord>(predicate: #Predicate { $0.bookID == id })
+        let records = (try? modelContext.fetch(query)) ?? []
+        for record in records {
+            guard let reason = record.downloadError, let chapter = chapters.first(where: { $0.url == record.chapterURL }) else { continue }
+            downloadFailures[chapter.url] = ChapterDownloadFailure(chapter: chapter, reason: reason)
+        }
+    }
+    private func saveDownloadFailure(_ chapter: BookChapter, reason: String, sourceID: String, bookID: String) {
+        let key = "\(sourceID)::\(chapter.url)"
+        let query = FetchDescriptor<ChapterCacheRecord>(predicate: #Predicate { $0.cacheKey == key })
+        do {
+            let record = try modelContext.fetch(query).first ?? ChapterCacheRecord(sourceID: sourceID, bookID: bookID, chapter: chapter, content: "")
+            record.downloadError = reason
+            if record.modelContext == nil { modelContext.insert(record) }
+            try modelContext.save()
+        } catch { errorMessage = "下载状态保存失败：" + error.localizedDescription }
     }
 }
 
@@ -464,28 +531,36 @@ private struct BookSourceChoice: Identifiable {
     var id: String { book.id }
 }
 
-private struct BatchCacheProgress {
+struct BatchCacheProgress {
     let total: Int
     var completed = 0
     var failed = 0
     var currentTitle = ""
     var isRunning = true
     var wasCancelled = false
+    var succeeded: Int { max(0, completed - failed) }
+    var remaining: Int { max(0, total - completed) }
 
     var statusText: String {
         if isRunning {
-            return "正在缓存 \(completed)/\(total)：\(currentTitle)"
+            return "已下载 \(succeeded)/\(total)，失败 \(failed) 章，待处理 \(remaining) 章"
         }
         if wasCancelled {
-            return "已取消，完成 \(completed)/\(total)，失败 \(failed) 章"
+            return "已取消：已下载 \(succeeded)/\(total)，失败 \(failed) 章，待处理 \(remaining) 章"
         }
-        return "缓存完成 \(completed)/\(total)，失败 \(failed) 章"
+        return failed == 0 && remaining == 0 ? "已完整下载 \(total) 章" : "下载未完成：成功 \(succeeded)/\(total)，失败 \(failed) 章，待处理 \(remaining) 章"
     }
 }
 
 private struct ChapterDownloadOutcome: Sendable {
     let chapter: BookChapter
-    var content: String? = nil
+    var content: SourceChapterDocument? = nil
     var error: String? = nil
     var authentication = false
+}
+
+private struct ChapterDownloadFailure: Identifiable {
+    let chapter: BookChapter
+    let reason: String
+    var id: String { chapter.url }
 }

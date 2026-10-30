@@ -19,6 +19,10 @@ actor SourceHTTPClient {
 
     func fetch(_ url: URL, source: BookSourceDefinition, method: String = "GET", body: Data? = nil,
                headers: [String: String] = [:], cacheSeconds: TimeInterval = 0) async throws -> FetchedResource {
+        let descriptor = try LegadoRequest.parse(url)
+        let requestMethod = method == "GET" ? descriptor.method : method
+        let requestBody = body ?? descriptor.body
+        let requestHeaders = descriptor.headers.merging(headers) { _, explicit in explicit }
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw SourceEngineError.invalidURL(url.absoluteString)
         }
@@ -30,7 +34,7 @@ actor SourceHTTPClient {
         for attempt in 1...SourceRequestRetryPolicy.maximumAttemptCount {
             try Task.checkCancellation()
             do {
-                let result = try await performFetch(url, source: source, method: method, body: body, headers: headers)
+                let result = try await performFetch(descriptor.url, source: source, method: requestMethod, body: requestBody, headers: requestHeaders)
                 if cacheSeconds > 0 {
                     if responseCache.count >= 48, let oldest = responseCache.min(by: { $0.value.0 < $1.value.0 })?.key { responseCache.removeValue(forKey: oldest) }
                     responseCache[key] = (.now, result)
@@ -104,6 +108,9 @@ actor SourceHTTPClient {
         if let session = sessions.removeValue(forKey: sourceID) {
             session.invalidateAndCancel()
         }
+    }
+    func discardCachedResponses(for sourceID: String) {
+        responseCache = responseCache.filter { !$0.key.hasPrefix(sourceID + "|") }
     }
 
     func lofterHeaders() -> [String: String] {

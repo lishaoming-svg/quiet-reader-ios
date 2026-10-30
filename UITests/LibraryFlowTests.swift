@@ -4,10 +4,10 @@ import UIKit
 final class LibraryFlowTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
-    private func launch(empty: Bool = false, files: Bool = false) -> XCUIApplication {
+    private func launch(empty: Bool = false, files: Bool = false, rich: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
-            + (empty ? ["--empty-library"] : []) + (files ? ["--picker-fixtures"] : [])
+            + (empty ? ["--empty-library"] : []) + (files ? ["--picker-fixtures"] : []) + (rich ? ["--rich-source-fixture"] : [])
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 20))
         app.tabBars.buttons["书库"].tap()
@@ -54,6 +54,35 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 40))
         cancel.tap()
         XCTAssertTrue(app.buttons["library.emptyImport"].waitForExistence(timeout: 10))
+    }
+
+    func testRichSourceContinuousScrollAndMovableLineGuide() {
+        executionTimeAllowance = 300
+        let app = launch(rich: true)
+        let book = app.buttons["book.连续精排示例"]
+        XCTAssertTrue(book.waitForExistence(timeout: 10)); book.tap()
+        let first = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "你有一封新来信")).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.buttons["reader.menu"].exists)
+        capture(app, "09-source-rich-dialogue")
+        // The next chapter belongs to the same scroll view, with no chapter button.
+        let second = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "灯下的回信已经寄出")).firstMatch
+        for _ in 0..<6 {
+            if second.exists && second.isHittable { break }
+            app.swipeUp()
+        }
+        let secondVisible = expectation(for: NSPredicate { _, _ in second.exists && second.isHittable }, evaluatedWith: app)
+        wait(for: [secondVisible], timeout: 10)
+        revealControls(app); app.buttons["reader.menu"].tap(); app.buttons["主题与设置"].tap()
+        let toggle = app.switches["reader.lineGuide"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5)); toggle.tap(); app.buttons["完成"].tap()
+        let guide = app.descendants(matching: .any).matching(identifier: "reader.lineGuideWindow").firstMatch
+        XCTAssertTrue(guide.waitForExistence(timeout: 10))
+        let before = guide.frame.midY
+        guide.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1,
+            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+        XCTAssertGreaterThan(guide.frame.midY, before + 20)
+        capture(app, "10-movable-line-guide")
     }
 
     func testSystemPickerActuallyImportsAndReadsSelectedTXT() {

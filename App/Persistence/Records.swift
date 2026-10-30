@@ -152,14 +152,17 @@ final class ChapterCacheRecord {
     var bookID: String
     var title: String
     var content: String
+    var htmlContent: String? = nil
+    var downloadError: String? = nil
     var cachedAt: Date
 
-    init(sourceID: String, bookID: String, chapter: BookChapter, content: String) {
+    init(sourceID: String, bookID: String, chapter: BookChapter, content: String, htmlContent: String? = nil) {
         cacheKey = "\(sourceID)::\(chapter.url)"
         chapterURL = chapter.url
         self.bookID = bookID
         title = chapter.title
         self.content = content
+        self.htmlContent = htmlContent
         cachedAt = .now
     }
 }

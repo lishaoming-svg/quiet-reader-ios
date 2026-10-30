@@ -8,6 +8,7 @@ struct ReaderToolbox: View {
     let scroll: () -> Void
     let bookmark: () -> Void
     let shareURL: URL?
+    var lineGuide: (() -> Void)? = nil
     @State private var brightness = Double(UIScreen.main.brightness)
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -17,7 +18,8 @@ struct ReaderToolbox: View {
                 row("主题与设置", icon: "textformat.size", action: settings)
                 HStack(spacing: 6) {
                     if let shareURL { ShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up").frame(maxWidth: .infinity, minHeight: 48) }.background(.regularMaterial, in: Capsule()).accessibilityLabel("分享原书") }
-                    icon("文字方向", "textformat.abc", action: direction)
+                    if let lineGuide { icon("逐行导读", "line.3.horizontal", action: lineGuide) }
+                    else { icon("文字方向", "textformat.abc", action: direction) }
                     icon("切换上下滚动", "scroll", action: scroll)
                     icon("添加书签", "bookmark", action: bookmark)
                 }.font(.title3.weight(.semibold))

@@ -18,6 +18,7 @@ enum EPUBReadingLayout {
         result.fontSize = publisherStyles ? nil : fontSizePercent / 100
         result.scroll = scroll
         result.theme = Theme(rawValue: theme) ?? .sepia
+        if theme == "sepia" { result.backgroundColor = ReadiumNavigator.Color(hex: "#f2e3c8") }
         // A landscape iPad must not split a cover or illustration across two columns.
         result.columnCount = .one
         result.spread = .never

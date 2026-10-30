@@ -46,7 +46,7 @@ struct NativeLofterAdapter {
         return address("newsearch/" + type + ".json", fields: ["key": key, "limit": String(limit),
             "offset": String(max(0, page - 1) * limit), "sortType": "0", "version": "1"], post: false)
     }
-    func request(_ address: String, fresh: Bool = false) async throws -> [String: Any] {
+    func request(_ address: String, fresh: Bool = false, attempt: Int = 0) async throws -> [String: Any] {
         let parts = address.components(separatedBy: ",{")
         guard let url = URL(string: parts[0]), url.scheme == "https", url.host == "api.lofter.com",
               Self.allowedPaths.contains(url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
@@ -66,11 +66,17 @@ struct NativeLofterAdapter {
         }
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw SourceEngineError.invalidResponse }
         let meta = root["meta"] as? [String: Any] ?? [:]
-        if let status = meta["status"] as? Int, status != 200 {
+        if let status = Int(Self.string(meta["status"])), status != 200 {
+            await SourceHTTPClient.shared.discardCachedResponses(for: source.id)
+            if [429, 500, 502, 503, 504].contains(status), attempt < 2 {
+                try await Task.sleep(for: .seconds(attempt + 1))
+                return try await request(address, fresh: true, attempt: attempt + 1)
+            }
             if status == 401 || status == 403 { throw SourceEngineError.authenticationRequired("LOFTER 需要登录或没有此内容的访问权限，请登录书源后重试。") }
             throw SourceEngineError.requestFailed("LOFTER：" + Self.string(meta["msg"]))
         }
-        if let code = root["code"] as? Int, code != 0 && code != 200 {
+        if let code = Int(Self.string(root["code"])), code != 0 && code != 200 {
+            await SourceHTTPClient.shared.discardCachedResponses(for: source.id)
             throw SourceEngineError.requestFailed("LOFTER：" + Self.string(root["msg"] ?? root["message"]))
         }
         return root
@@ -161,19 +167,40 @@ struct NativeLofterAdapter {
         return result
     }
     func content(_ chapter: BookChapter) async throws -> String {
-        let root = try await request(chapter.url)
+        try await document(chapter).text
+    }
+    func document(_ chapter: BookChapter) async throws -> SourceChapterDocument {
+        let root = try await request(chapter.url, fresh: true)
+        return try Self.document(from: root)
+    }
+    static func document(from root: [String: Any]) throws -> SourceChapterDocument {
         let r = root["response"] as? [String: Any] ?? root["data"] as? [String: Any] ?? [:]
         guard let wrapper = Self.rows(r["posts"]).first else {
             throw SourceEngineError.authenticationRequired("LOFTER 没有返回正文，请登录书源并确认有权阅读该文章。")
         }
-        let p = wrapper["post"] as? [String: Any] ?? wrapper["postView"] as? [String: Any] ?? wrapper
+        let nested = wrapper["postData"] as? [String: Any] ?? wrapper
+        let p = nested["post"] as? [String: Any] ?? nested["postView"] as? [String: Any] ?? nested
         let long = p["longInfo"] as? [String: Any] ?? [:]
-        var html = Self.string(p["content"] ?? long["content"] ?? p["caption"])
-        for value in Self.rows(p["returnContent"]) { html += "\n" + Self.string(value["content"]) }
+        var html = Self.string(p["content"]).nilIfBlank ?? Self.string(long["content"]).nilIfBlank ?? Self.string(p["caption"])
+        let photos = p["photoPostView"] as? [String: Any] ?? [:]
+        let links = p["photoLinks"] as? [Any]
+        html += Self.images(links?.isEmpty == false ? links : photos["photoLinks"])
+        for value in Self.rows(p["returnContent"]) {
+            html += "\n" + Self.string(value["content"]) + Self.images(value["images"])
+        }
         let text = ReadableTextNormalizer.normalize(ReadableContentFormatter.plainText(from: html))
         if let message = SourceEngine.authenticationMessage(in: text) { throw SourceEngineError.authenticationRequired(message) }
-        guard !text.isEmpty else { throw SourceEngineError.emptyContent }
-        return text
+        return try SourceChapterDocument.sanitized(html, baseURL: URL(string: "https://www.lofter.com/")!)
+    }
+    static func images(_ value: Any?) -> String {
+        let values = value as? [Any] ?? []
+        return values.compactMap { item -> String? in
+            let row = item as? [String: Any] ?? [:]
+            let raw = (item as? String) ?? Self.string(row["orign"] ?? row["origin"] ?? row["raw"] ?? row["url"] ?? row["path"])
+            guard let url = URL(string: raw, relativeTo: URL(string: "https://www.lofter.com/"))?.absoluteURL,
+                  !raw.isEmpty, ["http", "https"].contains(url.scheme ?? "") else { return nil }
+            return "<p style=\"text-indent:0;text-align:center\"><img src=\"\(BookEPUBExporter.xml(url.absoluteString))\" alt=\"插图\" /></p>"
+        }.joined()
     }
     static func fields(in address: String) -> [String: String] {
         let parts = address.components(separatedBy: ",{")
@@ -185,6 +212,9 @@ struct NativeLofterAdapter {
             if values.count == 2 { result[String(values[0])] = String(values[1]).removingPercentEncoding ?? String(values[1]) }
         }
     }
-    static func string(_ value: Any?) -> String { value.map { String(describing: $0) } ?? "" }
+    static func string(_ value: Any?) -> String {
+        guard let value, !(value is NSNull) else { return "" }
+        return String(describing: value)
+    }
     static func rows(_ value: Any?) -> [[String: Any]] { value as? [[String: Any]] ?? [] }
 }

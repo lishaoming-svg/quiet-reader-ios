@@ -137,8 +137,8 @@ enum ReaderTypography {
             }
             return fallback
         }
-        return UIFont(name: "PingFangSC-Regular", size: size)
-            ?? UIFont.systemFont(ofSize: size, weight: .regular)
+        return UIFont(name: "PingFangSC-Light", size: size)
+            ?? UIFont.systemFont(ofSize: size, weight: .light)
     }
 
     static func titleUIFont(size: CGFloat) -> UIFont {

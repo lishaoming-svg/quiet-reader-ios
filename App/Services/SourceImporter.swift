@@ -39,16 +39,27 @@ struct SourceImporter {
         let object = try JSONSerialization.jsonObject(with: data)
         let decoder = JSONDecoder()
         let sources: [BookSourceDefinition]
+        var decodeWarnings: [String] = []
 
-        if object is [[String: Any]] {
-            sources = try decoder.decode([BookSourceDefinition].self, from: data)
+        if let rows = object as? [[String: Any]] {
+            var values: [BookSourceDefinition] = []
+            for (index, row) in rows.enumerated() {
+                do {
+                    let encoded = try JSONSerialization.data(withJSONObject: row)
+                    values.append(try decoder.decode(BookSourceDefinition.self, from: encoded))
+                } catch {
+                    decodeWarnings.append("第 \(index + 1) 个书源格式不受支持，已保留其余可识别书源。")
+                }
+            }
+            sources = values
         } else if object is [String: Any] {
             sources = [try decoder.decode(BookSourceDefinition.self, from: data)]
         } else {
             throw SourceImportError.unsupportedRoot
         }
 
-        return try validateAndDeduplicate(sources)
+        let result = try validateAndDeduplicate(sources)
+        return ImportedSources(sources: result.sources, warnings: decodeWarnings + result.warnings)
     }
 
     private func decodeAndResolve(_ data: Data) async throws -> ImportedSources {
@@ -126,6 +137,11 @@ struct SourceImporter {
             }
             if source.searchUrl?.nilIfBlank == nil || source.ruleSearch == nil {
                 warnings.append("\(source.bookSourceName) 没有搜索规则，将不会参与搜索")
+            }
+            let rules = [source.searchUrl, source.ruleSearch?.bookList, source.ruleSearch?.name,
+                         source.ruleToc?.chapterList, source.ruleContent?.content].compactMap { $0?.lowercased() }
+            if !NativeLofterAdapter.accepts(source), rules.contains(where: { $0.contains("@js:") || $0.contains("<js>") }) {
+                warnings.append("\(source.bookSourceName) 含尚不支持的脚本规则；声明式规则可用，脚本部分需要适配。")
             }
 
             if unique[source.id] == nil {
