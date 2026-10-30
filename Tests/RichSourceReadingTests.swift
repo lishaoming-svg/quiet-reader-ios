@@ -100,8 +100,9 @@ final class RichSourceReadingTests: XCTestCase {
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let chapters = [BookChapter(title: "第一章", url: "https://example.org/one", index: 0)]
         let model = EPUBReaderModel()
+        let definition = try source()
         await model.open(book: book(), chapters: chapters, context: container.mainContext,
-            preferences: EPUBReaderModel.preferences(publisherStyles: true, fontSizePercent: 100, scroll: true, theme: "sepia"), source: source())
+            preferences: EPUBReaderModel.preferences(publisherStyles: true, fontSizePercent: 100, scroll: true, theme: "sepia"), source: definition)
         defer { model.close() }
         XCTAssertNotNil(model.navigator)
         model.isRestoring = false; model.continuousActive = true; model.controlsVisible = true

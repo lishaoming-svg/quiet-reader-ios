@@ -180,7 +180,17 @@ jobs:
             | "$RUNNER_TEMP/xcbeautify/xcbeautify" --renderer github-actions
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           APP="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/${SCHEME}.app"
-          if [ -d "$APP" ]; then echo built=true >> "$GITHUB_OUTPUT"; else echo built=false >> "$GITHUB_OUTPUT"; fi
+          # Xcode creates the .app directory before compiling the app and tests.
+          # A partial directory is not an installable app.
+          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null)
+          APP_EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist" 2>/dev/null)
+          if [ "$APP_ID" = "$BUNDLE_ID" ] && [ -n "$APP_EXECUTABLE" ] && [ -x "$APP/$APP_EXECUTABLE" ]; then
+            echo built=true >> "$GITHUB_OUTPUT"
+          else
+            echo built=false >> "$GITHUB_OUTPUT"
+            echo '::error::App build is incomplete; installation and UI capture are skipped. See the compiler errors below.'
+            grep -E '\.(swift|m|mm|c|h):[0-9]+(:[0-9]+)?: error:' "$OUT/xcodebuild.log" | head -30 || true
+          fi
       - name: Install, launch and capture evidence
         if: ${{ !cancelled() && steps.test.outputs.built == 'true' }}
         run: |
