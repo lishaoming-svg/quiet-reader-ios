@@ -528,6 +528,7 @@ struct NativeTextReaderView: View {
             pageHeader
                 .frame(height: ReaderTypography.pageHeaderHeight)
                 .padding(.bottom, ReaderTypography.pageHeaderBottomSpacing)
+                .opacity(controlsVisible ? 1 : 0).accessibilityHidden(!controlsVisible)
 
             if page.showsChapterTitle {
                 chapterHeading
@@ -555,6 +556,7 @@ struct NativeTextReaderView: View {
             pageFooter(page)
                 .frame(height: ReaderTypography.pageFooterHeight)
                 .padding(.top, ReaderTypography.pageFooterTopSpacing)
+                .opacity(controlsVisible ? 1 : 0).accessibilityHidden(!controlsVisible)
         }
         .frame(width: readerContentWidth)
         .frame(maxHeight: .infinity)
@@ -585,6 +587,7 @@ struct NativeTextReaderView: View {
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .tracking(1.2)
                 .foregroundStyle(paper.secondaryText)
+                .opacity(controlsVisible ? 1 : 0).accessibilityHidden(!controlsVisible)
             Text(chapter.title)
                 .font(chapterTitleFont)
                 .lineSpacing(4)
@@ -1408,8 +1411,6 @@ private struct ReaderSettingsView: View {
                         .tint(AppTheme.vermilion)
                     LabeledContent("行距", value: "\(Int(lineSpacing))")
                     Slider(value: $lineSpacing, in: 3...16, step: 1)
-                        .tint(AppTheme.vermilion)
-                    Toggle("使用宋体正文", isOn: $usesSerif)
                         .tint(AppTheme.vermilion)
                 }
                 Section("版式") {

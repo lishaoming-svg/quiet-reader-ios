@@ -79,5 +79,8 @@ struct BooksAppearanceControls: View {
             }
             Toggle("粗体文字", isOn: $bold)
         }
+        .onAppear {
+            if !epub, UserDefaults.standard.object(forKey: "reader.family") == nil, serif { family = BooksFont.songti.rawValue }
+        }
     }
 }
