@@ -13,7 +13,7 @@ enum LibraryTestSeed {
     /// nested-folder bookmark during the picker presentation.
     static func preparePickerFiles() throws {
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
-            for key in ["reader.lineGuideEnabled", "reader.lineGuidePosition", "reader.mode", "epub.mode", "epub.direction", "epub.publisherStyles", "epub.theme"] {
+            for key in ["reader.lineGuideEnabled", "reader.lineGuidePosition", "reader.mode", "reader.family", "reader.bold", "reader.importedFont", "reader.serif", "reader.fontSize", "reader.lineSpacing", "reader.paper", "local.reader.preset", "library.collections.v1", "epub.mode", "epub.direction", "epub.publisherStyles", "epub.theme"] {
                 UserDefaults.standard.removeObject(forKey: key)
             }
             if ProcessInfo.processInfo.arguments.contains("--rich-source-fixture") { UserDefaults.standard.set(ReaderMode.scroll.rawValue, forKey: "epub.mode") }

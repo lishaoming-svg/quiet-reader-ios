@@ -8,6 +8,7 @@ final class BookImportCoordinator: ObservableObject {
         let filename: String
         let message: String
         let succeeded: Bool
+        var book: SearchBook? = nil
     }
     @Published var showingPicker = false
     @Published var showingResults = false
@@ -70,7 +71,7 @@ final class BookImportCoordinator: ObservableObject {
                     let duplicate = try LocalBookLibrary.save(imported, in: context)
                     results.append(.init(filename: url.lastPathComponent,
                                          message: duplicate ? "已在书库中，已恢复本地文件并保留阅读进度" : "已加入书库 · \(imported.chapters.count) 章",
-                                         succeeded: true))
+                                         succeeded: true, book: imported.book))
                 } catch is CancellationError { break
                 } catch {
                     results.append(.init(filename: url.lastPathComponent, message: error.localizedDescription, succeeded: false))
@@ -88,7 +89,11 @@ enum LocalBookLibrary {
         let id = imported.book.id
         let descriptor = FetchDescriptor<BookRecord>(predicate: #Predicate { $0.bookID == id })
         let existing = try context.fetch(descriptor).first
-        if let existing { existing.update(from: imported.book) }
+        if let existing {
+            existing.update(from: imported.book)
+            if let title = existing.libraryState.customTitle { existing.name = title }
+            if let author = existing.libraryState.customAuthor { existing.author = author }
+        }
         else { context.insert(BookRecord(book: imported.book)) }
         // The complete document lives on disk; only the directory is stored in SwiftData.
         if let list = ChapterListCacheStore.record(bookID: id, in: context) {
@@ -134,10 +139,15 @@ struct BookImportResultsView: View {
                 }
                 ForEach(importer.results) { result in
                     HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: result.succeeded ? "checkmark.circle.fill" : "exclamationmark.circle")
-                            .foregroundStyle(result.succeeded ? Color.green : Color.orange)
+                        if let book = result.book {
+                            BookCoverView(urlString: book.coverURL, title: book.name, width: 46, height: 68).accessibilityHidden(true)
+                        } else {
+                            Image(systemName: result.succeeded ? "checkmark.circle.fill" : "exclamationmark.circle")
+                                .foregroundStyle(result.succeeded ? Color.green : Color.orange)
+                        }
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(result.filename).font(.headline)
+                            Text(result.book?.name ?? result.filename).font(.headline)
+                            if let book = result.book, !book.author.isEmpty { Text(book.author).font(.subheadline).foregroundStyle(.secondary) }
                             Text(result.message).font(.subheadline).foregroundStyle(.secondary)
                         }
                     }.padding(.vertical, 5)

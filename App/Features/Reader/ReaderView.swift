@@ -6,6 +6,7 @@ struct NativeTextReaderView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Query private var annotations: [BookmarkRecord]
     @AppStorage("reader.fontSize") private var fontSize = 19.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
     @AppStorage("reader.paper") private var paperValue = ReaderPaper.warm.rawValue
@@ -14,6 +15,9 @@ struct NativeTextReaderView: View {
     @AppStorage("reader.mode") private var modeValue = ReaderMode.pageCurl.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
+    @AppStorage("reader.family") private var fontFamily = BooksFont.pingfang.rawValue
+    @AppStorage("reader.bold") private var bold = false
+    @AppStorage("reader.importedFont") private var importedFont = ""
     @ObservedObject private var audiobookPlayer = AudiobookPlayer.shared
 
     let book: SearchBook
@@ -37,6 +41,11 @@ struct NativeTextReaderView: View {
     @State private var showingSourceLogin = false
     @State private var controlsVisible = false
     @State private var showingSettings = false
+    @State private var showingToolbox = false
+    @State private var showingContents = false
+    @State private var editingAnnotation: BookmarkRecord?
+    @State private var pendingNote = false
+    @State private var showingSearch = false
     @State private var showingBookmarks = false
     @State private var showingAudiobook = false
     @State private var audiobookSegments: [AudiobookTimedSegment] = []
@@ -131,7 +140,6 @@ struct NativeTextReaderView: View {
                 sentencePlaybackControls
             } else if controlsVisible {
                 VStack(spacing: 8) {
-                    if controlsVisible { floatingActions; readerControls }
                     HStack {
                         Spacer(minLength: 56)
                         Text(readerMode.usesPages ? "\(progressLabel) 页" : progressLabel)
@@ -139,11 +147,42 @@ struct NativeTextReaderView: View {
                             .padding(.horizontal, 14).frame(minHeight: 36).background(.regularMaterial, in: Capsule())
                             .accessibilityLabel(readerMode.usesPages ? "本章第 \(progressLabel) 页" : "本章进度 \(progressLabel)")
                         Spacer(minLength: 12)
-                        Button { controlsVisible.toggle() } label: {
+                        Button { showingToolbox.toggle() } label: {
                             Image(systemName: "line.3.horizontal.decrease").font(.title2.bold()).frame(width: 48, height: 48)
-                        }.background(.regularMaterial, in: Circle()).accessibilityLabel("阅读菜单")
+                        }.background(.regularMaterial, in: Circle()).accessibilityLabel("阅读菜单").accessibilityIdentifier("reader.menu")
                     }.foregroundStyle(paper.primaryText).padding(.horizontal, 24).padding(.bottom, 8)
                 }
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if controlsVisible && showingToolbox {
+                ReaderToolbox(contents: { showingToolbox = false; showingContents = true },
+                    search: { showingToolbox = false; showingSearch = true },
+                    settings: { showingToolbox = false; showingSettings = true },
+                    direction: {}, scroll: { modeValue = readerMode == .scroll ? ReaderMode.pageCurl.rawValue : ReaderMode.scroll.rawValue; showingToolbox = false },
+                    bookmark: { toggleBookmark() }, shareURL: nil,
+                    lineGuide: { lineGuideEnabled.toggle(); showingToolbox = false; controlsVisible = false },
+                    notes: { showingToolbox = false; showingBookmarks = true }, bookmarkAdded: currentBookmarkID != nil,
+                    listen: { showingToolbox = false; showingAudiobook = true })
+                    .padding(.horizontal, 24).padding(.bottom, 64)
+            }
+        }
+        .onChange(of: controlsVisible) { _, visible in if !visible { showingToolbox = false } }
+        .sheet(isPresented: $showingContents) {
+            NativeReaderContentsView(chapters: chapters, currentIndex: currentIndex) { index in
+                showingContents = false; goToChapter(index, locatorOffset: 0)
+            }
+        }
+        .sheet(item: $editingAnnotation) { AnnotationEditorView(bookmark: $0) }
+        .sheet(isPresented: $showingSearch) {
+            NavigationStack {
+                EPUBTextSearchView(book: book, chapters: chapters, source: source.id == LocalBookStorage.sourceID ? nil : source) { index, excerpt in
+                    showingSearch = false
+                    let body = (try? LocalBookStorage.content(at: chapters[index].url)) ?? ""
+                    let range = (body as NSString).range(of: excerpt)
+                    goToChapter(index, locatorOffset: range.location == NSNotFound ? 0 : range.location)
+                }.navigationTitle("在图书中搜索").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingSearch = false } } }
             }
         }
         .sheet(isPresented: $showingSettings) {
@@ -155,8 +194,16 @@ struct NativeTextReaderView: View {
                 Task { await loadChapter(forceRefresh: true) }
             }
         }
-        .sheet(isPresented: $showingBookmarks) {
-            BookmarkListView(bookID: book.id) { bookmark in
+        .sheet(isPresented: $showingBookmarks, onDismiss: {
+            if pendingNote {
+                pendingNote = false
+                editingAnnotation = BookmarkRecord(book: book, chapter: chapter, locatorOffset: currentLocatorOffset,
+                    chapterProgress: chapterProgress, excerpt: ReaderDocumentBuilder.excerpt(from: content, locatorOffset: currentLocatorOffset))
+            }
+        }) {
+            BookmarkListView(bookID: book.id, addNote: {
+                pendingNote = true; showingBookmarks = false
+            }) { bookmark in
                 showingBookmarks = false
                 let targetIndex = chapters.firstIndex(where: { $0.url == bookmark.chapterURL })
                     ?? bookmark.chapterIndex
@@ -197,6 +244,9 @@ struct NativeTextReaderView: View {
         .onChange(of: fontSize) { _, _ in repaginateForSettingsChange() }
         .onChange(of: lineSpacing) { _, _ in repaginateForSettingsChange() }
         .onChange(of: usesSerif) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: fontFamily) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: bold) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: importedFont) { _, _ in repaginateForSettingsChange() }
         .onChange(of: marginValue) { _, _ in repaginateForSettingsChange() }
         .onChange(of: paragraphIndent) { _, _ in repaginateForSettingsChange() }
         .onChange(of: audiobookPlayer.currentChapterIndex) { _, targetIndex in
@@ -441,7 +491,7 @@ struct NativeTextReaderView: View {
             ProgressView().tint(AppTheme.vermilion)
         } else if readerMode == .pageCurl {
             ReaderPageCurlView(count: pages.count,
-                revision: "\(chapter.url)-\(layoutSize)-\(fontSize)-\(lineSpacing)-\(usesSerif)-\(marginValue)-\(paragraphIndent)-\(paperValue)",
+                revision: "\(chapter.url)-\(layoutSize)-\(fontSize)-\(lineSpacing)-\(usesSerif)-\(marginValue)-\(paragraphIndent)-\(paperValue)-\(fontFamily)-\(bold)-\(importedFont)-\(annotations.count)",
                 background: UIColor(paper.background), index: $pageIndex) { index in
                     pageView(pages[index]).background(paper.background)
                 }
@@ -494,7 +544,9 @@ struct NativeTextReaderView: View {
                 lineSpacing: lineSpacing,
                 usesSerif: usesSerif,
                 textColor: UIColor(paper.primaryText),
-                highlightedText: activeAudiobookSegment?.text
+                highlightedText: activeAudiobookSegment?.text,
+                highlights: pageHighlights(page),
+                onAnnotation: { range, edit in annotate(page: page, range: range, edit: edit) }
             )
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1193,6 +1245,30 @@ struct NativeTextReaderView: View {
         try? modelContext.save()
         refreshBookmarkState()
     }
+    private func pageHighlights(_ page: ReaderPage) -> [ReaderTextHighlight] {
+        let document = ReaderDocumentBuilder.displayDocument(from: content, paragraphIndent: paragraphIndent)
+        let base = document.displayedOffset(forLocatorOffset: page.locatorOffset)
+        return annotations.filter { $0.bookID == book.id && $0.chapterURL == chapter.url && $0.noteKind != "bookmark" }.compactMap { mark in
+            let start = document.displayedOffset(forLocatorOffset: mark.locatorOffset)
+            let end = document.displayedOffset(forLocatorOffset: mark.importedEndOffset ?? mark.locatorOffset + (mark.excerpt as NSString).length)
+            let range = NSIntersectionRange(NSRange(location: max(0, start), length: max(0, end - start)), NSRange(location: base, length: (page.text as NSString).length))
+            guard range.length > 0 else { return nil }
+            return ReaderTextHighlight(range: NSRange(location: range.location - base, length: range.length), color: UIColor((AnnotationColor(rawValue: mark.annotationColor ?? "yellow") ?? .yellow).color))
+        }
+    }
+    private func annotate(page: ReaderPage, range: NSRange, edit: Bool) {
+        let document = ReaderDocumentBuilder.displayDocument(from: content, paragraphIndent: paragraphIndent)
+        let base = document.displayedOffset(forLocatorOffset: page.locatorOffset)
+        let start = document.locatorOffset(forDisplayedUTF16Offset: base + range.location)
+        let end = document.locatorOffset(forDisplayedUTF16Offset: base + NSMaxRange(range))
+        let text = content as NSString
+        guard end > start, start >= 0, end <= text.length else { return }
+        let mark = BookmarkRecord(book: book, chapter: chapter, locatorOffset: start, chapterProgress: chapterProgress,
+            excerpt: text.substring(with: NSRange(location: start, length: end - start)))
+        mark.noteKind = "highlight"; mark.annotationColor = "yellow"; mark.importedEndOffset = end
+        if edit { editingAnnotation = mark }
+        else { modelContext.insert(mark); do { try modelContext.save() } catch { errorMessage = error.localizedDescription } }
+    }
 
     private func refreshBookmarkState() {
         let bookID = book.id
@@ -1311,6 +1387,7 @@ private struct ReaderSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                BooksAppearanceControls()
                 Section("专注阅读") { Toggle("逐行导读", isOn: $lineGuideEnabled) }
                 Section("翻页") {
                     Picker("翻页方式", selection: $modeValue) {

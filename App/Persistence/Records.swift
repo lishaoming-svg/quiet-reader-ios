@@ -60,6 +60,7 @@ final class BookRecord {
     var tocURL: String
     var addedAt: Date
     var lastReadAt: Date
+    var libraryStateJSON: Data? = nil
 
     init(book: SearchBook) {
         bookID = book.id
@@ -100,6 +101,11 @@ final class BookRecord {
         kind = book.kind
         coverURL = book.coverURL
         tocURL = book.tocURL
+    }
+
+    var libraryState: LibraryBookState {
+        get { libraryStateJSON.flatMap { try? JSONDecoder().decode(LibraryBookState.self, from: $0) } ?? LibraryBookState() }
+        set { libraryStateJSON = try? JSONEncoder().encode(newValue) }
     }
 }
 
@@ -271,6 +277,7 @@ final class BookmarkRecord {
     var publicationLocator: String? = nil
     var note: String = ""
     var noteKind: String = "bookmark"
+    var annotationColor: String? = nil
     var importedParagraphIndex: Int? = nil
     var importedEndParagraphIndex: Int? = nil
     var importedEndOffset: Int? = nil

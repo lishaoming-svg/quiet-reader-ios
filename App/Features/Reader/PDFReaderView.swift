@@ -11,6 +11,12 @@ struct PDFReaderView: View {
     @State private var document: PDFDocument?
     @State private var visible = false
     @State private var showingNotes = false
+    @State private var showingToolbox = false
+    @State private var showingContents = false
+    @State private var showingSearch = false
+    @State private var showingSettings = false
+    @State private var editingAnnotation: BookmarkRecord?
+    @State private var pendingNote = false
     @State private var error: String?
     @State private var page = 0
     @State private var session: ReadingSessionRecord?
@@ -34,26 +40,63 @@ struct PDFReaderView: View {
             if visible {
                 VStack {
                     HStack {
-                        Text(book.name).font(.subheadline).lineLimit(1); Spacer()
-                        Button("关闭", systemImage: "xmark") { tick(); save(); dismiss() }.labelStyle(.iconOnly).frame(width: 44, height: 44)
-                    }.padding(12).background(.regularMaterial, in: Capsule())
+                        Spacer(minLength: 56)
+                        Text(book.name).font(.subheadline.weight(.semibold)).lineLimit(1).padding(.horizontal, 16).padding(.vertical, 9).background(.regularMaterial, in: Capsule())
+                        Spacer(minLength: 12)
+                        Button("关闭图书", systemImage: "xmark") { tick(); save(); dismiss() }.labelStyle(.iconOnly).frame(width: 48, height: 48)
+                            .background(.regularMaterial, in: Circle()).accessibilityIdentifier("reader.close")
+                    }
                     Spacer()
                     HStack {
-                        Text("\(page + 1) / \(document?.pageCount ?? 1)").monospacedDigit(); Spacer()
-                        Button("笔记", systemImage: "note.text") { showingNotes = true }.labelStyle(.iconOnly).frame(width: 44, height: 44)
-                        Button("逐行导读", systemImage: "line.3.horizontal") { lineGuide.toggle(); visible = false }
-                            .labelStyle(.iconOnly).frame(width: 44, height: 44)
-                        Toggle("上下滚动", isOn: $scroll).fixedSize()
-                    }.padding(16).background(.regularMaterial, in: Capsule())
-                }.padding(20)
+                        Spacer(minLength: 56)
+                        Text("\(page + 1) / \(document?.pageCount ?? 1)").font(.subheadline.weight(.semibold)).monospacedDigit().padding(.horizontal, 14).padding(.vertical, 8).background(.regularMaterial, in: Capsule())
+                        Spacer(minLength: 12)
+                        Button("阅读菜单", systemImage: "line.3.horizontal.decrease") { showingToolbox.toggle() }.labelStyle(.iconOnly).frame(width: 48, height: 48)
+                            .background(.regularMaterial, in: Circle()).accessibilityIdentifier("reader.menu")
+                    }
+                }.padding(.horizontal, 24).padding(.top, 4).padding(.bottom, 16)
+            }
+            if visible && showingToolbox {
+                VStack { Spacer(); HStack { Spacer(minLength: 0)
+                    ReaderToolbox(contents: { showingToolbox = false; showingContents = true },
+                        search: { showingToolbox = false; showingSearch = true }, settings: { showingToolbox = false; showingSettings = true },
+                        direction: {}, scroll: { scroll.toggle(); showingToolbox = false },
+                        bookmark: { if let mark = makeNote() { context.insert(mark); try? context.save() }; showingToolbox = false },
+                        shareURL: try? LocalBookStorage.pdfURL(for: book.bookURL),
+                        lineGuide: { lineGuide.toggle(); visible = false; showingToolbox = false },
+                        notes: { showingToolbox = false; showingNotes = true })
+                }.padding(.horizontal, 24).padding(.bottom, 72) }
             }
             if let error { ContentUnavailableView("无法打开 PDF", systemImage: "doc", description: Text(error)) }
         }
         .statusBarHidden(!visible).toolbar(.hidden, for: .navigationBar, .tabBar).navigationBarBackButtonHidden()
         .accessibilityAction(named: "显示阅读菜单") { visible = true }
         .accessibilityAction(.escape) { save(); dismiss() }
-        .sheet(isPresented: $showingNotes) {
-            BookmarkListView(bookID: book.id) { mark in
+        .onChange(of: visible) { _, value in if !value { showingToolbox = false } }
+        .sheet(isPresented: $showingContents) {
+            NativeReaderContentsView(chapters: chapters, currentIndex: page) { page = $0; showingContents = false }
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                Form {
+                    Section { Toggle("上下滚动", isOn: $scroll); Toggle("逐行导读", isOn: $lineGuide) }
+                    Text("PDF 按原始页面显示，可双指缩放查看；字号和页面中的字体由原文件决定。").font(.footnote).foregroundStyle(.secondary)
+                }.navigationTitle("主题与设置").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingSettings = false } } }
+            }
+        }
+        .sheet(isPresented: $showingSearch) {
+            NavigationStack {
+                EPUBTextSearchView(book: book, chapters: chapters, source: nil) { index, _ in page = index; showingSearch = false }
+                    .navigationTitle("在图书中搜索").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingSearch = false } } }
+            }
+        }
+        .sheet(item: $editingAnnotation) { AnnotationEditorView(bookmark: $0) }
+        .sheet(isPresented: $showingNotes, onDismiss: {
+            if pendingNote { pendingNote = false; editingAnnotation = makeNote() }
+        }) {
+            BookmarkListView(bookID: book.id, addNote: { pendingNote = true; showingNotes = false }) { mark in
                 page = min(max(0, mark.chapterIndex), max(0, (document?.pageCount ?? 1) - 1))
                 showingNotes = false
             }
@@ -77,6 +120,11 @@ struct PDFReaderView: View {
         }
         .onChange(of: phase) { _, _ in tick() }
         .onDisappear { tick(); save() }
+    }
+    private func makeNote() -> BookmarkRecord? {
+        guard chapters.indices.contains(page) else { return nil }
+        return BookmarkRecord(book: book, chapter: chapters[page], locatorOffset: 0, chapterProgress: 0,
+            excerpt: String((document?.page(at: page)?.string ?? "").prefix(200)))
     }
     private func tick() {
         let now = Date.now

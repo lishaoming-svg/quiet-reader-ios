@@ -31,8 +31,12 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "海边的清晨")).firstMatch.waitForExistence(timeout: 20))
         capture(app, "02-reader")
         revealControls(app)
-        app.buttons["下一章"].tap()
+        app.buttons["reader.menu"].tap()
+        app.buttons["目录"].tap()
+        app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "灯下的书页")).firstMatch.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "灯下的书页")).firstMatch.waitForExistence(timeout: 10))
+        if !app.buttons["reader.close"].exists { revealControls(app) }
+        app.buttons["reader.menu"].tap()
         XCTAssertTrue(app.buttons["添加书签"].waitForExistence(timeout: 5))
         app.buttons["添加书签"].tap()
         XCTAssertTrue(app.buttons["移除书签"].waitForExistence(timeout: 5))
@@ -41,10 +45,36 @@ final class LibraryFlowTests: XCTestCase {
         book.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "灯下的书页")).firstMatch.waitForExistence(timeout: 15))
         revealControls(app)
+        app.buttons["reader.menu"].tap()
         XCTAssertTrue(app.buttons["移除书签"].waitForExistence(timeout: 5))
         app.buttons["reader.settings"].tap()
         XCTAssertTrue(app.navigationBars["主题与设置"].waitForExistence(timeout: 5))
         capture(app, "03-reading-settings")
+    }
+
+    func testLocalCollectionsAndNotesRemainAvailable() {
+        executionTimeAllowance = 300
+        let app = launch()
+        let book = app.buttons["book.山海之间"]
+        XCTAssertTrue(book.waitForExistence(timeout: 10))
+        book.press(forDuration: 1)
+        app.buttons["加入想读"].tap()
+        app.buttons["library.collections"].tap()
+        XCTAssertTrue(app.buttons["collection.want"].waitForExistence(timeout: 5))
+        app.buttons["collection.want"].tap()
+        XCTAssertTrue(book.waitForExistence(timeout: 5))
+        capture(app, "11-want-to-read-collection")
+        book.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "海边的清晨")).firstMatch.waitForExistence(timeout: 20))
+        revealControls(app); app.buttons["reader.menu"].tap(); app.buttons["笔记与书签"].tap()
+        XCTAssertTrue(app.buttons["添加笔记"].waitForExistence(timeout: 5)); app.buttons["添加笔记"].tap()
+        let note = app.textViews["annotation.note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10)); note.tap(); note.typeText("Reading note 2026")
+        app.buttons["annotation.save"].tap()
+        if !app.buttons["reader.close"].waitForExistence(timeout: 5) { revealControls(app) }
+        app.buttons["reader.menu"].tap(); app.buttons["笔记与书签"].tap()
+        XCTAssertTrue(app.staticTexts["Reading note 2026"].waitForExistence(timeout: 10))
+        capture(app, "12-local-reading-note")
     }
 
     func testEmptyLibraryOffersImportAndPickerCanBeCancelled() {

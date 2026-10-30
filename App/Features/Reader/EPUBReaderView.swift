@@ -17,6 +17,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     @Published var bookmarkAdded = false
     @Published var tocLinks: [ReadiumShared.Link] = []
     @Published var isRestoring = false
+    @Published var noteToEdit: BookmarkRecord?
     private(set) var publication: Publication?
     private var tapToken: InputObservableToken?
     private var context: ModelContext?
@@ -93,11 +94,20 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             isRestoring = locator != nil
             currentLocator = locator
             var config = EPUBNavigatorViewController.Configuration(preferences: preferences)
+            if source == nil {
+                config.editingActions += [EditingAction(title: "高亮", action: #selector(BooksEPUBNavigator.highlightSelection)),
+                    EditingAction(title: "添加笔记", action: #selector(BooksEPUBNavigator.noteSelection))]
+            }
             config.disablePageTurnsWhileScrolling = true
             config.contentInset = [.compact: (top: 12, bottom: 12), .regular: (top: 16, bottom: 16)]
             // Each opening owns a fresh controller. Let Readium lay out the saved
             // resource directly instead of jumping while its first spread loads.
-            let navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: locator, config: config)
+            let navigator: EPUBNavigatorViewController
+            if source == nil {
+                let local = try BooksEPUBNavigator(publication: publication, initialLocation: locator, config: config)
+                local.annotate = { [weak self] locator, edit in self?.annotate(locator, edit: edit) }
+                navigator = local
+            } else { navigator = try EPUBNavigatorViewController(publication: publication, initialLocation: locator, config: config) }
             navigator.delegate = self
             // Readium consumes links and selection before this observer. Edge taps
             // use the same turn controller as swipe gestures; the center reveals tools.
@@ -113,6 +123,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
                 return true
             })
             self.publication = publication; self.navigator = navigator
+            reloadHighlights()
             progress = saved?.bookProgress ?? 0
             let session = ReadingSessionRecord(sessionID: UUID().uuidString, bookID: id, bookName: book.name, sourceID: book.sourceID)
             context.insert(session); self.session = session; lastTick = .now; lastActivity = .now
@@ -213,6 +224,34 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             context.insert(mark); try context.save(); bookmarkAdded = true
         } catch { errorMessage = "书签保存失败：\(error.localizedDescription)" }
     }
+    func makeNote(at selection: Locator? = nil) -> BookmarkRecord? {
+        guard let book, let publication, let locator = selection ?? (continuousActive ? currentLocator : navigator?.currentSelection?.locator ?? navigator?.currentLocation),
+              !chapters.isEmpty else { return nil }
+        let index = publication.readingOrder.firstIndex { $0.href.components(separatedBy: "#")[0] == locator.href.string.components(separatedBy: "#")[0] } ?? 0
+        let mark = BookmarkRecord(book: book, chapter: chapters[min(index, chapters.count - 1)], locatorOffset: 0,
+            chapterProgress: locator.locations.progression ?? 0, excerpt: locator.text.highlight ?? locator.title ?? locationTitle)
+        mark.publicationLocator = try? locator.jsonString()
+        return mark
+    }
+    func annotate(_ locator: Locator, edit: Bool) {
+        guard let context, let mark = makeNote(at: locator) else { return }
+        mark.noteKind = "highlight"; mark.annotationColor = "yellow"
+        if edit { noteToEdit = mark }
+        else {
+            context.insert(mark)
+            do { try context.save(); reloadHighlights() } catch { errorMessage = "笔记保存失败：\(error.localizedDescription)" }
+        }
+    }
+    func reloadHighlights() {
+        guard let context, let book, book.sourceID == LocalBookStorage.sourceID else { return }
+        let id = book.id
+        let records = (try? context.fetch(FetchDescriptor<BookmarkRecord>(predicate: #Predicate { $0.bookID == id }))) ?? []
+        let decorations = records.filter { $0.noteKind != "bookmark" }.compactMap { mark -> Decoration? in
+            guard let json = mark.publicationLocator, let locator = try? Locator(jsonString: json), locator.text.highlight?.isEmpty == false else { return nil }
+            return Decoration(id: mark.bookmarkID, locator: locator, style: .highlight(tint: UIColor((AnnotationColor(rawValue: mark.annotationColor ?? "yellow") ?? .yellow).color)))
+        }
+        navigator?.apply(decorations: decorations, in: "ibooks.notes")
+    }
     func go(bookmark: BookmarkRecord) {
         let imported = publication.flatMap { publication -> Locator? in
             guard publication.readingOrder.indices.contains(bookmark.chapterIndex) else { return nil }
@@ -258,6 +297,9 @@ struct EPUBReaderView: View {
     @AppStorage("epub.direction") private var directionValue = EPUBTextDirection.publisher.rawValue
     @AppStorage("epub.theme") private var theme = "sepia"
     @AppStorage("reader.lineGuideEnabled") private var lineGuideEnabled = false
+    @AppStorage("reader.family") private var localFamily = BooksFont.pingfang.rawValue
+    @AppStorage("reader.bold") private var localBold = false
+    @AppStorage("local.reader.preset") private var localPreset = ""
     @State private var showingMenu = false
     @State private var showingToolbox = false
     @State private var menuSection = "主题与设置"
@@ -265,6 +307,9 @@ struct EPUBReaderView: View {
     @State private var showingAudiobook = false
     @State private var showingSentenceReader = false
     @State private var pendingAudio: String?
+    @State private var showingNotes = false
+    @State private var pendingNote = false
+    @State private var editingAnnotation: BookmarkRecord?
     @State private var audioIndex = 0
     @Query private var bookmarks: [BookmarkRecord]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -274,11 +319,29 @@ struct EPUBReaderView: View {
         return reduceMotion && selected == .pageCurl ? .pageNone : selected
     }
     private var background: SwiftUI.Color {
-        theme == "dark" ? .black : theme == "sepia" ? SwiftUI.Color(red: 242/255, green: 227/255, blue: 200/255) : .white
+        if source == nil, localPreset == BooksThemePreset.calm.rawValue, theme == "light" {
+            return SwiftUI.Color(red: 0.87, green: 0.92, blue: 0.86)
+        }
+        return theme == "dark" ? .black : theme == "sepia" ? SwiftUI.Color(red: 242/255, green: 227/255, blue: 200/255) : .white
     }
     private var preferences: EPUBPreferences {
-        EPUBReaderModel.preferences(publisherStyles: publisherStyles, fontSizePercent: fontSize, scroll: readingMode == .scroll,
+        var value = EPUBReaderModel.preferences(publisherStyles: publisherStyles, fontSizePercent: fontSize, scroll: readingMode == .scroll,
                                     theme: theme, direction: EPUBTextDirection(rawValue: directionValue) ?? .publisher)
+        if source == nil, !publisherStyles {
+            if let family = BooksFont(rawValue: localFamily), family != .publisher { value.fontFamily = FontFamily(rawValue: family.family) }
+            value.fontWeight = localBold ? 1.5 : 1
+            value.lineHeight = localPreset == BooksThemePreset.focus.rawValue ? 1.9 : 1.68
+            if localPreset == BooksThemePreset.calm.rawValue, theme == "light" { value.backgroundColor = ReadiumNavigator.Color(hex: "#deebdb") }
+        }
+        return value
+    }
+    private var localTypography: [String: Any]? {
+        guard source == nil, !publisherStyles else { return nil }
+        return ["font": (BooksFont(rawValue: localFamily) ?? .pingfang).family,
+            "paper": theme == "dark" ? "#151515" : theme == "sepia" ? "#f2e3c8" : localPreset == BooksThemePreset.calm.rawValue ? "#deebdb" : "#ffffff",
+            "embedded": false, "bold": localBold, "margin": 26, "maxWidth": 660,
+            "lineSpacing": 18 * fontSize / 100 * (localPreset == BooksThemePreset.focus.rawValue ? 0.9 : 0.68),
+            "paragraphSpacing": 16, "indent": true]
     }
 
     var body: some View {
@@ -291,6 +354,16 @@ struct EPUBReaderView: View {
             .sheet(isPresented: $showingSourceLogin) {
                 if let source { SourceLoginView(source: source) { Task { model.close(); await openBook() } } }
             }
+            .sheet(isPresented: $showingNotes, onDismiss: {
+                if pendingNote { pendingNote = false; editingAnnotation = model.makeNote() }
+            }) {
+                BookmarkListView(bookID: book.id, addNote: { pendingNote = true; showingNotes = false }) { mark in
+                    showingNotes = false; model.go(bookmark: mark)
+                }
+            }
+            .sheet(item: $editingAnnotation) { AnnotationEditorView(bookmark: $0) }
+            .onReceive(model.$noteToEdit.compactMap { $0 }) { mark in editingAnnotation = mark; model.noteToEdit = nil }
+            .onChange(of: editingAnnotation == nil) { _, closed in if closed { model.reloadHighlights() } }
             .sheet(isPresented: $showingAudiobook) {
                 AudiobookView(book: book, chapters: chapters, source: source ?? LocalBookStorage.source,
                     currentIndex: audioIndex)
@@ -320,7 +393,7 @@ struct EPUBReaderView: View {
         preferenceCanvas
             .task { await openBook() }
             .task { await sessionTimer() }
-            .onDisappear { if showingMenu || showingAudiobook || showingSentenceReader || showingSourceLogin || pendingAudio != nil { model.finish() } else { model.close() } }
+            .onDisappear { if showingMenu || showingNotes || editingAnnotation != nil || pendingNote || showingAudiobook || showingSentenceReader || showingSourceLogin || pendingAudio != nil { model.finish() } else { model.close() } }
             .onChange(of: scenePhase) { _, phase in model.tick(isActive: phase == .active) }
             .onChange(of: model.controlsVisible) { _, visible in if !visible { showingToolbox = false } }
     }
@@ -332,6 +405,9 @@ struct EPUBReaderView: View {
             .onChange(of: directionValue) { _, _ in updatePreferences() }
             .onChange(of: reduceMotion) { _, _ in updatePreferences() }
             .onChange(of: theme) { _, _ in updatePreferences() }
+            .onChange(of: localFamily) { _, _ in if source == nil { updatePreferences() } }
+            .onChange(of: localBold) { _, _ in if source == nil { updatePreferences() } }
+            .onChange(of: localPreset) { _, _ in if source == nil { updatePreferences() } }
     }
     private var appearanceCanvas: some View {
         readingCanvas
@@ -361,7 +437,7 @@ struct EPUBReaderView: View {
                model.navigator?.settings.verticalText != true,
                let publication = model.publication, publication.metadata.layout != .fixed {
                 ContinuousPublicationView(publication: publication, initial: model.continuousPosition, theme: theme,
-                    publisherStyles: publisherStyles, fontSize: fontSize,
+                    publisherStyles: publisherStyles, fontSize: fontSize, typography: localTypography,
                     scrolled: { model.controlsVisible = false },
                     changed: { model.continuousChanged($0) }, tapped: { model.controlsVisible.toggle() },
                     ready: { model.isRestoring = false }, failure: { model.errorMessage = $0 },
@@ -409,7 +485,8 @@ struct EPUBReaderView: View {
                         direction: { directionValue = directionValue == EPUBTextDirection.vertical.rawValue ? EPUBTextDirection.horizontal.rawValue : EPUBTextDirection.vertical.rawValue; showingToolbox = false },
                         scroll: { modeValue = readingMode == .scroll ? ReaderMode.pageCurl.rawValue : ReaderMode.scroll.rawValue; showingToolbox = false },
                         bookmark: { model.bookmark(); showingToolbox = false }, shareURL: try? LocalBookStorage.publicationURL(for: book.bookURL),
-                        lineGuide: { lineGuideEnabled.toggle(); showingToolbox = false; model.controlsVisible = false })
+                        lineGuide: { lineGuideEnabled.toggle(); showingToolbox = false; model.controlsVisible = false },
+                        notes: source == nil ? { showingToolbox = false; showingNotes = true } : nil)
                 }.padding(.horizontal, 24).padding(.bottom, 72) }
             }
         }
@@ -429,6 +506,7 @@ struct EPUBReaderView: View {
             } else {
             List {
               if menuSection == "主题与设置" {
+                if source == nil { BooksAppearanceControls(epub: true) }
                 Section("主题与排版") {
                     Toggle("逐行导读", isOn: $lineGuideEnabled).accessibilityIdentifier("reader.lineGuide")
                     Toggle("原书精排", isOn: $publisherStyles).accessibilityIdentifier("epub.publisherStyles")
@@ -487,7 +565,7 @@ struct EPUBReaderView: View {
     }
 }
 
-private struct EPUBTextSearchView: View {
+struct EPUBTextSearchView: View {
     let book: SearchBook
     let chapters: [BookChapter]
     let source: BookSourceDefinition?

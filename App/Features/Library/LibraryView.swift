@@ -8,7 +8,7 @@ struct BookshelfView: View {
     @Query(sort: \BookRecord.lastReadAt, order: .reverse) private var books: [BookRecord]
     @Query private var sources: [BookSourceRecord]
     @Query private var progresses: [ReadingProgressRecord]
-    @AppStorage("library.grid.v2") private var grid = false
+    @AppStorage("library.grid.v2") private var grid = true
     @State private var searching = false
     @State private var filter = LibraryFilter.all
     @State private var order = LibraryOrder.recent
@@ -17,10 +17,16 @@ struct BookshelfView: View {
     @State private var errorMessage: String?
     @State private var showingNotes = false
     @State private var showingFonts = false
+    @State private var showingCollections = false
+    @State private var collectionBook: BookRecord?
+    @State private var editingBook: BookRecord?
+    @State private var collection = "all"
+    @AppStorage("library.collections.v1") private var collectionData = Data()
 
     private var visibleBooks: [BookRecord] {
         books.filter { book in
             (filter == .all || (filter == .local && book.isLocal) || (filter == .online && !book.isLocal))
+                && matchesCollection(book)
                 && (query.isEmpty || book.name.localizedStandardContains(query) || book.author.localizedStandardContains(query))
         }.sorted { left, right in
             switch order {
@@ -41,6 +47,16 @@ struct BookshelfView: View {
                     sortMenu
                     optionsMenu
                 }.padding(.top, 4).padding(.bottom, 2)
+                HStack {
+                    Button { showingCollections = true } label: {
+                        HStack(spacing: 5) {
+                            Text(collectionTitle).font(.subheadline.weight(.medium))
+                            Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                        }
+                    }.foregroundStyle(.secondary).accessibilityIdentifier("library.collections")
+                    Spacer()
+                    Text("\(visibleBooks.count) 本").font(.subheadline).foregroundStyle(.secondary)
+                }
                 if filter != .all { HStack {
                     Menu {
                         Picker("藏书集", selection: $filter) {
@@ -74,6 +90,9 @@ struct BookshelfView: View {
         .background(AppTheme.paperLight)
         .sheet(isPresented: $showingNotes) { ImportedNotesView() }
         .sheet(isPresented: $showingFonts) { ImportedFontsView() }
+        .sheet(isPresented: $showingCollections) { LibraryCollectionsView(selection: $collection) }
+        .sheet(item: $collectionBook) { AddToCollectionView(book: $0) }
+        .sheet(item: $editingBook) { BookMetadataEditor(book: $0) }
         .navigationTitle("书库")
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $searching, onDismiss: { query = "" }) {
@@ -110,6 +129,7 @@ struct BookshelfView: View {
     }
     private var optionsMenu: some View {
         Menu {
+            Button("藏书集", systemImage: "folder") { showingCollections = true }
             Button("导入图书", systemImage: "square.and.arrow.down") { importer.showingPicker = true }
                 .accessibilityIdentifier("library.import")
             Button("搜索书库", systemImage: "magnifyingglass") { searching = true }
@@ -144,12 +164,53 @@ struct BookshelfView: View {
             }
             if compact {
                 Menu {
+                    bookActions(book)
                     Button("移除图书", systemImage: "trash", role: .destructive) { deleting = book }
                 } label: { Image(systemName: "ellipsis").font(.headline).foregroundStyle(.secondary).frame(width: 44, height: 44) }
                     .accessibilityLabel("\(book.name)的选项")
             }
         }.contextMenu {
+            bookActions(book)
             Button("移除图书", systemImage: "trash", role: .destructive) { deleting = book }
+        }
+    }
+    private func matchesCollection(_ book: BookRecord) -> Bool {
+        switch collection {
+        case "all": true
+        case "want": book.libraryState.wantToRead
+        case "finished": LibraryOrganization.completed(book, progress: progresses.first { $0.bookID == book.bookID })
+        case "books": book.kind != "PDF"
+        case "pdf": book.kind == "PDF"
+        case "local": book.isLocal
+        default: book.libraryState.collectionIDs.contains(collection)
+        }
+    }
+    @ViewBuilder private func bookActions(_ book: BookRecord) -> some View {
+        Button(book.libraryState.wantToRead ? "从想读中移除" : "加入想读", systemImage: "bookmark") {
+            var state = book.libraryState; state.wantToRead.toggle(); book.libraryState = state
+            do { try modelContext.save() } catch { errorMessage = error.localizedDescription }
+        }
+        let finished = LibraryOrganization.completed(book, progress: progresses.first { $0.bookID == book.bookID })
+        Button(finished ? "标记为未读" : "标记为已读完", systemImage: "checkmark.circle") {
+            do { try LibraryOrganization.setFinished(!finished, book: book, context: modelContext) }
+            catch { errorMessage = error.localizedDescription }
+        }
+        Button("加入藏书集", systemImage: "folder.badge.plus") { collectionBook = book }
+        if book.isLocal {
+            Button("编辑书名与作者", systemImage: "pencil") { editingBook = book }
+            if book.kind == "EPUB", let url = try? LocalBookStorage.publicationURL(for: book.bookURL) { ShareLink(item: url) { Label("分享图书", systemImage: "square.and.arrow.up") } }
+            if book.kind == "PDF", let url = try? LocalBookStorage.pdfURL(for: book.bookURL) { ShareLink(item: url) { Label("分享图书", systemImage: "square.and.arrow.up") } }
+        }
+    }
+    private var collectionTitle: String {
+        switch collection {
+        case "all": "藏书集"
+        case "want": "想读"
+        case "finished": "已读完"
+        case "books": "图书"
+        case "pdf": "PDF"
+        case "local": "本地图书"
+        default: LibraryOrganization.collections(from: collectionData).first { $0.id == collection }?.title ?? "藏书集"
         }
     }
 }
@@ -218,7 +279,9 @@ struct LibraryBookCard: View {
             Text(book.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
             Text(book.author.nilIfBlank ?? "未知作者")
                 .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-            if let progress {
+            if LibraryOrganization.completed(book, progress: progress) {
+                Label("已读完", systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(.secondary)
+            } else if let progress {
                 if let fraction = progress.bookProgress {
                     Text(fraction >= 0.995 ? "✓ 已读完" : "\(Int(fraction * 100))%")
                         .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
@@ -239,14 +302,22 @@ struct ReadingHomeView: View {
     @Query private var sessions: [ReadingSessionRecord]
     @AppStorage("reading.dailyGoal") private var goal = 5
     @State private var showingAccount = false
+    @State private var pendingImport = false
     @State private var showingGoal = false
-    private var readingBooks: [BookRecord] { books.filter { book in progresses.contains { $0.bookID == book.bookID } } }
+    private var recentBooks: [BookRecord] { books.filter { book in progresses.contains { $0.bookID == book.bookID } } }
+    private var readingBooks: [BookRecord] {
+        recentBooks.filter { book in !LibraryOrganization.completed(book, progress: progresses.first { $0.bookID == book.bookID }) }
+    }
     private var secondsToday: Int {
         Int(sessions.filter { Calendar.current.isDateInToday($0.startedAt) }.reduce(0) { $0 + $1.activeSeconds })
     }
     private var fraction: Double { min(1, Double(secondsToday) / Double(max(1, goal) * 60)) }
     private var completed: [BookRecord] {
-        books.filter { book in progresses.contains { $0.bookID == book.bookID && ($0.bookProgress ?? 0) >= 0.995 && Calendar.current.isDate($0.updatedAt, equalTo: .now, toGranularity: .year) } }
+        books.filter { book in
+            let progress = progresses.first { $0.bookID == book.bookID }
+            let date = book.libraryState.finishedAt ?? progress?.updatedAt
+            return LibraryOrganization.completed(book, progress: progress) && date.map { Calendar.current.isDate($0, equalTo: .now, toGranularity: .year) } == true
+        }
     }
     var body: some View {
         ScrollView {
@@ -269,12 +340,12 @@ struct ReadingHomeView: View {
                 }
                 if !books.isEmpty {
                     HStack(spacing: 6) {
-                        Text(readingBooks.isEmpty ? "最近加入" : "之前读过").font(.title2.bold())
+                        Text(recentBooks.isEmpty ? "最近加入" : "之前读过").font(.title2.bold())
                         Image(systemName: "chevron.right").font(.title3.bold()).foregroundStyle(.tertiary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 16) {
-                            ForEach((readingBooks.isEmpty ? books : readingBooks).prefix(8)) { book in
+                            ForEach((recentBooks.isEmpty ? books : recentBooks).prefix(8)) { book in
                                 LibraryBookLink(book: book, sources: sources) {
                                     LibraryBookCard(book: book, progress: progresses.first { $0.bookID == book.bookID }, compact: true, compactCoverHeight: 58)
                                         .padding(12).frame(width: 260, alignment: .leading)
@@ -351,7 +422,9 @@ struct ReadingHomeView: View {
         }
         .background(AppTheme.paperLight).navigationTitle("主页")
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showingAccount) { LibrarySettingsView() }
+        .sheet(isPresented: $showingAccount, onDismiss: {
+            if pendingImport { pendingImport = false; importer.showingPicker = true }
+        }) { LibrarySettingsView(importBooks: { pendingImport = true; showingAccount = false }) }
         .sheet(isPresented: $showingGoal) {
             NavigationStack {
                 Form { Stepper("每日阅读 \(goal) 分钟", value: $goal, in: 1...120) }
@@ -396,11 +469,18 @@ private struct GoalArc: Shape {
 
 struct LibrarySettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    var importBooks: (() -> Void)? = nil
+    @State private var showingNotes = false
+    @State private var showingFonts = false
     var body: some View {
         NavigationStack {
             List {
                 Section {
+                    NavigationLink { BooksGlobalReadingSettings() } label: { Label("阅读设置", systemImage: "textformat.size") }
                     NavigationLink { ReadingHistoryView() } label: { Label("阅读记录", systemImage: "clock") }
+                    Button { showingNotes = true } label: { Label("笔记与书签", systemImage: "note.text") }
+                    Button { showingFonts = true } label: { Label("字体", systemImage: "textformat") }
+                    if let importBooks { Button("导入图书", systemImage: "square.and.arrow.down", action: importBooks) }
                     NavigationLink { SourceManagerView() } label: { Label("书源管理", systemImage: "network") }
                 }
                 Section("本地图书") {
@@ -423,6 +503,24 @@ struct LibrarySettingsView: View {
             .navigationTitle("阅读与设置").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
+        .sheet(isPresented: $showingNotes) { ImportedNotesView() }
+        .sheet(isPresented: $showingFonts) { ImportedFontsView() }
+    }
+}
+
+private struct BooksGlobalReadingSettings: View {
+    @AppStorage("reader.mode") private var mode = ReaderMode.pageCurl.rawValue
+    @AppStorage("reader.lineGuideEnabled") private var lineGuide = false
+    @AppStorage("reading.dailyGoal") private var dailyGoal = 5
+    var body: some View {
+        Form {
+            BooksAppearanceControls()
+            Section("阅读") {
+                Picker("翻页方式", selection: $mode) { ForEach(ReaderMode.allCases) { Text($0.title).tag($0.rawValue) } }
+                Toggle("逐行导读", isOn: $lineGuide)
+                Stepper("每日阅读目标 \(dailyGoal) 分钟", value: $dailyGoal, in: 1...120)
+            }
+        }.navigationTitle("阅读设置").navigationBarTitleDisplayMode(.inline)
     }
 }
 

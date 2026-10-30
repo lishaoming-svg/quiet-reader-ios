@@ -5,8 +5,10 @@ struct BookmarkListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \BookmarkRecord.createdAt, order: .reverse) private var allBookmarks: [BookmarkRecord]
+    @State private var editing: BookmarkRecord?
 
     let bookID: String
+    var addNote: (() -> Void)? = nil
     let onSelect: (BookmarkRecord) -> Void
 
     private var bookmarks: [BookmarkRecord] {
@@ -52,6 +54,10 @@ struct BookmarkListView: View {
                                 .padding(.vertical, 5)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("编辑笔记", systemImage: "pencil") { editing = bookmark }
+                                ShareLink(item: AnnotationTextExporter.text([bookmark])) { Label("分享笔记", systemImage: "square.and.arrow.up") }
+                            }
                             .swipeActions {
                                 Button("删除", role: .destructive) {
                                     modelContext.delete(bookmark)
@@ -62,12 +68,13 @@ struct BookmarkListView: View {
                     }
                 }
             }
-            .navigationTitle("书签")
+            .navigationTitle("笔记与书签")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
                 }
+                if let addNote { ToolbarItem(placement: .primaryAction) { Button("添加笔记", systemImage: "square.and.pencil", action: addNote) } }
                 if !bookmarks.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
@@ -82,5 +89,6 @@ struct BookmarkListView: View {
                 }
             }
         }
+        .sheet(item: $editing) { AnnotationEditorView(bookmark: $0) }
     }
 }

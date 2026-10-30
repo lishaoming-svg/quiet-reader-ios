@@ -9,19 +9,24 @@ struct ReaderToolbox: View {
     let bookmark: () -> Void
     let shareURL: URL?
     var lineGuide: (() -> Void)? = nil
+    var notes: (() -> Void)? = nil
+    var bookmarkAdded = false
+    var listen: (() -> Void)? = nil
     @State private var brightness = Double(UIScreen.main.brightness)
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
             VStack(spacing: 6) {
                 row("目录", icon: "list.bullet", action: contents)
                 row("在图书中搜索", icon: "magnifyingglass", action: search)
+                if let notes { row("笔记与书签", icon: "note.text", action: notes) }
                 row("主题与设置", icon: "textformat.size", action: settings)
+                if let listen { row("听书", icon: "headphones", action: listen) }
                 HStack(spacing: 6) {
                     if let shareURL { ShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up").frame(maxWidth: .infinity, minHeight: 48) }.background(.regularMaterial, in: Capsule()).accessibilityLabel("分享原书") }
                     if let lineGuide { icon("逐行导读", "line.3.horizontal", action: lineGuide) }
                     else { icon("文字方向", "textformat.abc", action: direction) }
                     icon("切换上下滚动", "scroll", action: scroll)
-                    icon("添加书签", "bookmark", action: bookmark)
+                    icon(bookmarkAdded ? "移除书签" : "添加书签", bookmarkAdded ? "bookmark.fill" : "bookmark", action: bookmark)
                 }.font(.title3.weight(.semibold))
             }
             VStack(spacing: 8) {
@@ -35,7 +40,7 @@ struct ReaderToolbox: View {
     private func row(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack { Text(title); Spacer(); Image(systemName: icon) }.font(.headline).padding(.horizontal, 20).frame(minHeight: 52)
-        }.background(.regularMaterial, in: Capsule())
+        }.background(.regularMaterial, in: Capsule()).accessibilityIdentifier(title == "主题与设置" ? "reader.settings" : "reader.action.\(title)")
     }
     private func icon(_ title: String, _ image: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: image).frame(maxWidth: .infinity, minHeight: 48) }
