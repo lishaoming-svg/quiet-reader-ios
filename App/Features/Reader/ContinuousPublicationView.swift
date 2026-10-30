@@ -1,6 +1,7 @@
 import Foundation
 import ReadiumShared
 import SwiftUI
+import UIKit
 import WebKit
 
 struct ContinuousReadingPosition: Equatable {
@@ -38,6 +39,10 @@ struct ContinuousPublicationView: UIViewRepresentable {
         web.scrollView.backgroundColor = .clear; web.scrollView.isDirectionalLockEnabled = true
         web.scrollView.alwaysBounceHorizontal = false; web.navigationDelegate = context.coordinator
         web.scrollView.panGestureRecognizer.addTarget(context.coordinator, action: #selector(Coordinator.panned(_:)))
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        tap.cancelsTouchesInView = false; tap.delaysTouchesBegan = false; tap.delaysTouchesEnded = false
+        tap.delegate = context.coordinator
+        web.addGestureRecognizer(tap)
         context.coordinator.web = web
         installNavigation { [weak web] position in
             guard let literal = try? ContinuousPublicationScript.literal(position.json) else { return }
@@ -64,7 +69,7 @@ struct ContinuousPublicationView: UIViewRepresentable {
         web.stopLoading(); web.configuration.userContentController.removeScriptMessageHandler(forName: "readerStream")
         coordinator.schemeHandler?.stopAll(); coordinator.web = nil
     }
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIGestureRecognizerDelegate {
         var owner: ContinuousPublicationView
         weak var web: WKWebView?
         var schemeHandler: PublicationSchemeHandler?
@@ -73,6 +78,16 @@ struct ContinuousPublicationView: UIViewRepresentable {
         @objc func panned(_ gesture: UIPanGestureRecognizer) {
             if gesture.state == .began { owner.scrolled?() }
         }
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let web else { return }
+            let point = gesture.location(in: web)
+            web.evaluateJavaScript(ContinuousPublicationScript.menuAllowed(at: point)) { [weak self] value, error in
+                guard error == nil, value as? Bool == true else { return }
+                self?.owner.tapped()
+            }
+        }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.frameInfo.isMainFrame, let value = message.body as? [String: Any],
                   let type = value["type"] as? String else { return }
@@ -80,7 +95,6 @@ struct ContinuousPublicationView: UIViewRepresentable {
             case "position":
                 guard let index = value["index"] as? Int, owner.publication.readingOrder.indices.contains(index) else { return }
                 owner.changed(ContinuousReadingPosition(index: index, fraction: min(1, max(0, value["fraction"] as? Double ?? 0))))
-            case "tap": owner.tapped()
             case "ready": owner.ready()
             default: break
             }
@@ -155,6 +169,17 @@ final class PublicationSchemeHandler: NSObject, WKURLSchemeHandler {
 }
 
 enum ContinuousPublicationScript {
+    /// One native tap observer covers both chapters and the space between them.
+    /// Let links, form controls and an active text selection keep their action.
+    static func menuAllowed(at point: CGPoint) -> String {
+        let coordinates = (try? literal([point.x, point.y])) ?? "[0,0]"
+        return """
+        (()=>{const p=\(coordinates);let doc=document,node=doc.elementFromPoint(p[0],p[1]);
+        if(node?.tagName==='IFRAME'){const r=node.getBoundingClientRect();doc=node.contentDocument;if(!doc)return false;node=doc.elementFromPoint(p[0]-r.left,p[1]-r.top)}
+        if(node?.closest?.('a[href],button,input,textarea,select,[contenteditable]'))return false;
+        const selection=doc.getSelection?.();return !selection||selection.isCollapsed})()
+        """
+    }
     static func viewportUnits(_ css: String) -> String {
         guard let expression = try? NSRegularExpression(pattern: #"(\d+(?:\.\d+)?)vh\b"#, options: .caseInsensitive) else { return css }
         return expression.stringByReplacingMatches(in: css, range: NSRange(css.startIndex..., in: css),
@@ -196,7 +221,6 @@ enum ContinuousPublicationScript {
         addEventListener('message',event=>{const d=event.data;if(!d||d.readerStream!=='child')return;const frame=frames[d.index];if(!frame||event.source!==frame.contentWindow)return;
           if(d.type==='height'){const anchor=indexAtTop(),old=frame.offsetHeight,height=Math.max(40,Math.min(10000000,d.height||40));if(Math.abs(height-old)>1){frame.style.height=height+'px';if(d.index<anchor&&!restoring)scrollBy(0,height-old)}config(frame);if(restoring&&d.index===target.index)frame.contentWindow.postMessage({readerStream:'seek',position:target},'*')}
           else if(d.type==='seeked'){if(restoring&&d.index===target.index){scrollTo(0,frame.parentElement.offsetTop+Math.max(0,d.y||0));restoring=false;bridge('ready');position()}}
-          else if(d.type==='tap'){bridge('tap')}
           else if(d.type==='link'){const value=new URL(d.href,frame.dataset.src.startsWith('ibooks-stream:')?frame.dataset.src:new URL(frame.dataset.src,location.href));const index=pages.findIndex(p=>new URL(p.href,location.href).pathname===value.pathname);if(index>=0)seek({index,fraction:0,fragment:value.hash.slice(1)})}
         });
         const observer=new IntersectionObserver(items=>items.forEach(item=>{if(item.isIntersecting)load(item.target)}),{rootMargin:'1800px 0px'});frames.forEach(f=>observer.observe(f));
@@ -218,7 +242,7 @@ enum ContinuousPublicationScript {
       addEventListener('message',event=>{if(event.source!==parent||!event.data)return;const d=event.data;if(d.readerStream==='configure'){viewport=d.viewport||800;if(ready)configure(d.settings)}else if(d.readerStream==='seek'&&ready)seek(d.position)});
       function install(){if(!document.body)return;ready=true;new ResizeObserver(height).observe(document.body);document.fonts?.ready.then(height);document.querySelectorAll('img').forEach(i=>i.addEventListener('load',height));height();send('height',{height:lastHeight})}
       if(document.readyState==='loading')addEventListener('DOMContentLoaded',install,{once:true});else install();
-      addEventListener('click',event=>{const a=event.target.closest?.('a[href]');if(a){const href=a.getAttribute('href');if(href&&!/^https?:/i.test(href)){event.preventDefault();send('link',{href:new URL(href,location.href).href})}return}const selection=getSelection();if(!selection||selection.isCollapsed)send('tap')});
+      addEventListener('click',event=>{const a=event.target.closest?.('a[href]');if(a){const href=a.getAttribute('href');if(href&&!/^https?:/i.test(href)){event.preventDefault();send('link',{href:new URL(href,location.href).href})}}});
     })();
     """#
 }

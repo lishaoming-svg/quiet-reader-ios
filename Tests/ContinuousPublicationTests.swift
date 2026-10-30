@@ -39,6 +39,21 @@ final class ContinuousPublicationTests: XCTestCase {
         XCTAssertEqual(css, "rgb(200, 0, 0)")
         let secondColor = try await web.evaluateJavaScript("getComputedStyle(document.querySelectorAll('iframe')[1].contentDocument.querySelector('p')).backgroundColor") as? String
         XCTAssertEqual(secondColor, "rgb(160, 206, 101)")
+        let pointJSON = try await web.evaluateJavaScript("""
+        (()=>{const f=document.querySelector('iframe'),p=f.contentDocument.querySelector('p'),r=p.getBoundingClientRect(),o=f.getBoundingClientRect();return JSON.stringify({x:o.left+r.left+2,y:o.top+r.top+2})})()
+        """) as? String
+        let pointData = Data(try XCTUnwrap(pointJSON).utf8)
+        let pointValues = try XCTUnwrap(JSONSerialization.jsonObject(with: pointData) as? [String: Double])
+        let point = CGPoint(x: try XCTUnwrap(pointValues["x"]), y: try XCTUnwrap(pointValues["y"]))
+        let tapAllowed = try await web.evaluateJavaScript(ContinuousPublicationScript.menuAllowed(at: point)) as? Bool
+        XCTAssertEqual(tapAllowed, true, "正文轻点应允许显示阅读菜单")
+        _ = try await web.evaluateJavaScript("(()=>{const d=document.querySelector('iframe').contentDocument;d.getSelection().selectAllChildren(d.querySelector('p'))})()")
+        let selectionAllowed = try await web.evaluateJavaScript(ContinuousPublicationScript.menuAllowed(at: point)) as? Bool
+        XCTAssertEqual(selectionAllowed, false, "有文字选区时应保留复制和选词操作")
+        _ = try await web.evaluateJavaScript("(()=>{const d=document.querySelector('iframe').contentDocument;d.getSelection().removeAllRanges();d.querySelector('p').setAttribute('contenteditable','true')})()")
+        let editingAllowed = try await web.evaluateJavaScript(ContinuousPublicationScript.menuAllowed(at: point)) as? Bool
+        XCTAssertEqual(editingAllowed, false, "可编辑内容不能触发阅读菜单")
+        _ = try await web.evaluateJavaScript("document.querySelector('iframe').contentDocument.querySelector('p').removeAttribute('contenteditable')")
         _ = try await web.evaluateJavaScript("scrollTo(0,document.querySelectorAll('iframe')[1].parentElement.offsetTop+120)")
         try await waitFor(web, condition: "scrollY > document.querySelectorAll('iframe')[1].parentElement.offsetTop")
         let changed = expectation(for: NSPredicate { _, _ in latest.index == 1 }, evaluatedWith: web)
