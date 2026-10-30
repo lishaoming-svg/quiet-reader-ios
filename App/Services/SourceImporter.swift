@@ -41,10 +41,11 @@ struct SourceImporter {
         let sources: [BookSourceDefinition]
         var decodeWarnings: [String] = []
 
-        if let rows = object as? [[String: Any]] {
+        if let rows = object as? [Any] {
             var values: [BookSourceDefinition] = []
             for (index, row) in rows.enumerated() {
                 do {
+                    guard let row = row as? [String: Any] else { throw SourceImportError.unsupportedRoot }
                     let encoded = try JSONSerialization.data(withJSONObject: row)
                     values.append(try decoder.decode(BookSourceDefinition.self, from: encoded))
                 } catch {

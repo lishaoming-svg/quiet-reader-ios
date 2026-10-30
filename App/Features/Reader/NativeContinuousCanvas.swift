@@ -9,6 +9,8 @@ struct NativeContinuousCanvas: View {
     let initial: ContinuousReadingPosition
     let theme: String
     let fontSize: Double
+    let typography: [String: Any]
+    let scrolled: () -> Void
     let changed: (ContinuousReadingPosition) -> Void
     let installNavigation: (@escaping (ContinuousReadingPosition) -> Void) -> Void
     @Environment(\.modelContext) private var context
@@ -18,7 +20,7 @@ struct NativeContinuousCanvas: View {
         Group {
             if let publication {
                 ContinuousPublicationView(publication: publication, initial: initial, theme: theme,
-                    publisherStyles: false, fontSize: fontSize / 18 * 100, changed: changed,
+                    publisherStyles: false, fontSize: fontSize / 18 * 100, typography: typography, scrolled: scrolled, changed: changed,
                     tapped: {}, ready: {}, failure: { error = $0 }, installNavigation: installNavigation)
             } else { ProgressView("正在展开连续正文…") }
         }

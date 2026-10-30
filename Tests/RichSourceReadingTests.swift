@@ -94,6 +94,21 @@ final class RichSourceReadingTests: XCTestCase {
         let local = URL(fileURLWithPath: "/private/book")
         XCTAssertNil(SourcePublicationContainer.imageURL(SourcePublicationContainer.imagePath(local)))
     }
+    @MainActor
+    func testContinuousProgressDoesNotDismissVisibleMenuWhenViewportChanges() async throws {
+        let container = try ModelContainer(for: BookRecord.self, ChapterCacheRecord.self, ReadingProgressRecord.self, ReadingSessionRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let chapters = [BookChapter(title: "第一章", url: "https://example.org/one", index: 0)]
+        let model = EPUBReaderModel()
+        await model.open(book: book(), chapters: chapters, context: container.mainContext,
+            preferences: EPUBReaderModel.preferences(publisherStyles: true, fontSizePercent: 100, scroll: true, theme: "sepia"), source: source())
+        defer { model.close() }
+        XCTAssertNotNil(model.navigator)
+        model.isRestoring = false; model.continuousActive = true; model.controlsVisible = true
+        model.continuousChanged(.init(index: 0, fraction: 0.4))
+        XCTAssertTrue(model.controlsVisible, "状态栏或窗口大小变化引起的进度更新不能立即关掉菜单")
+        XCTAssertEqual(try container.mainContext.fetch(FetchDescriptor<ReadingProgressRecord>()).first?.chapterProgress ?? -1, 0.4, accuracy: 0.001)
+    }
     func testReadingRulerClampsToScreenAndMaintainsOneLineHeight() {
         for fraction in [-2.0, 0, 0.22, 1, 4] {
             let frame = ReaderLineGuideGeometry.window(height: 800, lineHeight: 29, fraction: fraction)

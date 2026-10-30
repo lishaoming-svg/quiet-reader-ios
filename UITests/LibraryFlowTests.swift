@@ -9,6 +9,10 @@ final class LibraryFlowTests: XCTestCase {
         app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
             + (empty ? ["--empty-library"] : []) + (files ? ["--picker-fixtures"] : []) + (rich ? ["--rich-source-fixture"] : [])
         app.launch()
+        // A cold runner can finish launch before the scene receives its first
+        // foreground event. Activate it before asking AX for the tab hierarchy.
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        app.activate()
         XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 20))
         app.tabBars.buttons["书库"].tap()
         return app
@@ -44,6 +48,7 @@ final class LibraryFlowTests: XCTestCase {
     }
 
     func testEmptyLibraryOffersImportAndPickerCanBeCancelled() {
+        executionTimeAllowance = 300
         let app = launch(empty: true)
         XCTAssertTrue(app.buttons["library.emptyImport"].waitForExistence(timeout: 10))
         capture(app, "04-empty-library")

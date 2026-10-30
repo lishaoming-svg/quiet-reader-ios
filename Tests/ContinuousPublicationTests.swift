@@ -22,12 +22,13 @@ final class ContinuousPublicationTests: XCTestCase {
             changed: { latest = $0 }, tapped: {}, ready: { if !initialReady { initialReady = true; ready.fulfill() } },
             failure: { failures.append($0) }, installNavigation: { navigate = $0 })
         let controller = UIHostingController(rootView: view)
+        let previousWindow = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         let size = CGSize(width: 820, height: 1180)
         let window: UIWindow
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first { window = UIWindow(windowScene: scene) }
         else { window = UIWindow(frame: CGRect(origin: .zero, size: size)) }
         window.frame = CGRect(origin: .zero, size: size); window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil }
+        defer { window.isHidden = true; window.rootViewController = nil; previousWindow?.makeKeyAndVisible() }
         controller.view.frame = window.bounds; controller.view.layoutIfNeeded()
         await fulfillment(of: [ready], timeout: 30)
         guard initialReady else { return }

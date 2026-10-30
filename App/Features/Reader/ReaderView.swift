@@ -283,6 +283,12 @@ struct NativeTextReaderView: View {
         NativeContinuousCanvas(book: book, chapters: chapters, source: source,
             initial: .init(index: currentIndex, fraction: chapterProgress),
             theme: paper == .night ? "dark" : paper == .warm ? "sepia" : "light", fontSize: fontSize,
+            typography: ["font": ReaderTypography.bodyUIFont(size: fontSize, usesSerif: usesSerif).fontName,
+                "embedded": ImportedFontStore.fonts.contains { $0.postScriptName == UserDefaults.standard.string(forKey: "reader.importedFont") },
+                "lineSpacing": lineSpacing, "paragraphSpacing": ReaderTypography.paragraphSpacing(for: lineSpacing),
+                "indent": paragraphIndent, "margin": readerMargin.horizontalPadding, "maxWidth": readerMargin.maximumContentWidth,
+                "paper": paper == .green ? "#deebdb" : paper == .night ? "#141a1c" : paper == .white ? "#fafaf7" : "#f2e3c8"],
+            scrolled: { controlsVisible = false },
             changed: { position in
                 if currentIndex != position.index, chapters.indices.contains(position.index) {
                     currentIndex = position.index

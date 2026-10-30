@@ -77,6 +77,11 @@ final class SourcePublicationContainer: Container {
     subscript(url: any URLConvertible) -> Resource? {
         let path = url.anyURL.removingQuery().removingFragment().string.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if path == "reader.css" { return DataResource(string: SourceChapterDocument.style) }
+        if path == "reader-font.ttf", let name = UserDefaults.standard.string(forKey: "reader.importedFont"),
+           let font = ImportedFontStore.fonts.first(where: { $0.postScriptName == name }) {
+            let file = ImportedFontStore.root.appendingPathComponent(font.id + ".font")
+            return DataResource { do { return .success(try Data(contentsOf: file)) } catch { return .failure(.decoding(error)) } }
+        }
         if path.hasPrefix("image-"), let remote = Self.imageURL(path) {
             let source = self.source
             return DataResource {

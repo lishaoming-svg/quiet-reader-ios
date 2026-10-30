@@ -69,6 +69,8 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
             let saved = try context.fetch(FetchDescriptor<ReadingProgressRecord>(predicate: #Predicate { $0.bookID == id })).first
             var locator = saved?.publicationLocator.flatMap { try? Locator(jsonString: $0) }
             if source != nil, saved?.chapterIndex != initialIndex { locator = nil }
+            if source != nil, let savedLocation = locator, publication.readingOrder.indices.contains(initialIndex),
+               savedLocation.href.string.components(separatedBy: "#")[0] != publication.readingOrder[initialIndex].href.components(separatedBy: "#")[0] { locator = nil }
             if source != nil, locator == nil, !publication.readingOrder.isEmpty {
                 let index = min(max(initialIndex, 0), publication.readingOrder.count - 1)
                 let link = publication.readingOrder[index]
@@ -125,6 +127,7 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
               controller.viewport != nil else { return }
         guard let publication else { return }
         let index = publication.readingOrder.firstIndex { $0.href.components(separatedBy: "#")[0] == locator.href.string.components(separatedBy: "#")[0] } ?? 0
+        controlsVisible = false
         persist(locator, index: index)
     }
     private func persist(_ locator: Locator, index: Int) {
@@ -134,7 +137,6 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
         let chapter = chapters[min(index, chapters.count - 1)]
         progress = min(1, max(0, locator.locations.totalProgression ?? Double(index) / Double(chapters.count)))
         locationTitle = locator.title ?? chapter.title
-        controlsVisible = false
         do {
             let record = try context.fetch(FetchDescriptor<ReadingProgressRecord>(predicate: #Predicate { $0.bookID == id })).first
                 ?? ReadingProgressRecord(bookID: id, chapter: chapter)
@@ -360,6 +362,7 @@ struct EPUBReaderView: View {
                let publication = model.publication, publication.metadata.layout != .fixed {
                 ContinuousPublicationView(publication: publication, initial: model.continuousPosition, theme: theme,
                     publisherStyles: publisherStyles, fontSize: fontSize,
+                    scrolled: { model.controlsVisible = false },
                     changed: { model.continuousChanged($0) }, tapped: { model.controlsVisible.toggle() },
                     ready: { model.isRestoring = false }, failure: { model.errorMessage = $0 },
                     installNavigation: { model.continuousNavigation = $0; model.continuousActive = true })
@@ -413,7 +416,8 @@ struct EPUBReaderView: View {
     }
 
     private func updatePreferences() {
-        if model.continuousActive, readingMode != .scroll { model.switchFromContinuous() }
+        let vertical = directionValue == EPUBTextDirection.vertical.rawValue || (directionValue == EPUBTextDirection.publisher.rawValue && model.navigator?.settings.verticalText == true)
+        if model.continuousActive, readingMode != .scroll || vertical { model.switchFromContinuous() }
         model.readingMode = readingMode; model.navigator?.submitPreferences(preferences)
     }
     private func openMenu(_ section: String) { menuSection = section; showingToolbox = false; showingMenu = true }

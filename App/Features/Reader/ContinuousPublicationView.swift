@@ -16,6 +16,8 @@ struct ContinuousPublicationView: UIViewRepresentable {
     let theme: String
     let publisherStyles: Bool
     let fontSize: Double
+    var typography: [String: Any]? = nil
+    var scrolled: (() -> Void)? = nil
     let changed: (ContinuousReadingPosition) -> Void
     let tapped: () -> Void
     let ready: () -> Void
@@ -35,6 +37,7 @@ struct ContinuousPublicationView: UIViewRepresentable {
         web.isOpaque = false; web.backgroundColor = .clear
         web.scrollView.backgroundColor = .clear; web.scrollView.isDirectionalLockEnabled = true
         web.scrollView.alwaysBounceHorizontal = false; web.navigationDelegate = context.coordinator
+        web.scrollView.panGestureRecognizer.addTarget(context.coordinator, action: #selector(Coordinator.panned(_:)))
         context.coordinator.web = web
         installNavigation { [weak web] position in
             guard let literal = try? ContinuousPublicationScript.literal(position.json) else { return }
@@ -45,9 +48,11 @@ struct ContinuousPublicationView: UIViewRepresentable {
         return web
     }
     private var settings: [String: Any] {
-        ["theme": theme, "font": fontSize, "publisher": publisherStyles,
-         "paper": theme == "dark" ? "#151515" : theme == "sepia" ? "#f2e3c8" : "#ffffff",
+        var value: [String: Any] = ["theme": theme, "font": fontSize, "publisher": publisherStyles,
+         "paper": typography?["paper"] ?? (theme == "dark" ? "#151515" : theme == "sepia" ? "#f2e3c8" : "#ffffff"),
          "ink": theme == "dark" ? "#e5e1da" : "#3c3328"]
+        if let typography { value["typography"] = typography }
+        return value
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.owner = self
@@ -65,6 +70,9 @@ struct ContinuousPublicationView: UIViewRepresentable {
         var schemeHandler: PublicationSchemeHandler?
         var settings = ""
         init(_ owner: ContinuousPublicationView) { self.owner = owner }
+        @objc func panned(_ gesture: UIPanGestureRecognizer) {
+            if gesture.state == .began { owner.scrolled?() }
+        }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.frameInfo.isMainFrame, let value = message.body as? [String: Any],
                   let type = value["type"] as? String else { return }
@@ -159,10 +167,11 @@ enum ContinuousPublicationScript {
     static func prepareHTML(_ html: String) -> String {
         let policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self' data:;script-src 'none';style-src 'self' 'unsafe-inline';img-src 'self' data:;font-src 'self' data:;connect-src 'none';frame-src 'none';object-src 'none';\"/>"
         guard let head = html.range(of: "<head[^>]*>", options: [.regularExpression, .caseInsensitive]) else {
-            return "<html><head>\(policy)</head><body>\(html)</body></html>"
+            return "<!doctype html><html><head>\(policy)</head><body>\(viewportUnits(html))</body></html>"
         }
         var result = html; result.insert(contentsOf: policy, at: head.upperBound)
         result = viewportUnits(result)
+        if result.range(of: "<!doctype", options: .caseInsensitive) == nil { result = "<!doctype html>" + result }
         return result
     }
     static func document(publication: Publication, initial: ContinuousReadingPosition, settings: [String: Any]) -> String {
@@ -201,7 +210,9 @@ enum ContinuousPublicationScript {
       const send=(type,value={})=>parent.postMessage({readerStream:'child',index,type,...value},'*');
       function height(){if(!document.body)return;const h=Math.ceil(Math.max(document.body.scrollHeight,document.body.getBoundingClientRect().height));if(Math.abs(h-lastHeight)>1){lastHeight=h;send('height',{height:h})}}
       function configure(s){document.documentElement.style.setProperty('--ibooks-vh',(viewport/100)+'px');let style=document.getElementById('ibooks-continuous-style');if(!style){style=document.createElementNS('http://www.w3.org/1999/xhtml','style');style.id='ibooks-continuous-style';document.head.appendChild(style)}
-        style.textContent=`html,body{height:auto!important;min-height:0!important;column-count:auto!important;column-width:auto!important;overflow:visible!important;background:${s.paper}!important;color:${s.ink}}body{margin:0;padding:28px 26px}img,svg,video{max-width:100%!important;max-height:${viewport*.88}px!important;object-fit:contain;break-inside:avoid} ${s.publisher?'':`body{font-family:-apple-system,'PingFang SC',sans-serif!important;font-size:${18*s.font/100}px!important;font-weight:300!important;line-height:1.85!important}p{margin-bottom:1em}`} `;height()}
+        style.textContent=`html,body{height:auto!important;min-height:0!important;column-count:auto!important;column-width:auto!important;overflow:visible!important;background:${s.paper}!important;color:${s.ink}}body{margin:0;padding:28px 26px}img,svg,video{max-width:100%!important;max-height:${viewport*.88}px!important;object-fit:contain;break-inside:avoid} ${s.publisher?'':`body{font-family:-apple-system,'PingFang SC',sans-serif!important;font-size:${18*s.font/100}px!important;font-weight:300!important;line-height:1.85!important}p{margin-bottom:1em}`} `;
+        if(s.typography){const t=s.typography;style.textContent+=`${t.embedded?"@font-face{font-family:ibooks-imported;src:url('reader-font.ttf')}":''}body{box-sizing:border-box;width:100%;max-width:${t.maxWidth+2*t.margin}px!important;margin:0 auto!important;padding-left:${t.margin}px!important;padding-right:${t.margin}px!important;font-family:${t.embedded?'ibooks-imported':JSON.stringify(t.font)},sans-serif!important;font-size:${18*s.font/100}px!important;line-height:${18*s.font/100+t.lineSpacing}px!important}p{text-indent:${t.indent?'2em':'0'}!important;margin-bottom:${t.paragraphSpacing}px!important}`}
+        height()}
       function seek(p){let y=Math.max(0,(document.body?.scrollHeight-viewport)*(p.fraction||0));if(p.fragment){const element=document.getElementById(decodeURIComponent(p.fragment));if(element)y=element.getBoundingClientRect().top+scrollY}
         if(p.quote){const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;while(node=walker.nextNode()){const i=node.textContent.indexOf(p.quote);if(i>=0){const r=document.createRange();r.setStart(node,i);r.setEnd(node,Math.min(node.length,i+p.quote.length));y=r.getBoundingClientRect().top+scrollY;break}}}send('seeked',{y})}
       addEventListener('message',event=>{if(event.source!==parent||!event.data)return;const d=event.data;if(d.readerStream==='configure'){viewport=d.viewport||800;if(ready)configure(d.settings)}else if(d.readerStream==='seek'&&ready)seek(d.position)});
