@@ -16,7 +16,9 @@ enum LibraryTestSeed {
             for key in ["reader.lineGuideEnabled", "reader.lineGuidePosition", "reader.mode", "reader.family", "reader.bold", "reader.importedFont", "reader.serif", "reader.fontSize", "reader.lineSpacing", "reader.paper", "local.reader.preset", "library.collections.v1", "epub.mode", "epub.direction", "epub.publisherStyles", "epub.theme"] {
                 UserDefaults.standard.removeObject(forKey: key)
             }
-            if ProcessInfo.processInfo.arguments.contains("--rich-source-fixture") { UserDefaults.standard.set(ReaderMode.scroll.rawValue, forKey: "epub.mode") }
+            if ProcessInfo.processInfo.arguments.contains("--rich-source-fixture") {
+                UserDefaults.standard.set(ProcessInfo.processInfo.arguments.contains("--paged-source-fixture") ? ReaderMode.pageCurl.rawValue : ReaderMode.scroll.rawValue, forKey: "epub.mode")
+            }
         }
         guard ProcessInfo.processInfo.arguments.contains("--picker-fixtures") else { return }
         let folder = pickerDirectory
@@ -40,7 +42,7 @@ enum LibraryTestSeed {
             let book = SearchBook(sourceID: source.id, sourceName: source.bookSourceName, name: "连续精排示例", author: "测试作者", intro: "", kind: "", lastChapter: "", updateTime: "", bookURL: "https://example.org/book", coverURL: "", tocURL: "")
             let chapters = [BookChapter(title: "清晨来信", url: "https://example.org/one", index: 0), BookChapter(title: "灯下回信", url: "https://example.org/two", index: 1)]
             context.insert(try BookSourceRecord(definition: source)); context.insert(BookRecord(book: book))
-            let bodies = ["<p style='color:#c00;text-align:center'>你有一封新来信</p><p style='border:1px solid #332619;border-radius:12px;text-indent:0;padding:8px'>谢谢你的来信。</p>" + String(repeating: "<p>清晨，海面泛起微光，风把远处的钟声送到窗前。</p>", count: 7),
+            let bodies = ["<p style='color:#c00;text-align:center'>你有一封新来信</p><p style='border:1px solid #332619;border-radius:12px;text-indent:0;padding:8px'>&nbsp;谢谢你的来信。&nbsp;&copy;</p>" + String(repeating: "<p>清晨，海面泛起微光，风把远处的钟声送到窗前。</p>", count: 7),
                 "<p style='text-align:right'>海边的朋友</p><p style='text-align:right;background-color:#a0ce65;border-radius:12px;text-indent:0;padding:8px'>灯下的回信已经寄出。</p>" + String(repeating: "<p>夜色落在窗台上，一盏灯照亮尚未读完的书页。</p>", count: 12)]
             for (index, chapter) in chapters.enumerated() {
                 context.insert(ChapterCacheRecord(sourceID: source.id, bookID: book.id, chapter: chapter, content: ReadableContentFormatter.plainText(from: bodies[index]), htmlContent: bodies[index]))

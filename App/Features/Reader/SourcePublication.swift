@@ -127,7 +127,7 @@ final class SourcePublicationContainer: Container {
                 try image.attr("src", path(url))
             }
         }
-        document.outputSettings().syntax(syntax: .xml)
+        document.outputSettings().syntax(syntax: .xml).escapeMode(.xhtml).prettyPrint(pretty: false)
         return try document.body()?.html() ?? html
     }
 }

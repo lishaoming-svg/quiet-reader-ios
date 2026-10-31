@@ -193,7 +193,9 @@ final class EPUBReaderModel: NSObject, ObservableObject, EPUBNavigatorDelegate {
     }
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) { errorMessage = "暂时无法完成这个阅读操作，请重试。" }
     func navigator(_ navigator: Navigator, didFailToLoadResourceAt href: RelativeURL, withError error: ReadError) {
-        if errorMessage == nil { errorMessage = "正文或插图无法读取：\(href.string)。请检查文件、网络或书源访问权限。" }
+        guard let publication, let url = URL(string: "ibooks-stream://publication/" + href.string),
+              PublicationResourcePolicy.isReadingResource(url, in: publication) else { return }
+        if errorMessage == nil { errorMessage = PublicationResourcePolicy.readingFailure(url) }
     }
 
     func go(_ link: ReadiumShared.Link) {

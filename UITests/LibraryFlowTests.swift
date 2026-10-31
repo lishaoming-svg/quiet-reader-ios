@@ -4,10 +4,11 @@ import UIKit
 final class LibraryFlowTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
-    private func launch(empty: Bool = false, files: Bool = false, rich: Bool = false) -> XCUIApplication {
+    private func launch(empty: Bool = false, files: Bool = false, rich: Bool = false, paged: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
             + (empty ? ["--empty-library"] : []) + (files ? ["--picker-fixtures"] : []) + (rich ? ["--rich-source-fixture"] : [])
+            + (paged ? ["--paged-source-fixture"] : [])
         app.launch()
         // A cold runner can finish launch before the scene receives its first
         // foreground event. Activate it before asking AX for the tab hierarchy.
@@ -122,11 +123,40 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["完成"].tap()
         let guide = app.descendants(matching: .any).matching(identifier: "reader.lineGuideWindow").firstMatch
         XCTAssertTrue(guide.waitForExistence(timeout: 10))
+        XCTAssertEqual(guide.value as? String, "已对齐文字行", "导读窗口必须使用实际排版行，不能只显示固定高度的框")
         let before = guide.frame.midY
         guide.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1,
             thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
         XCTAssertGreaterThan(guide.frame.midY, before + 20)
         capture(app, "10-movable-line-guide")
+    }
+
+    func testRichSourcePagedReadingHandlesCachedHTMLEntitiesAcrossChapters() {
+        executionTimeAllowance = 300
+        let app = launch(rich: true, paged: true)
+        let book = app.buttons["book.连续精排示例"]
+        XCTAssertTrue(book.waitForExistence(timeout: 10)); book.tap()
+        let first = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "你有一封新来信")).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        let parserError = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Entity 'nbsp' not defined", "This page contains the following errors")).firstMatch
+        XCTAssertFalse(parserError.exists)
+        capture(app, "13-source-paged-xhtml")
+        let second = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "灯下的回信已经寄出")).firstMatch
+        for _ in 0..<8 {
+            if second.exists && second.isHittable { break }
+            app.swipeLeft()
+        }
+        let secondVisible = expectation(for: NSPredicate { _, _ in second.exists && second.isHittable }, evaluatedWith: app)
+        wait(for: [secondVisible], timeout: 15)
+        XCTAssertFalse(parserError.exists)
+        capture(app, "14-source-paged-next-chapter")
+        for _ in 0..<8 {
+            if first.exists && first.isHittable { break }
+            app.swipeRight()
+        }
+        let firstVisible = expectation(for: NSPredicate { _, _ in first.exists && first.isHittable }, evaluatedWith: app)
+        wait(for: [firstVisible], timeout: 15)
+        XCTAssertFalse(parserError.exists)
     }
 
     func testSystemPickerActuallyImportsAndReadsSelectedTXT() {

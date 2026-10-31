@@ -347,6 +347,16 @@ final class ReaderPageTextCanvas: UIView {
         return lines
     }
 
+    func renderedLineRects() -> [CGRect] {
+        guard bounds.width > 0, textStorage.length > 0 else { return [] }
+        layoutManager.ensureLayout(for: textContainer)
+        var lines: [CGRect] = []
+        layoutManager.enumerateLineFragments(forGlyphRange: layoutManager.glyphRange(for: textContainer)) { _, used, _, _, _ in
+            if used.width > 0 { lines.append(used) }
+        }
+        return lines
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         selectionView.frame = bounds

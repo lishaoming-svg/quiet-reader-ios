@@ -46,7 +46,7 @@ struct SourceChapterDocument: Sendable, Equatable {
                 try node.attr(key, url.absoluteString)
             }
         }
-        document.outputSettings().syntax(syntax: .xml)
+        document.outputSettings().syntax(syntax: .xml).escapeMode(.xhtml).prettyPrint(pretty: false)
         let body = try document.body()?.html() ?? ""
         let text = ReadableTextNormalizer.normalize(ReadableContentFormatter.plainText(from: body))
         let hasImages = !(try document.select("img[src]")).isEmpty()
@@ -54,6 +54,14 @@ struct SourceChapterDocument: Sendable, Equatable {
         // Image-only posts are valid chapters; this string is the text index,
         // while the renderer and EPUB exporter retain their actual images.
         return SourceChapterDocument(text: text.isEmpty ? "[插图]" : text, html: body)
+    }
+
+    /// XHTML is XML: HTML-only named entities such as &nbsp; are invalid without
+    /// a DTD. Re-serialize cached and exported fragments as well as new content.
+    static func xhtmlFragment(_ html: String) throws -> String {
+        let document = try SwiftSoup.parseBodyFragment(html)
+        document.outputSettings().syntax(syntax: .xml).escapeMode(.xhtml).prettyPrint(pretty: false)
+        return try document.body()?.html() ?? ""
     }
 
     static func safeStyle(_ raw: String) -> String {

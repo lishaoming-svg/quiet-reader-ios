@@ -115,6 +115,27 @@ private extension ContinuousReadingPosition {
     var json: [String: Any] { ["index": index, "fraction": fraction, "fragment": fragment, "quote": quote] }
 }
 
+enum PublicationResourcePolicy {
+    static func href(for url: URL) -> AnyURL? {
+        // URL.path decodes %23 and %3F into fragment/query delimiters. Keep the
+        // archive path encoded so books with these characters retain resources.
+        guard url.scheme == "ibooks-stream", url.host == "publication",
+              let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath else { return nil }
+        return AnyURL(string: String(path.drop(while: { $0 == "/" })))
+    }
+    static func isReadingResource(_ url: URL, in publication: Publication) -> Bool {
+        guard let href = href(for: url) else { return false }
+        func key(_ value: AnyURL) -> String {
+            let path = value.removingQuery().removingFragment().string
+            return (path.removingPercentEncoding ?? path).precomposedStringWithCanonicalMapping
+        }
+        return publication.readingOrder.contains { key($0.url()) == key(href) }
+    }
+    static func readingFailure(_ url: URL) -> String {
+        "本章正文无法读取：\(url.lastPathComponent)。请重新加载本章；如果原书缺少这一章，请重新导入完整文件。"
+    }
+}
+
 final class PublicationSchemeHandler: NSObject, WKURLSchemeHandler {
     let publication: Publication
     let failure: (String) -> Void
@@ -133,7 +154,10 @@ final class PublicationSchemeHandler: NSObject, WKURLSchemeHandler {
                     urlSchemeTask.didReceive(URLResponse(url: url, mimeType: "text/html", expectedContentLength: self.document.count, textEncodingName: "utf-8"))
                     urlSchemeTask.didReceive(self.document); urlSchemeTask.didFinish(); return
                 }
-                guard let href = AnyURL(string: path), let resource = self.publication.get(href) else { throw LocalBookError.missing }
+                guard let href = PublicationResourcePolicy.href(for: url), let resource = self.publication.get(href) else {
+                    throw NSError(domain: "iBooks.PublicationResource", code: 404,
+                        userInfo: [NSLocalizedDescriptionKey: "无法读取书内资源：\(url.lastPathComponent)"])
+                }
                 var data = try await resource.read().get()
                 try Task.checkCancellation()
                 let mime = Self.mime(url.pathExtension)
@@ -152,7 +176,13 @@ final class PublicationSchemeHandler: NSObject, WKURLSchemeHandler {
             } catch is CancellationError { return }
             catch {
                 guard self.requests[id] != nil else { return }
-                self.failure(error.localizedDescription); urlSchemeTask.didFailWithError(error)
+                // A broken optional picture/font is not a missing book. Keep
+                // WebKit's resource error local; only spine failures interrupt.
+                if let failedURL = urlSchemeTask.request.url,
+                   PublicationResourcePolicy.isReadingResource(failedURL, in: self.publication) {
+                    self.failure(PublicationResourcePolicy.readingFailure(failedURL))
+                }
+                urlSchemeTask.didFailWithError(error)
             }
         }
     }

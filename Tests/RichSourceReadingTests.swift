@@ -85,7 +85,7 @@ final class RichSourceReadingTests: XCTestCase {
         XCTAssertTrue(opf.contains("images/one.png")); XCTAssertTrue(opf.contains("image/png"))
         let html = String(decoding: try read("EPUB/chapter0.xhtml"), as: UTF8.self)
         XCTAssertTrue(html.contains("color:red;border-radius:12px"))
-        XCTAssertTrue(html.contains("src='images/one.png'"))
+        XCTAssertEqual(try SwiftSoup.parse(html).select("img").attr("src"), "images/one.png")
         XCTAssertThrowsError(try BookEPUBExporter.build(book: book(), chapters: [ExportBookChapter(title: "未下载", content: "")]))
     }
     func testImageResourceURLRoundTripsSignedURLAndRejectsLocalScheme() throws {
@@ -93,6 +93,22 @@ final class RichSourceReadingTests: XCTestCase {
         XCTAssertEqual(SourcePublicationContainer.imageURL(SourcePublicationContainer.imagePath(url)), url)
         let local = URL(fileURLWithPath: "/private/book")
         XCTAssertNil(SourcePublicationContainer.imageURL(SourcePublicationContainer.imagePath(local)))
+    }
+    func testCachedHTMLNamedEntitiesProduceValidXHTMLAndExport() throws {
+        let body = "<p style='color:red' title='A&nbsp;B'>&nbsp;初见 &copy; &mdash; &ldquo;海&rdquo; &amp; 🌊<br><img src='https://img.example.org/a.png?x=1&amp;y=2'></p>"
+        let rewritten = try SourcePublicationContainer.rewriteImages(body) { SourcePublicationContainer.imagePath($0) }
+        let page = SourcePublicationContainer.page(title: "狂色 & 初见", body: rewritten)
+        let parser = XMLParser(data: Data(page.utf8)); parser.shouldResolveExternalEntities = false
+        XCTAssertTrue(parser.parse(), parser.parserError?.localizedDescription ?? "")
+        XCTAssertFalse(page.contains("&nbsp;")); XCTAssertTrue(page.contains("🌊"))
+        let dom = try SwiftSoup.parse(page)
+        XCTAssertTrue(try dom.select("p").text().contains("初见 © — “海” & 🌊"))
+        XCTAssertEqual(try dom.select("p").attr("style"), "color:red")
+        let data = try BookEPUBExporter.build(book: book(), chapters: [.init(title: "初见", content: "初见", html: body)])
+        let archive = try ZIPFoundation.Archive(data: data, accessMode: .read)
+        var exported = Data(); _ = try archive.extract(XCTUnwrap(archive["EPUB/chapter0.xhtml"])) { exported.append($0) }
+        let exportedParser = XMLParser(data: exported); exportedParser.shouldResolveExternalEntities = false
+        XCTAssertTrue(exportedParser.parse(), exportedParser.parserError?.localizedDescription ?? "")
     }
     @MainActor
     func testContinuousProgressDoesNotDismissVisibleMenuWhenViewportChanges() async throws {

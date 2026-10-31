@@ -114,7 +114,7 @@ enum BookEPUBExporter {
             manifest += "<item id=\"\(id)\" href=\"\(id).xhtml\" media-type=\"application/xhtml+xml\"/>"
             spine += "<itemref idref=\"\(id)\"/>"
             links += "<li><a href=\"\(id).xhtml\">\(title)</a></li>"
-            let paragraphs = chapter.html ?? chapter.content.components(separatedBy: .newlines)
+            let paragraphs = try chapter.html.map(SourceChapterDocument.xhtmlFragment) ?? chapter.content.components(separatedBy: .newlines)
                 .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
                 .map { "<p>\(xml($0))</p>" }.joined()
             try add("EPUB/\(id).xhtml", """
