@@ -451,7 +451,9 @@ struct EPUBReaderView: View {
                 background.ignoresSafeArea()
                 ProgressView("正在恢复阅读位置…").accessibilityIdentifier("epub.restoring")
             }
-            if lineGuideEnabled { ReaderLineGuide(paper: background, lineHeight: 27 * fontSize / 100) }
+            if lineGuideEnabled {
+                ReaderLineGuide(paper: background, lineHeight: 27 * fontSize / 100).ignoresSafeArea(edges: .bottom)
+            }
             if model.controlsVisible {
                 VStack {
                     HStack {
