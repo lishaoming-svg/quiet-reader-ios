@@ -93,12 +93,14 @@ jobs:
       - name: 下载本轮测试报告
         uses: actions/download-artifact@v8
         with:
-          name: build-test-${{ github.run_number }}
+          name: build-evidence-${{ github.run_number }}
           path: build/ci-test-results
 
       - name: 导出界面测试截图
         run: |
-          xcrun xcresulttool export attachments --path build/ci-test-results/Test.xcresult --output-path build/ui-screenshots
+          test -f build/ci-test-results/ui-screenshots/manifest.json
+          mkdir -p build/ui-screenshots
+          cp -R build/ci-test-results/ui-screenshots/. build/ui-screenshots/
 
       - name: 上传界面预览
         uses: actions/upload-artifact@v7

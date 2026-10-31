@@ -70,7 +70,9 @@ final class LibraryFlowTests: XCTestCase {
         revealControls(app); app.buttons["reader.menu"].tap(); app.buttons["笔记与书签"].tap()
         XCTAssertTrue(app.buttons["添加笔记"].waitForExistence(timeout: 5)); app.buttons["添加笔记"].tap()
         let note = app.textViews["annotation.note"]
-        XCTAssertTrue(note.waitForExistence(timeout: 10)); note.tap(); note.typeText("Reading note 2026")
+        XCTAssertTrue(note.waitForExistence(timeout: 10)); note.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 15), "输入批注前等待编辑器取得键盘焦点")
+        note.typeText("Reading note 2026")
         app.buttons["annotation.save"].tap()
         if !app.buttons["reader.close"].waitForExistence(timeout: 5) { revealControls(app) }
         app.buttons["reader.menu"].tap(); app.buttons["笔记与书签"].tap()
@@ -283,7 +285,7 @@ final class LibraryFlowTests: XCTestCase {
         if open.waitForExistence(timeout: 3) { open.tap() }
         capture(app, "picker-return-\(name)")
         XCTAssertTrue(app.navigationBars["导入结果"].waitForExistence(timeout: 30), app.debugDescription)
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已加入书库")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已加入书库")).firstMatch.waitForExistence(timeout: 30), "导入结果页面出现后，仍需等待文件处理与书库存储完成")
         capture(app, "import-result-\(name)")
         app.buttons["import.done"].tap()
     }

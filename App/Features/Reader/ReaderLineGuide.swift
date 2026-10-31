@@ -29,7 +29,8 @@ struct ReaderLineGuide: View {
               if measuredLine != nil {
                 Path { path in
                     path.addRect(CGRect(origin: .zero, size: geometry.size))
-                    path.addRect(CGRect(x: 0, y: band.minY, width: geometry.size.width, height: band.height))
+                    path.addRoundedRect(in: CGRect(x: 24, y: band.minY, width: max(0, geometry.size.width - 48), height: band.height),
+                        cornerSize: CGSize(width: band.height / 2, height: band.height / 2))
                 }
                 .fill(paper.opacity(0.76), style: FillStyle(eoFill: true))
                 .allowsHitTesting(false)
@@ -39,7 +40,7 @@ struct ReaderLineGuide: View {
                     .shadow(color: .black.opacity(0.12), radius: 3, y: 2)
                     .frame(width: max(44, geometry.size.width - 48), height: band.height)
                     .offset(y: band.minY)
-                    .gesture(DragGesture(minimumDistance: 3)
+                    .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .global)
                         .updating($translation) { value, state, _ in state = value.translation.height }
                         .onEnded { value in fraction = min(0.95, max(0.05, fraction + Double(value.translation.height / max(geometry.size.height, 1)))) })
                     .accessibilityLabel("逐行导读阅读标尺")

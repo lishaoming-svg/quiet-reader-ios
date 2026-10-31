@@ -268,8 +268,30 @@ jobs:
           ACCESSIBILITY_MODE: ${{ fromJSON(needs.config.outputs.config).build_test.accessibility_audit }}
           ACCESSIBILITY_PATTERN: ${{ fromJSON(needs.config.outputs.config).build_test.accessibility_test_pattern }}
         run: python3 scripts/ci-test-report.py "$GITHUB_WORKSPACE/.ci-workflows/scripts/xcresult-report.py"
+      - name: Export UI evidence before uploading the full result bundle
+        if: ${{ !cancelled() && steps.test.outputs.built == 'true' }}
+        run: |
+          set -euo pipefail
+          xcrun xcresulttool export attachments --path "$OUT/Test.xcresult" --output-path "$OUT/ui-screenshots"
+      - name: Upload compact report and UI evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-evidence-${{ github.run_number }}
+          path: |
+            ${{ fromJSON(needs.config.outputs.config).workdir }}/build/test/report
+            ${{ fromJSON(needs.config.outputs.config).workdir }}/build/test/ui-screenshots
+            ${{ fromJSON(needs.config.outputs.config).workdir }}/build/test/xcodebuild.log
+            ${{ fromJSON(needs.config.outputs.config).workdir }}/build/test/ui-tree.json
+            ${{ fromJSON(needs.config.outputs.config).workdir }}/build/test/launch.png
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
       - name: Upload screenshot, UI tree, test result and logs
         if: always()
+        # The required compact artifact already contains the report, complete
+        # UI attachments and build log. The raw xcresult is supplementary.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: build-test-${{ github.run_number }}

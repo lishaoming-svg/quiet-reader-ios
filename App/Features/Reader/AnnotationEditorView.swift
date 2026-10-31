@@ -26,6 +26,7 @@ struct AnnotationEditorView: View {
     @State private var color: String
     @State private var error: String?
     @State private var saved = false
+    @FocusState private var noteFocused: Bool
     private let newRecord: Bool
     init(bookmark: BookmarkRecord) {
         self.bookmark = bookmark
@@ -53,6 +54,7 @@ struct AnnotationEditorView: View {
                         }
                     }
                     TextEditor(text: $note).frame(minHeight: 180).padding(8)
+                        .focused($noteFocused)
                         .scrollContentBackground(.hidden).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
                         .accessibilityLabel("笔记内容").accessibilityIdentifier("annotation.note")
                     if let error { Text(error).foregroundStyle(.red) }
@@ -72,6 +74,7 @@ struct AnnotationEditorView: View {
                     }
                 }
         }
+        .task { if newRecord { noteFocused = true } }
         .onDisappear {
             if newRecord && !saved && bookmark.modelContext != nil { context.delete(bookmark) }
         }
