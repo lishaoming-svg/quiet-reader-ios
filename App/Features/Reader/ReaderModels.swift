@@ -3,6 +3,7 @@ import UIKit
 
 enum ReaderMode: String, CaseIterable, Identifiable {
     case scroll
+    case pageCurl
     case pageSlide
     case pageNone
 
@@ -11,6 +12,7 @@ enum ReaderMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .scroll: "滚动"
+        case .pageCurl: "仿真翻页"
         case .pageSlide: "滑动"
         case .pageNone: "无动画"
         }
@@ -19,6 +21,7 @@ enum ReaderMode: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .scroll: "scroll"
+        case .pageCurl: "book.pages"
         case .pageSlide: "rectangle.portrait.on.rectangle.portrait"
         case .pageNone: "rectangle.portrait"
         }
@@ -122,18 +125,18 @@ enum ReaderTypography {
     }
 
     static func bodyUIFont(size: CGFloat, usesSerif: Bool) -> UIFont {
-        if usesSerif {
-            if let songti = UIFont(name: "STSongti-SC-Regular", size: size) {
-                return songti
-            }
-            let fallback = UIFont.systemFont(ofSize: size, weight: .regular)
-            if let descriptor = fallback.fontDescriptor.withDesign(.serif) {
-                return UIFont(descriptor: descriptor, size: size)
-            }
-            return fallback
+        let defaults = UserDefaults.standard
+        let font: UIFont
+        if let name = defaults.string(forKey: "reader.importedFont"), !name.isEmpty,
+           let imported = UIFont(name: name, size: size) { font = imported }
+        else if usesSerif { font = UIFont(name: "STSongti-SC-Regular", size: size) ?? .systemFont(ofSize: size) }
+        else if let raw = defaults.string(forKey: "reader.family"), let family = BooksFont(rawValue: raw),
+                let selected = UIFont(name: family.postscript, size: size) { font = selected }
+        else { font = UIFont(name: "PingFangSC-Light", size: size) ?? .systemFont(ofSize: size, weight: .light) }
+        if defaults.bool(forKey: "reader.bold"), let descriptor = font.fontDescriptor.withSymbolicTraits(.traitBold) {
+            return UIFont(descriptor: descriptor, size: size)
         }
-        return UIFont(name: "PingFangSC-Regular", size: size)
-            ?? UIFont.systemFont(ofSize: size, weight: .regular)
+        return font
     }
 
     static func titleUIFont(size: CGFloat) -> UIFont {
@@ -177,7 +180,8 @@ enum ReaderPageTextStyle {
         lineSpacing: CGFloat,
         usesSerif: Bool,
         textColor: UIColor = .label,
-        highlightedText: String? = nil
+        highlightedText: String? = nil,
+        highlights: [ReaderTextHighlight] = []
     ) -> NSAttributedString {
         let result = NSMutableAttributedString(
             string: text,
@@ -188,6 +192,10 @@ enum ReaderPageTextStyle {
                 textColor: textColor
             )
         )
+        for highlight in highlights {
+            let range = NSIntersectionRange(highlight.range, NSRange(location: 0, length: result.length))
+            if range.length > 0 { result.addAttribute(.backgroundColor, value: highlight.color.withAlphaComponent(0.25), range: range) }
+        }
         if let highlightedText,
            !highlightedText.isEmpty {
             let range = (text as NSString).range(of: highlightedText)
@@ -205,6 +213,11 @@ enum ReaderPageTextStyle {
     }
 }
 
+struct ReaderTextHighlight {
+    let range: NSRange
+    let color: UIColor
+}
+
 struct ReaderPageTextView: UIViewRepresentable {
     let text: String
     let fontSize: CGFloat
@@ -212,6 +225,8 @@ struct ReaderPageTextView: UIViewRepresentable {
     let usesSerif: Bool
     let textColor: UIColor
     let highlightedText: String?
+    var highlights: [ReaderTextHighlight] = []
+    var onAnnotation: ((NSRange, Bool) -> Void)?
 
     init(
         text: String,
@@ -219,7 +234,9 @@ struct ReaderPageTextView: UIViewRepresentable {
         lineSpacing: CGFloat,
         usesSerif: Bool,
         textColor: UIColor,
-        highlightedText: String? = nil
+        highlightedText: String? = nil,
+        highlights: [ReaderTextHighlight] = [],
+        onAnnotation: ((NSRange, Bool) -> Void)? = nil
     ) {
         self.text = text
         self.fontSize = fontSize
@@ -227,6 +244,7 @@ struct ReaderPageTextView: UIViewRepresentable {
         self.usesSerif = usesSerif
         self.textColor = textColor
         self.highlightedText = highlightedText
+        self.highlights = highlights; self.onAnnotation = onAnnotation
     }
 
     func makeUIView(context: Context) -> ReaderPageTextCanvas {
@@ -234,6 +252,7 @@ struct ReaderPageTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: ReaderPageTextCanvas, context: Context) {
+        uiView.onAnnotation = onAnnotation
         uiView.setAttributedText(
             ReaderPageTextStyle.attributedString(
                 text: text,
@@ -241,7 +260,7 @@ struct ReaderPageTextView: UIViewRepresentable {
                 lineSpacing: lineSpacing,
                 usesSerif: usesSerif,
                 textColor: textColor,
-                highlightedText: highlightedText
+                highlightedText: highlightedText, highlights: highlights
             )
         )
     }
@@ -260,12 +279,16 @@ final class ReaderPageTextCanvas: UIView {
     private let textStorage = NSTextStorage()
     private let layoutManager = NSLayoutManager()
     private let textContainer = NSTextContainer(size: .zero)
+    private var selectionView: ReaderSelectionTextView!
+    var onAnnotation: ((NSRange, Bool) -> Void)? {
+        didSet { selectionView.onAnnotation = onAnnotation }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
-        isUserInteractionEnabled = false
+        isUserInteractionEnabled = true
         clipsToBounds = true
         isAccessibilityElement = true
         accessibilityTraits = .staticText
@@ -276,6 +299,12 @@ final class ReaderPageTextCanvas: UIView {
         textContainer.lineBreakMode = .byWordWrapping
         textStorage.addLayoutManager(layoutManager)
         layoutManager.addTextContainer(textContainer)
+        selectionView = ReaderSelectionTextView(frame: .zero, textContainer: textContainer)
+        selectionView.isEditable = false; selectionView.isSelectable = true; selectionView.isScrollEnabled = false
+        selectionView.backgroundColor = .clear; selectionView.textContainerInset = .zero
+        selectionView.contentInset = .zero; selectionView.isAccessibilityElement = false
+        selectionView.contentInsetAdjustmentBehavior = .never
+        addSubview(selectionView)
     }
 
     @available(*, unavailable)
@@ -318,8 +347,19 @@ final class ReaderPageTextCanvas: UIView {
         return lines
     }
 
+    func renderedLineRects() -> [CGRect] {
+        guard bounds.width > 0, textStorage.length > 0 else { return [] }
+        layoutManager.ensureLayout(for: textContainer)
+        var lines: [CGRect] = []
+        layoutManager.enumerateLineFragments(forGlyphRange: layoutManager.glyphRange(for: textContainer)) { _, used, _, _, _ in
+            if used.width > 0 { lines.append(used) }
+        }
+        return lines
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        selectionView.frame = bounds
         let size = CGSize(width: max(bounds.width, 0), height: max(bounds.height, 0))
         guard textContainer.size != size else { return }
         textContainer.size = size
@@ -327,12 +367,20 @@ final class ReaderPageTextCanvas: UIView {
         setNeedsDisplay()
     }
 
-    override func draw(_ rect: CGRect) {
-        super.draw(rect)
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        let glyphRange = layoutManager.glyphRange(for: textContainer)
-        layoutManager.drawBackground(forGlyphRange: glyphRange, at: .zero)
-        layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
+}
+
+private final class ReaderSelectionTextView: UITextView {
+    var onAnnotation: ((NSRange, Bool) -> Void)?
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard onAnnotation != nil else { return }
+        let actions = [("高亮", false), ("添加笔记", true)].map { title, edit in
+            UIAction(title: title) { [weak self] _ in
+                guard let self, self.selectedRange.length > 0 else { return }
+                self.onAnnotation?(self.selectedRange, edit)
+            }
+        }
+        builder.insertChild(UIMenu(title: "", options: .displayInline, children: actions), atStartOfMenu: .standardEdit)
     }
 }
 
@@ -340,6 +388,18 @@ struct ReaderDisplayDocument {
     let text: String
     fileprivate let spans: [ReaderLocatorSpan]
     fileprivate let originalLength: Int
+
+    func displayedOffset(forLocatorOffset rawOffset: Int) -> Int {
+        let offset = min(max(rawOffset, 0), originalLength)
+        for span in spans {
+            if !span.tracksCharacters && span.originalOffset == offset { return span.displayRange.location }
+            if span.tracksCharacters && offset >= span.originalOffset && offset < span.originalOffset + span.displayRange.length {
+                return span.displayRange.location + offset - span.originalOffset
+            }
+            if span.originalOffset > offset { return span.displayRange.location }
+        }
+        return (text as NSString).length
+    }
 
     func locatorOffset(forDisplayedUTF16Offset rawOffset: Int) -> Int {
         guard !spans.isEmpty else { return 0 }

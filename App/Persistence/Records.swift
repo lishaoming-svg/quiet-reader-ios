@@ -60,6 +60,7 @@ final class BookRecord {
     var tocURL: String
     var addedAt: Date
     var lastReadAt: Date
+    var libraryStateJSON: Data? = nil
 
     init(book: SearchBook) {
         bookID = book.id
@@ -87,7 +88,7 @@ final class BookRecord {
             lastChapter: "",
             updateTime: "",
             bookURL: bookURL,
-            coverURL: coverURL,
+            coverURL: resolvedCoverURL,
             tocURL: tocURL
         )
     }
@@ -101,6 +102,11 @@ final class BookRecord {
         coverURL = book.coverURL
         tocURL = book.tocURL
     }
+
+    var libraryState: LibraryBookState {
+        get { libraryStateJSON.flatMap { try? JSONDecoder().decode(LibraryBookState.self, from: $0) } ?? LibraryBookState() }
+        set { libraryStateJSON = try? JSONEncoder().encode(newValue) }
+    }
 }
 
 @Model
@@ -113,6 +119,10 @@ final class ReadingProgressRecord {
     var chapterProgress: Double = 0
     var pageIndex: Int = 0
     var readingMode: String = "scroll"
+    var publicationLocator: String? = nil
+    var bookProgress: Double? = nil
+    var importedSectionURI: String? = nil
+    var importedParagraphIndex: Int? = nil
     var updatedAt: Date
 
     init(bookID: String, chapter: BookChapter) {
@@ -148,14 +158,17 @@ final class ChapterCacheRecord {
     var bookID: String
     var title: String
     var content: String
+    var htmlContent: String? = nil
+    var downloadError: String? = nil
     var cachedAt: Date
 
-    init(sourceID: String, bookID: String, chapter: BookChapter, content: String) {
+    init(sourceID: String, bookID: String, chapter: BookChapter, content: String, htmlContent: String? = nil) {
         cacheKey = "\(sourceID)::\(chapter.url)"
         chapterURL = chapter.url
         self.bookID = bookID
         title = chapter.title
         self.content = content
+        self.htmlContent = htmlContent
         cachedAt = .now
     }
 }
@@ -261,6 +274,13 @@ final class BookmarkRecord {
     var locatorOffset: Int
     var chapterProgress: Double
     var excerpt: String
+    var publicationLocator: String? = nil
+    var note: String = ""
+    var noteKind: String = "bookmark"
+    var annotationColor: String? = nil
+    var importedParagraphIndex: Int? = nil
+    var importedEndParagraphIndex: Int? = nil
+    var importedEndOffset: Int? = nil
     var createdAt: Date
 
     init(
@@ -307,6 +327,13 @@ final class SearchHistoryRecord {
         searchedAt = .now
         useCount += 1
     }
+}
+
+@Model
+final class MigrationReceiptRecord {
+    @Attribute(.unique) var externalID: String
+    var bookID: String
+    init(externalID: String, bookID: String) { self.externalID = externalID; self.bookID = bookID }
 }
 
 extension JSONEncoder {

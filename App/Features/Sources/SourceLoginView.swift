@@ -15,6 +15,7 @@ struct SourceLoginView: View {
     }
 
     private var loginURL: URL? {
+        if NativeLofterAdapter.accepts(source) { return NativeLofterAdapter.loginURL }
         guard let value = source.loginUrl?.nilIfBlank else { return nil }
         return try? URLTemplateRenderer.render(value, relativeTo: source.bookSourceUrl)
     }
@@ -39,7 +40,7 @@ struct SourceLoginView: View {
             .navigationTitle("登录 · \(source.bookSourceName)")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
-                Text("登录或注册由书源网站处理。完成后点右上角“完成”，墨阅会同步该站点的登录 Cookie。")
+                Text("登录或注册由书源网站处理。完成后点右上角“完成”，iBooks 会同步该站点的登录 Cookie。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.inkSoft)
                     .frame(maxWidth: .infinity, alignment: .leading)

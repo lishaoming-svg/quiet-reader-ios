@@ -60,7 +60,10 @@ struct ReadingHistoryView: View {
                     ForEach(recentBooks) { book in
                         if let source = source(for: book) {
                             NavigationLink {
-                                BookDetailView(book: book.searchBook, source: source)
+                                BookshelfReaderDestination(book: book.searchBook, source: source,
+                                    cachedChapters: ChapterListCacheStore.record(bookID: book.bookID, in: modelContext)?.chapters ?? [],
+                                    resumeChapterURL: progress(for: book.bookID)?.chapterURL,
+                                    resumeChapterIndex: progress(for: book.bookID)?.chapterIndex)
                             } label: {
                                 RecentReadingRow(book: book, progress: progress(for: book.bookID))
                             }
@@ -153,7 +156,7 @@ struct ReadingHistoryView: View {
     }
 
     private func source(for book: BookRecord) -> BookSourceDefinition? {
-        sourceRecords.first { $0.sourceID == book.sourceID }?.definition
+        book.isLocal ? LocalBookStorage.source : sourceRecords.first { $0.sourceID == book.sourceID }?.definition
     }
 
     static func durationText(_ seconds: Double) -> String {

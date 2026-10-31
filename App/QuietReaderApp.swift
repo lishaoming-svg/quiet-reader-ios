@@ -6,7 +6,13 @@ struct QuietReaderApp: App {
     private let modelContainer: ModelContainer
 
     init() {
+        ImportedFontStore.registerAll()
         do {
+            #if DEBUG
+            try LibraryTestSeed.preparePickerFiles()
+            #endif
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
             modelContainer = try ModelContainer(
                 for: BookSourceRecord.self,
                 BookRecord.self,
@@ -15,7 +21,9 @@ struct QuietReaderApp: App {
                 ChapterListCacheRecord.self,
                 ReadingSessionRecord.self,
                 BookmarkRecord.self,
-                SearchHistoryRecord.self
+                SearchHistoryRecord.self,
+                MigrationReceiptRecord.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: ProcessInfo.processInfo.arguments.contains("--ui-testing"))
             )
         } catch {
             fatalError("无法初始化本地数据库：\(error.localizedDescription)")
@@ -25,7 +33,6 @@ struct QuietReaderApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .preferredColorScheme(.light)
         }
         .modelContainer(modelContainer)
     }

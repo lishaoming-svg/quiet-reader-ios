@@ -15,14 +15,35 @@ actor SourceHTTPClient {
     static let shared = SourceHTTPClient()
 
     private var sessions: [String: URLSession] = [:]
+    private var responseCache: [String: (Date, FetchedResource)] = [:]
 
-    func fetch(_ url: URL, source: BookSourceDefinition) async throws -> FetchedResource {
+    func fetch(_ url: URL, source: BookSourceDefinition, method: String = "GET", body: Data? = nil,
+               headers: [String: String] = [:], cacheSeconds: TimeInterval = 0) async throws -> FetchedResource {
+        let descriptor = try LegadoRequest.parse(url)
+        let requestMethod = method == "GET" ? descriptor.method : method
+        let requestBody = body ?? descriptor.body
+        let requestHeaders = descriptor.headers.merging(headers) { _, explicit in explicit }
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            throw SourceEngineError.invalidURL(url.absoluteString)
+        }
+        try Task.checkCancellation()
+        let key = source.id + "|" + url.absoluteString + "|" + method + "|" + (body?.base64EncodedString() ?? "") + "|" + (source.header ?? "")
+        if cacheSeconds > 0, let cached = responseCache[key], Date.now.timeIntervalSince(cached.0) < cacheSeconds { return cached.1 }
         var lastError: Error?
 
         for attempt in 1...SourceRequestRetryPolicy.maximumAttemptCount {
             try Task.checkCancellation()
             do {
-                return try await performFetch(url, source: source)
+                let result = try await performFetch(descriptor.url, source: source, method: requestMethod, body: requestBody, headers: requestHeaders)
+                if cacheSeconds > 0 {
+                    if responseCache.count >= 48, let oldest = responseCache.min(by: { $0.value.0 < $1.value.0 })?.key { responseCache.removeValue(forKey: oldest) }
+                    responseCache[key] = (.now, result)
+                    while responseCache.values.reduce(0, { $0 + $1.1.data.count }) > 24 * 1_024 * 1_024 {
+                        guard let oldest = responseCache.min(by: { $0.value.0 < $1.value.0 })?.key else { break }
+                        responseCache.removeValue(forKey: oldest)
+                    }
+                }
+                return result
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as URLError where error.code == .cancelled {
@@ -46,9 +67,11 @@ actor SourceHTTPClient {
 
     private func performFetch(
         _ url: URL,
-        source: BookSourceDefinition
+        source: BookSourceDefinition, method: String, body: Data?, headers: [String: String]
     ) async throws -> FetchedResource {
         var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
         request.timeoutInterval = 20
         request.setValue(
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -57,6 +80,7 @@ actor SourceHTTPClient {
         )
         request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
         parseHeaders(source.header).forEach { request.setValue($1, forHTTPHeaderField: $0) }
+        headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
         let (data, response) = try await session(for: source.id).data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -77,12 +101,34 @@ actor SourceHTTPClient {
     }
 
     func installCookies(_ cookies: [HTTPCookie], for sourceID: String) {
+        responseCache = responseCache.filter { !$0.key.hasPrefix(sourceID + "|") }
         for cookie in cookies {
             HTTPCookieStorage.shared.setCookie(cookie)
         }
         if let session = sessions.removeValue(forKey: sourceID) {
             session.invalidateAndCancel()
         }
+    }
+    func discardCachedResponses(for sourceID: String) {
+        responseCache = responseCache.filter { !$0.key.hasPrefix(sourceID + "|") }
+    }
+
+    func lofterHeaders() -> [String: String] {
+        // LOFTER's protocol expects an opaque local device token, not an Apple
+        // advertising/device identifier. It is never included in exports.
+        let key = "source.lofter.deviceToken"
+        let device = UserDefaults.standard.string(forKey: key) ?? String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        UserDefaults.standard.set(device, forKey: key)
+        var values = ["User-Agent": "LOFTER/8.3.20", "Referer": "https://www.lofter.com/",
+                      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8", "deviceid": device]
+        for cookie in HTTPCookieStorage.shared.cookies ?? [] {
+            let domain = cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+            guard domain == "lofter.com" || domain.hasSuffix(".lofter.com") else { continue }
+            let token = cookie.value.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            if cookie.name.uppercased() == "LOFTER-PHONE-LOGIN-AUTH" { values["lofter-phone-login-auth"] = token }
+            if cookie.name.uppercased() == "LOFTER-THIRD-LOGIN-AUTH" { values["authorization"] = "ThirdParty " + token }
+        }
+        return values
     }
 
     private func session(for sourceID: String) -> URLSession {

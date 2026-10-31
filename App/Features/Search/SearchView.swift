@@ -7,9 +7,13 @@ struct SearchView: View {
     @Query(sort: \SearchHistoryRecord.searchedAt, order: .reverse) private var searchHistory: [SearchHistoryRecord]
     @StateObject private var viewModel = SearchViewModel()
     @State private var keyword = ""
+    @State private var selectedSource = ""
 
     private var enabledSources: [BookSourceDefinition] {
         sourceRecords.filter(\.enabled).compactMap(\.definition)
+    }
+    private var searchSources: [BookSourceDefinition] {
+        selectedSource.isEmpty ? enabledSources : enabledSources.filter { $0.id == selectedSource }
     }
 
     var body: some View {
@@ -21,9 +25,11 @@ struct SearchView: View {
                 content
             }
         }
-        .navigationTitle("寻书")
+        .navigationTitle("搜索")
         .toolbarBackground(AppTheme.paperLight, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .onDisappear { viewModel.cancel() }
+        .onChange(of: selectedSource) { _, _ in performSearch() }
     }
 
     private var shouldShowHistory: Bool {
@@ -67,9 +73,19 @@ struct SearchView: View {
 
     private var searchHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("在 \(enabledSources.count) 个书源中搜索")
-                .font(.caption)
-                .foregroundStyle(AppTheme.inkSoft)
+            HStack {
+                Menu {
+                    Button("全部书源") { selectedSource = "" }
+                    ForEach(enabledSources) { source in Button(source.bookSourceName) { selectedSource = source.id } }
+                } label: {
+                    Label(selectedSource.isEmpty ? "全部书源 · \(enabledSources.count)" : searchSources.first?.bookSourceName ?? "选择书源", systemImage: "line.3.horizontal.decrease")
+                        .font(.subheadline.weight(.medium))
+                }
+                Spacer()
+                if searchSources.contains(where: NativeLofterAdapter.accepts) {
+                    Text("LOFTER：#合集名 · @作者").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.vermilion)
@@ -91,7 +107,7 @@ struct SearchView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
                     .background(AppTheme.vermilion, in: Capsule())
-                    .disabled(viewModel.isSearching || keyword.nilIfBlank == nil)
+                    .disabled(keyword.nilIfBlank == nil)
             }
             .padding(12)
             .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 16))
@@ -105,11 +121,11 @@ struct SearchView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isSearching {
+        if viewModel.isSearching && viewModel.results.isEmpty {
             Spacer()
             VStack(spacing: 12) {
                 ProgressView().tint(AppTheme.vermilion)
-                Text("正在逐一询问书源…")
+                Text("正在搜索 · \(viewModel.completedSources)/\(viewModel.totalSources)")
                     .font(.callout)
                     .foregroundStyle(AppTheme.inkSoft)
             }
@@ -125,12 +141,15 @@ struct SearchView: View {
                 title: "从书名开始",
                 message: enabledSources.isEmpty
                     ? "请先到“书源”页面导入并启用至少一个书源。"
-                    : "输入书名或作者，墨阅会同时搜索所有启用书源。"
+                    : "输入书名或作者，iBooks 会同时搜索所有启用书源。"
             )
             Spacer()
         } else {
             ScrollView {
                 LazyVStack(spacing: 13) {
+                    if viewModel.isSearching {
+                        HStack { ProgressView(); Text("继续搜索其他书源 · \(viewModel.completedSources)/\(viewModel.totalSources)").font(.caption).foregroundStyle(.secondary); Spacer() }
+                    }
                     ForEach(viewModel.resultGroups) { group in
                         let book = group.primary
                         if let source = enabledSources.first(where: { $0.id == book.sourceID }) {
@@ -156,7 +175,7 @@ struct SearchView: View {
         guard let cleaned = keyword.nilIfBlank else { return }
         keyword = cleaned
         saveSearchHistory(cleaned)
-        Task { await viewModel.search(keyword: cleaned, sources: enabledSources) }
+        Task { await viewModel.search(keyword: cleaned, sources: searchSources) }
     }
 
     private func saveSearchHistory(_ value: String) {
@@ -187,7 +206,7 @@ struct SearchResultRow: View {
             BookCoverView(urlString: book.coverURL, title: book.name, width: 64, height: 92)
             VStack(alignment: .leading, spacing: 5) {
                 Text(book.name)
-                    .font(.system(size: 18, weight: .semibold, design: .serif))
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(AppTheme.ink)
                     .lineLimit(2)
                 Text(book.author.nilIfBlank ?? "作者未知")
@@ -215,6 +234,7 @@ struct SearchResultRow: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .inkCard()
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }

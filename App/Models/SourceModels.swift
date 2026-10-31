@@ -46,11 +46,15 @@ struct BookSourceDefinition: Codable, Hashable, Identifiable, Sendable {
         bookSourceUrl = try container.decodeIfPresent(String.self, forKey: .bookSourceUrl) ?? ""
         bookSourceName = try container.decodeIfPresent(String.self, forKey: .bookSourceName) ?? ""
         bookSourceGroup = try container.decodeIfPresent(String.self, forKey: .bookSourceGroup)
-        bookSourceType = try container.decodeIfPresent(Int.self, forKey: .bookSourceType)
-        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
-        enabledExplore = try container.decodeIfPresent(Bool.self, forKey: .enabledExplore)
+        bookSourceType = (try? container.decode(Int.self, forKey: .bookSourceType))
+            ?? (try? container.decode(String.self, forKey: .bookSourceType)).flatMap { Int($0) }
+        enabled = try container.decodeFlexibleBool(forKey: .enabled)
+        enabledExplore = try container.decodeFlexibleBool(forKey: .enabledExplore)
         lastUpdateTime = try container.decodeIfPresent(Int64.self, forKey: .lastUpdateTime)
-        header = try container.decodeIfPresent(String.self, forKey: .header)
+        if let value = try? container.decode(String.self, forKey: .header) { header = value }
+        else if let value = try? container.decode([String: String].self, forKey: .header) {
+            header = String(data: try JSONEncoder().encode(value), encoding: .utf8)
+        } else { header = nil }
         loginUrl = try container.decodeIfPresent(String.self, forKey: .loginUrl)
         searchUrl = try container.decodeIfPresent(String.self, forKey: .searchUrl)
         exploreUrl = try container.decodeIfPresent(String.self, forKey: .exploreUrl)
@@ -165,6 +169,20 @@ extension String {
 }
 
 private extension KeyedDecodingContainer {
+    func decodeFlexibleBool(forKey key: Key) throws -> Bool? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) { return nil }
+        if let value = try? decode(Bool.self, forKey: key) { return value }
+        if let value = try? decode(Int.self, forKey: key), value == 0 || value == 1 { return value == 1 }
+        if let value = try? decode(String.self, forKey: key) {
+            switch value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+            case "true", "1", "yes", "on": return true
+            case "false", "0", "no", "off": return false
+            default: break
+            }
+        }
+        throw DecodingError.dataCorruptedError(forKey: key, in: self, debugDescription: "开关字段必须为 true/false 或 1/0")
+    }
     func decodeFlexibleRule<T: Decodable>(
         _ type: T.Type,
         forKey key: Key

@@ -2,6 +2,17 @@ import XCTest
 @testable import QuietReader
 
 final class SourceImporterTests: XCTestCase {
+    func testLocalFileUsesCoordinatedReadingWithoutRemoteSubscriptionSizeLimit() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("书源-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let json = #"{"sourceId":"local-file-test","bookSourceUrl":"https://example.com","bookSourceName":"本地文件书源","searchUrl":"/search?key={{key}}","ruleSearch":{"bookList":".book"}}"#
+        let data = Data(String(repeating: " ", count: 5_000_001).utf8) + Data(json.utf8)
+        try data.write(to: url)
+        let result = try await SourceImporter().importFile(url)
+        XCTAssertEqual(result.sources.map(\.id), ["local-file-test"])
+        XCTAssertEqual(result.sources.first?.bookSourceName, "本地文件书源")
+    }
+
     func testBundledSourcesContainThreeEnabledAndTwoRetiredNoLoginSources() throws {
         let url = try XCTUnwrap(
             Bundle.main.url(forResource: "community-sources", withExtension: "json")

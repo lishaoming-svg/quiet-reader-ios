@@ -15,6 +15,7 @@ struct SourceEngine {
         page: Int = 1,
         source: BookSourceDefinition
     ) async throws -> [SearchBook] {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).search(keyword: keyword, page: page) }
         guard let template = source.searchUrl?.nilIfBlank,
               let rules = source.ruleSearch,
               rules.bookList?.nilIfBlank != nil else {
@@ -82,6 +83,7 @@ struct SourceEngine {
         book: SearchBook,
         source: BookSourceDefinition
     ) async throws -> SearchBook {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).details(book) }
         guard let rules = source.ruleBookInfo else { return book }
         let url = try URLTemplateRenderer.render(book.bookURL)
         let resource = try await client.fetch(url, source: source)
@@ -107,6 +109,10 @@ struct SourceEngine {
         book: SearchBook,
         source: BookSourceDefinition
     ) async throws -> [BookChapter] {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).chapters(book) }
+        if source.id == LocalBookStorage.sourceID {
+            return try LocalBookStorage.book(at: book.bookURL).chapters
+        }
         guard let rules = source.ruleToc,
               let chapterListRule = rules.chapterList?.nilIfBlank else {
             return [BookChapter(title: "全文", url: book.bookURL, index: 0)]
@@ -155,10 +161,19 @@ struct SourceEngine {
         chapter: BookChapter,
         source: BookSourceDefinition
     ) async throws -> String {
+        try await loadDocument(chapter: chapter, source: source).text
+    }
+
+    func loadDocument(chapter: BookChapter, source: BookSourceDefinition) async throws -> SourceChapterDocument {
+        if NativeLofterAdapter.accepts(source) { return try await NativeLofterAdapter(source: source).document(chapter) }
+        if source.id == LocalBookStorage.sourceID {
+            return SourceChapterDocument(text: try LocalBookStorage.content(at: chapter.url))
+        }
         let rules = source.ruleContent
         var currentURL = try URLTemplateRenderer.render(chapter.url)
         var visited = Set<String>()
         var pages: [String] = []
+        var markup: [String] = []
 
         for pageIndex in 0..<Self.maximumContentPageCount {
             guard visited.insert(currentURL.absoluteString).inserted else { break }
@@ -174,7 +189,10 @@ struct SourceEngine {
             )
             let root = try extractor.root(from: adjustedResource)
             let contentRule = rules?.content?.nilIfBlank ?? "@text"
-            let content = try extractor.string(contentRule, in: root)
+            var content = try extractor.chapterHTML(contentRule, in: root)
+            if let replaceRule = rules?.replaceRegex?.nilIfBlank {
+                content = ReadableContentFormatter.removingMatches(in: content, rule: replaceRule)
+            }
             var cleaned = ReadableContentFormatter.plainText(from: content)
             if let replaceRule = rules?.replaceRegex?.nilIfBlank {
                 cleaned = ReadableContentFormatter.removingMatches(
@@ -186,6 +204,10 @@ struct SourceEngine {
                 throw SourceEngineError.authenticationRequired(message)
             }
             if !cleaned.isEmpty { pages.append(cleaned) }
+            if let document = try? SourceChapterDocument.sanitized(content, baseURL: resource.finalURL) {
+                markup.append(document.html)
+                if cleaned.isEmpty { pages.append(document.text) }
+            }
 
             guard let nextRule = rules?.nextContentUrl?.nilIfBlank else { break }
             let next = try extractor.string(nextRule, in: root, asURL: true)
@@ -201,7 +223,7 @@ struct SourceEngine {
             pages.joined(separator: "\n\n")
         )
         guard !result.isEmpty else { throw SourceEngineError.emptyContent }
-        return result
+        return SourceChapterDocument(text: result, html: markup.isEmpty ? nil : markup.joined(separator: "\n"))
     }
 
     static func authenticationMessage(in value: String) -> String? {

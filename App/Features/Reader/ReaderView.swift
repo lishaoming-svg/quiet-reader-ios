@@ -1,16 +1,23 @@
 import SwiftData
 import SwiftUI
 
-struct ReaderView: View {
+struct NativeTextReaderView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Query private var annotations: [BookmarkRecord]
     @AppStorage("reader.fontSize") private var fontSize = 19.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
     @AppStorage("reader.paper") private var paperValue = ReaderPaper.warm.rawValue
-    @AppStorage("reader.serif") private var usesSerif = true
-    @AppStorage("reader.mode") private var modeValue = ReaderMode.scroll.rawValue
+    @AppStorage("reader.serif") private var usesSerif = false
+    @AppStorage("reader.lineGuideEnabled") private var lineGuideEnabled = false
+    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageCurl.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
+    @AppStorage("reader.family") private var fontFamily = BooksFont.pingfang.rawValue
+    @AppStorage("reader.bold") private var bold = false
+    @AppStorage("reader.importedFont") private var importedFont = ""
     @ObservedObject private var audiobookPlayer = AudiobookPlayer.shared
 
     let book: SearchBook
@@ -23,6 +30,8 @@ struct ReaderView: View {
     @State private var pages: [ReaderPage] = []
     @State private var pageIndex = 0
     @State private var scrollBlockID: Int?
+    @State private var continuousNavigation: ((ContinuousReadingPosition) -> Void)?
+    @State private var continuousFraction = 0.0
     @State private var pendingLocatorOffset: Int?
     @State private var pendingChapterFraction: Double?
     @State private var layoutSize = CGSize.zero
@@ -30,8 +39,13 @@ struct ReaderView: View {
     @State private var errorMessage: String?
     @State private var authenticationRequired = false
     @State private var showingSourceLogin = false
-    @State private var controlsVisible = true
+    @State private var controlsVisible = false
     @State private var showingSettings = false
+    @State private var showingToolbox = false
+    @State private var showingContents = false
+    @State private var editingAnnotation: BookmarkRecord?
+    @State private var pendingNote = false
+    @State private var showingSearch = false
     @State private var showingBookmarks = false
     @State private var showingAudiobook = false
     @State private var audiobookSegments: [AudiobookTimedSegment] = []
@@ -63,7 +77,10 @@ struct ReaderView: View {
 
     private var chapter: BookChapter { chapters[currentIndex] }
     private var paper: ReaderPaper { ReaderPaper(rawValue: paperValue) ?? .warm }
-    private var readerMode: ReaderMode { ReaderMode(rawValue: modeValue) ?? .scroll }
+    private var readerMode: ReaderMode {
+        let selected = ReaderMode(rawValue: modeValue) ?? .pageCurl
+        return reduceMotion && selected == .pageCurl ? .pageNone : selected
+    }
     private var readerMargin: ReaderMargin {
         ReaderMargin(rawValue: marginValue) ?? .comfortable
     }
@@ -88,6 +105,7 @@ struct ReaderView: View {
             ZStack {
                 paper.background.ignoresSafeArea()
                 readerContent
+                if lineGuideEnabled { ReaderLineGuide(paper: paper.background, lineHeight: fontSize + lineSpacing) }
             }
             .onAppear {
                 layoutSize = proxy.size
@@ -105,28 +123,87 @@ struct ReaderView: View {
             )
         }
         .navigationTitle(book.name)
+        .navigationBarBackButtonHidden()
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(controlsVisible ? .visible : .hidden, for: .navigationBar)
+        .accessibilityAction(named: "显示阅读菜单") { controlsVisible = true }
+        .accessibilityAction(.escape) { dismiss() }
+        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        .statusBarHidden(!controlsVisible)
         .toolbarBackground(paper.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar { readerToolbar }
+        .toolbarColorScheme(paper == .night ? .dark : .light, for: .navigationBar)
+        .environment(\.colorScheme, paper == .night ? .dark : .light)
+        .overlay(alignment: .top) { if controlsVisible { floatingHeader } }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if sentencePlaybackMode, !audiobookSegments.isEmpty {
                 sentencePlaybackControls
             } else if controlsVisible {
-                readerControls
+                VStack(spacing: 8) {
+                    HStack {
+                        Spacer(minLength: 56)
+                        Text(readerMode.usesPages ? "\(progressLabel) 页" : progressLabel)
+                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                            .padding(.horizontal, 14).frame(minHeight: 36).background(.regularMaterial, in: Capsule())
+                            .accessibilityLabel(readerMode.usesPages ? "本章第 \(progressLabel) 页" : "本章进度 \(progressLabel)")
+                        Spacer(minLength: 12)
+                        Button { showingToolbox.toggle() } label: {
+                            Image(systemName: "line.3.horizontal.decrease").font(.title2.bold()).frame(width: 48, height: 48)
+                        }.background(.regularMaterial, in: Circle()).accessibilityLabel("阅读菜单").accessibilityIdentifier("reader.menu")
+                    }.foregroundStyle(paper.primaryText).padding(.horizontal, 24).padding(.bottom, 8)
+                }
             }
         }
-        .sheet(isPresented: $showingSettings) { ReaderSettingsView() }
+        .overlay(alignment: .bottomTrailing) {
+            if controlsVisible && showingToolbox {
+                ReaderToolbox(contents: { showingToolbox = false; showingContents = true },
+                    search: { showingToolbox = false; showingSearch = true },
+                    settings: { showingToolbox = false; showingSettings = true },
+                    direction: {}, scroll: { modeValue = readerMode == .scroll ? ReaderMode.pageCurl.rawValue : ReaderMode.scroll.rawValue; showingToolbox = false },
+                    bookmark: { toggleBookmark() }, shareURL: nil,
+                    lineGuide: { lineGuideEnabled.toggle(); showingToolbox = false; controlsVisible = false },
+                    notes: { showingToolbox = false; showingBookmarks = true }, bookmarkAdded: currentBookmarkID != nil,
+                    listen: { showingToolbox = false; showingAudiobook = true })
+                    .padding(.horizontal, 24).padding(.bottom, 64)
+            }
+        }
+        .onChange(of: controlsVisible) { _, visible in if !visible { showingToolbox = false } }
+        .sheet(isPresented: $showingContents) {
+            NativeReaderContentsView(chapters: chapters, currentIndex: currentIndex) { index in
+                showingContents = false; goToChapter(index, locatorOffset: 0)
+            }
+        }
+        .sheet(item: $editingAnnotation) { AnnotationEditorView(bookmark: $0) }
+        .sheet(isPresented: $showingSearch) {
+            NavigationStack {
+                EPUBTextSearchView(book: book, chapters: chapters, source: source.id == LocalBookStorage.sourceID ? nil : source) { index, excerpt in
+                    showingSearch = false
+                    let body = (try? LocalBookStorage.content(at: chapters[index].url)) ?? ""
+                    let range = (body as NSString).range(of: excerpt)
+                    goToChapter(index, locatorOffset: range.location == NSNotFound ? 0 : range.location)
+                }.navigationTitle("在图书中搜索").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingSearch = false } } }
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            ReaderSettingsView().presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showingSourceLogin) {
             SourceLoginView(source: source) {
                 authenticationRequired = false
                 Task { await loadChapter(forceRefresh: true) }
             }
         }
-        .sheet(isPresented: $showingBookmarks) {
-            BookmarkListView(bookID: book.id) { bookmark in
+        .sheet(isPresented: $showingBookmarks, onDismiss: {
+            if pendingNote {
+                pendingNote = false
+                editingAnnotation = BookmarkRecord(book: book, chapter: chapter, locatorOffset: currentLocatorOffset,
+                    chapterProgress: chapterProgress, excerpt: ReaderDocumentBuilder.excerpt(from: content, locatorOffset: currentLocatorOffset))
+            }
+        }) {
+            BookmarkListView(bookID: book.id, addNote: {
+                pendingNote = true; showingBookmarks = false
+            }) { bookmark in
                 showingBookmarks = false
                 let targetIndex = chapters.firstIndex(where: { $0.url == bookmark.chapterURL })
                     ?? bookmark.chapterIndex
@@ -159,6 +236,7 @@ struct ReaderView: View {
         .onChange(of: modeValue) { oldValue, _ in
             let oldMode = ReaderMode(rawValue: oldValue) ?? .scroll
             let locator = locatorOffset(for: oldMode)
+            if readerMode != .scroll { continuousNavigation = nil }
             rebuildPages(keeping: locator)
             applyLocator(locator)
             saveProgress()
@@ -166,6 +244,9 @@ struct ReaderView: View {
         .onChange(of: fontSize) { _, _ in repaginateForSettingsChange() }
         .onChange(of: lineSpacing) { _, _ in repaginateForSettingsChange() }
         .onChange(of: usesSerif) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: fontFamily) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: bold) { _, _ in repaginateForSettingsChange() }
+        .onChange(of: importedFont) { _, _ in repaginateForSettingsChange() }
         .onChange(of: marginValue) { _, _ in repaginateForSettingsChange() }
         .onChange(of: paragraphIndent) { _, _ in repaginateForSettingsChange() }
         .onChange(of: audiobookPlayer.currentChapterIndex) { _, targetIndex in
@@ -182,6 +263,34 @@ struct ReaderView: View {
         .onChange(of: audiobookPlayer.currentLocatorOffset) { _, _ in
             followAudiobookText()
         }
+    }
+
+    private var floatingHeader: some View {
+        HStack {
+            Spacer(minLength: 56)
+            Text(book.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                .padding(.horizontal, 16).padding(.vertical, 9).background(.regularMaterial, in: Capsule())
+            Spacer(minLength: 12)
+            Button { dismiss() } label: { Image(systemName: "xmark").font(.title2.weight(.semibold)).frame(width: 48, height: 48) }
+                .background(.regularMaterial, in: Circle()).accessibilityLabel("关闭图书").accessibilityIdentifier("reader.close")
+        }.foregroundStyle(paper.primaryText).padding(.horizontal, 24).padding(.top, 4)
+    }
+
+    private var floatingActions: some View {
+        HStack(spacing: 24) {
+            Button { lineGuideEnabled.toggle(); controlsVisible = false } label: { Image(systemName: "line.3.horizontal").frame(width: 44, height: 44) }
+                .accessibilityLabel(lineGuideEnabled ? "关闭逐行导读" : "开启逐行导读").accessibilityIdentifier("reader.lineGuide")
+            Menu {
+                ForEach(chapters) { item in Button(item.title) { goToChapter(item.index, locatorOffset: 0) } }
+            } label: { Image(systemName: "list.bullet").frame(width: 44, height: 44) }
+                .accessibilityLabel("目录").accessibilityIdentifier("reader.toc")
+            Button { toggleBookmark() } label: { Image(systemName: currentBookmarkID == nil ? "bookmark" : "bookmark.fill").frame(width: 44, height: 44) }
+                .accessibilityLabel(currentBookmarkID == nil ? "添加书签" : "移除书签")
+            Button { showingAudiobook = true } label: { Image(systemName: "headphones").frame(width: 44, height: 44) }
+                .accessibilityLabel("听书")
+            Button { showingSettings = true } label: { Image(systemName: "textformat.size").frame(width: 44, height: 44) }
+                .accessibilityLabel("主题与设置").accessibilityIdentifier("reader.settings")
+        }.font(.title3).foregroundStyle(paper.primaryText).padding(.horizontal, 12).background(.regularMaterial, in: Capsule())
     }
 
     @ViewBuilder
@@ -221,6 +330,28 @@ struct ReaderView: View {
     }
 
     private var scrollingReader: some View {
+        NativeContinuousCanvas(book: book, chapters: chapters, source: source,
+            initial: .init(index: currentIndex, fraction: chapterProgress),
+            theme: paper == .night ? "dark" : paper == .warm ? "sepia" : "light", fontSize: fontSize,
+            typography: ["font": ReaderTypography.bodyUIFont(size: fontSize, usesSerif: usesSerif).fontName,
+                "embedded": ImportedFontStore.fonts.contains { $0.postScriptName == UserDefaults.standard.string(forKey: "reader.importedFont") },
+                "lineSpacing": lineSpacing, "paragraphSpacing": ReaderTypography.paragraphSpacing(for: lineSpacing),
+                "indent": paragraphIndent, "margin": readerMargin.horizontalPadding, "maxWidth": readerMargin.maximumContentWidth,
+                "paper": paper == .green ? "#deebdb" : paper == .night ? "#141a1c" : paper == .white ? "#fafaf7" : "#f2e3c8"],
+            scrolled: { controlsVisible = false },
+            changed: { position in
+                if currentIndex != position.index, chapters.indices.contains(position.index) {
+                    currentIndex = position.index
+                    if let text = try? LocalBookStorage.content(at: chapters[position.index].url) {
+                        content = text; blocks = ReaderDocumentBuilder.blocks(from: text)
+                    }
+                }
+                continuousFraction = position.fraction
+                recordActivity(); locationDidChange()
+            }, installNavigation: { continuousNavigation = $0 })
+    }
+
+    private var legacyScrollingReader: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 chapterHeading
@@ -358,6 +489,13 @@ struct ReaderView: View {
     private var pagedReader: some View {
         if pages.isEmpty {
             ProgressView().tint(AppTheme.vermilion)
+        } else if readerMode == .pageCurl {
+            ReaderPageCurlView(count: pages.count,
+                revision: "\(chapter.url)-\(layoutSize)-\(fontSize)-\(lineSpacing)-\(usesSerif)-\(marginValue)-\(paragraphIndent)-\(paperValue)-\(fontFamily)-\(bold)-\(importedFont)-\(annotations.count)",
+                background: UIColor(paper.background), index: $pageIndex) { index in
+                    pageView(pages[index]).background(paper.background)
+                }
+                .onChange(of: pageIndex) { _, _ in recordActivity(); locationDidChange() }
         } else if readerMode == .pageSlide {
             TabView(selection: $pageIndex) {
                 ForEach(pages) { page in
@@ -390,6 +528,7 @@ struct ReaderView: View {
             pageHeader
                 .frame(height: ReaderTypography.pageHeaderHeight)
                 .padding(.bottom, ReaderTypography.pageHeaderBottomSpacing)
+                .opacity(controlsVisible ? 1 : 0).accessibilityHidden(!controlsVisible)
 
             if page.showsChapterTitle {
                 chapterHeading
@@ -406,7 +545,9 @@ struct ReaderView: View {
                 lineSpacing: lineSpacing,
                 usesSerif: usesSerif,
                 textColor: UIColor(paper.primaryText),
-                highlightedText: activeAudiobookSegment?.text
+                highlightedText: activeAudiobookSegment?.text,
+                highlights: pageHighlights(page),
+                onAnnotation: { range, edit in annotate(page: page, range: range, edit: edit) }
             )
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -415,6 +556,7 @@ struct ReaderView: View {
             pageFooter(page)
                 .frame(height: ReaderTypography.pageFooterHeight)
                 .padding(.top, ReaderTypography.pageFooterTopSpacing)
+                .opacity(controlsVisible ? 1 : 0).accessibilityHidden(!controlsVisible)
         }
         .frame(width: readerContentWidth)
         .frame(maxHeight: .infinity)
@@ -445,14 +587,12 @@ struct ReaderView: View {
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .tracking(1.2)
                 .foregroundStyle(paper.secondaryText)
+                .opacity(controlsVisible ? 1 : 0).accessibilityHidden(!controlsVisible)
             Text(chapter.title)
                 .font(chapterTitleFont)
                 .lineSpacing(4)
                 .foregroundStyle(paper.primaryText)
                 .lineLimit(2)
-            Capsule()
-                .fill(AppTheme.vermilion.opacity(0.82))
-                .frame(width: 28, height: 2)
         }
         .accessibilityElement(children: .combine)
     }
@@ -583,6 +723,10 @@ struct ReaderView: View {
 
     @ToolbarContentBuilder
     private var readerToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button { dismiss() } label: { Image(systemName: "xmark") }
+                .accessibilityLabel("关闭图书").accessibilityIdentifier("reader.close")
+        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
                 ForEach(chapters) { item in
@@ -591,11 +735,13 @@ struct ReaderView: View {
             } label: {
                 Image(systemName: "list.bullet")
             }
+            .accessibilityLabel("目录").accessibilityIdentifier("reader.toc")
             Button {
                 toggleBookmark()
             } label: {
                 Image(systemName: currentBookmarkID == nil ? "bookmark" : "bookmark.fill")
             }
+            .accessibilityLabel(currentBookmarkID == nil ? "添加书签" : "移除书签")
             if !audiobookSegments.isEmpty {
                 Button {
                     if sentencePlaybackMode {
@@ -622,6 +768,7 @@ struct ReaderView: View {
             } label: {
                 Image(systemName: "textformat.size")
             }
+            .accessibilityLabel("主题与设置").accessibilityIdentifier("reader.settings")
         }
     }
 
@@ -717,6 +864,7 @@ struct ReaderView: View {
     private var currentLocatorOffset: Int { locatorOffset(for: readerMode) }
 
     private func locatorOffset(for mode: ReaderMode) -> Int {
+        if mode == .scroll, continuousNavigation != nil { return Int(continuousFraction * Double((content as NSString).length)) }
         if mode.usesPages {
             return pages[safe: pageIndex]?.locatorOffset ?? pendingLocatorOffset ?? 0
         }
@@ -728,6 +876,7 @@ struct ReaderView: View {
     }
 
     private var chapterProgress: Double {
+        if readerMode == .scroll, continuousNavigation != nil { return continuousFraction }
         if readerMode.usesPages, pages.count > 1 {
             return Double(pageIndex) / Double(pages.count - 1)
         }
@@ -746,6 +895,7 @@ struct ReaderView: View {
     private func handleTap(at location: CGPoint, width: CGFloat) {
         recordActivity()
         guard !sentencePlaybackMode else { return }
+        if readerMode == .scroll { controlsVisible.toggle(); return }
         let fraction = location.x / max(width, 1)
         if fraction < 0.28 {
             if readerMode == .scroll { moveScroll(by: -3) } else { turnPage(-1) }
@@ -760,7 +910,7 @@ struct ReaderView: View {
         recordActivity()
         let target = pageIndex + direction
         if pages.indices.contains(target) {
-            if readerMode == .pageSlide {
+            if readerMode == .pageSlide || readerMode == .pageCurl {
                 withAnimation(.easeOut(duration: 0.22)) { pageIndex = target }
             } else {
                 var transaction = Transaction()
@@ -784,6 +934,11 @@ struct ReaderView: View {
 
     private func goToChapter(_ index: Int, locatorOffset: Int) {
         guard chapters.indices.contains(index) else { return }
+        if readerMode == .scroll, let navigate = continuousNavigation {
+            let length = (try? LocalBookStorage.content(at: chapters[index].url))?.utf16.count ?? 1
+            let fraction = locatorOffset == .max ? 1 : min(1, Double(locatorOffset) / Double(max(1, length)))
+            navigate(.init(index: index, fraction: fraction)); return
+        }
         recordActivity()
         pendingChapterFraction = nil
         pendingLocatorOffset = locatorOffset
@@ -799,6 +954,9 @@ struct ReaderView: View {
         let scaled = min(max(progress, 0), 0.999_999) * Double(chapters.count)
         let targetChapter = min(Int(scaled), chapters.count - 1)
         let fraction = scaled - Double(targetChapter)
+        if readerMode == .scroll, let navigate = continuousNavigation {
+            navigate(.init(index: targetChapter, fraction: fraction)); return
+        }
         pendingChapterFraction = fraction
         pendingLocatorOffset = nil
 
@@ -846,6 +1004,11 @@ struct ReaderView: View {
         let locator = rawLocator == .max ? length : min(max(rawLocator, 0), length)
         pendingLocatorOffset = locator
 
+        if readerMode == .scroll, let navigate = continuousNavigation {
+            navigate(.init(index: currentIndex, fraction: Double(locator) / Double(max(1, length))))
+            return
+        }
+
         if readerMode.usesPages {
             pageIndex = ReaderPaginator.pageIndex(for: locator, in: pages)
         } else if let block = blocks.last(where: { $0.locatorOffset <= locator }) ?? blocks.first {
@@ -878,6 +1041,7 @@ struct ReaderView: View {
     }
 
     private func loadChapter(forceRefresh: Bool = false) async {
+        if readerMode == .scroll, continuousNavigation != nil, !forceRefresh { return }
         prefetchTask?.cancel()
         let requestedIndex = currentIndex
         let currentChapter = chapters[requestedIndex]
@@ -893,11 +1057,11 @@ struct ReaderView: View {
         scrollBlockID = nil
 
         if !forceRefresh, let cached = cachedChapter(url: currentChapter.url) {
-            let requiresRefresh = SourceEngine.authenticationMessage(in: cached.content) != nil
+            let requiresRefresh = source.id != LocalBookStorage.sourceID && (SourceEngine.authenticationMessage(in: cached.content) != nil
                 || ReadableContentFormatter.shouldRefreshLegacyCache(
                     cached.content,
                     sourceID: source.id
-                )
+                ))
             if !requiresRefresh {
                 guard !Task.isCancelled, currentIndex == requestedIndex else { return }
                 prepareDocument(cached.content, chapter: currentChapter)
@@ -942,7 +1106,7 @@ struct ReaderView: View {
                         source: source
                     )
                     guard !Task.isCancelled else { return }
-                    cache(target, content: ReadableTextNormalizer.normalize(value))
+                    cache(target, content: ReadingTextPreparation.prepare(value, sourceID: source.id))
                 } catch is CancellationError {
                     return
                 } catch let error as URLError where error.code == .cancelled {
@@ -955,7 +1119,7 @@ struct ReaderView: View {
     }
 
     private func prepareDocument(_ value: String, chapter: BookChapter) {
-        let normalized = ReadableTextNormalizer.normalize(value)
+        let normalized = ReadingTextPreparation.prepare(value, sourceID: source.id)
         content = normalized
         blocks = ReaderDocumentBuilder.blocks(from: normalized)
         refreshChapterAudiobook()
@@ -1035,6 +1199,7 @@ struct ReaderView: View {
                 pageIndex: pageIndex,
                 readingMode: readerMode.rawValue
             )
+            progress.bookProgress = fullBookProgress
         } else {
             let progress = ReadingProgressRecord(bookID: bookID, chapter: chapter)
             progress.update(
@@ -1045,6 +1210,7 @@ struct ReaderView: View {
                 readingMode: readerMode.rawValue
             )
             modelContext.insert(progress)
+            progress.bookProgress = fullBookProgress
         }
 
         let bookDescriptor = FetchDescriptor<BookRecord>(
@@ -1081,6 +1247,30 @@ struct ReaderView: View {
         }
         try? modelContext.save()
         refreshBookmarkState()
+    }
+    private func pageHighlights(_ page: ReaderPage) -> [ReaderTextHighlight] {
+        let document = ReaderDocumentBuilder.displayDocument(from: content, paragraphIndent: paragraphIndent)
+        let base = document.displayedOffset(forLocatorOffset: page.locatorOffset)
+        return annotations.filter { $0.bookID == book.id && $0.chapterURL == chapter.url && $0.noteKind != "bookmark" }.compactMap { mark in
+            let start = document.displayedOffset(forLocatorOffset: mark.locatorOffset)
+            let end = document.displayedOffset(forLocatorOffset: mark.importedEndOffset ?? mark.locatorOffset + (mark.excerpt as NSString).length)
+            let range = NSIntersectionRange(NSRange(location: max(0, start), length: max(0, end - start)), NSRange(location: base, length: (page.text as NSString).length))
+            guard range.length > 0 else { return nil }
+            return ReaderTextHighlight(range: NSRange(location: range.location - base, length: range.length), color: UIColor((AnnotationColor(rawValue: mark.annotationColor ?? "yellow") ?? .yellow).color))
+        }
+    }
+    private func annotate(page: ReaderPage, range: NSRange, edit: Bool) {
+        let document = ReaderDocumentBuilder.displayDocument(from: content, paragraphIndent: paragraphIndent)
+        let base = document.displayedOffset(forLocatorOffset: page.locatorOffset)
+        let start = document.locatorOffset(forDisplayedUTF16Offset: base + range.location)
+        let end = document.locatorOffset(forDisplayedUTF16Offset: base + NSMaxRange(range))
+        let text = content as NSString
+        guard end > start, start >= 0, end <= text.length else { return }
+        let mark = BookmarkRecord(book: book, chapter: chapter, locatorOffset: start, chapterProgress: chapterProgress,
+            excerpt: text.substring(with: NSRange(location: start, length: end - start)))
+        mark.noteKind = "highlight"; mark.annotationColor = "yellow"; mark.importedEndOffset = end
+        if edit { editingAnnotation = mark }
+        else { modelContext.insert(mark); do { try modelContext.save() } catch { errorMessage = error.localizedDescription } }
     }
 
     private func refreshBookmarkState() {
@@ -1182,8 +1372,9 @@ private struct ReaderSettingsView: View {
     @AppStorage("reader.fontSize") private var fontSize = 19.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 9.0
     @AppStorage("reader.paper") private var paperValue = ReaderPaper.warm.rawValue
-    @AppStorage("reader.serif") private var usesSerif = true
-    @AppStorage("reader.mode") private var modeValue = ReaderMode.scroll.rawValue
+    @AppStorage("reader.serif") private var usesSerif = false
+    @AppStorage("reader.lineGuideEnabled") private var lineGuideEnabled = false
+    @AppStorage("reader.mode") private var modeValue = ReaderMode.pageCurl.rawValue
     @AppStorage("reader.margin") private var marginValue = ReaderMargin.comfortable.rawValue
     @AppStorage("reader.paragraphIndent") private var paragraphIndent = true
 
@@ -1199,6 +1390,8 @@ private struct ReaderSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                BooksAppearanceControls()
+                Section("专注阅读") { Toggle("逐行导读", isOn: $lineGuideEnabled) }
                 Section("翻页") {
                     Picker("翻页方式", selection: $modeValue) {
                         ForEach(ReaderMode.allCases) { mode in
@@ -1219,8 +1412,6 @@ private struct ReaderSettingsView: View {
                     LabeledContent("行距", value: "\(Int(lineSpacing))")
                     Slider(value: $lineSpacing, in: 3...16, step: 1)
                         .tint(AppTheme.vermilion)
-                    Toggle("使用宋体正文", isOn: $usesSerif)
-                        .tint(AppTheme.vermilion)
                 }
                 Section("版式") {
                     Picker("页面留白", selection: $marginValue) {
@@ -1234,7 +1425,8 @@ private struct ReaderSettingsView: View {
                     Button("恢复舒适默认版式") {
                         fontSize = 19
                         lineSpacing = 9
-                        usesSerif = true
+                        usesSerif = false
+                        paperValue = ReaderPaper.warm.rawValue
                         marginValue = ReaderMargin.comfortable.rawValue
                         paragraphIndent = true
                     }
@@ -1254,7 +1446,7 @@ private struct ReaderSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("阅读设置")
+            .navigationTitle("主题与设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1282,14 +1474,18 @@ private enum ReaderPaper: String, CaseIterable, Identifiable {
     }
     var background: Color {
         switch self {
-        case .warm: AppTheme.paper
+        case .warm: Color(red: 242/255, green: 227/255, blue: 200/255)
         case .white: Color(red: 0.98, green: 0.98, blue: 0.97)
         case .green: Color(red: 0.87, green: 0.92, blue: 0.86)
         case .night: Color(red: 0.08, green: 0.10, blue: 0.11)
         }
     }
-    var primaryText: Color { self == .night ? Color(red: 0.78, green: 0.78, blue: 0.73) : AppTheme.ink }
-    var secondaryText: Color { self == .night ? Color(red: 0.58, green: 0.60, blue: 0.58) : AppTheme.inkSoft }
+    var primaryText: Color {
+        self == .night ? Color(red: 0.78, green: 0.78, blue: 0.73) : Color(red: 0.12, green: 0.12, blue: 0.13)
+    }
+    var secondaryText: Color {
+        self == .night ? Color(red: 0.58, green: 0.60, blue: 0.58) : Color(red: 0.43, green: 0.43, blue: 0.45)
+    }
 }
 
 private extension Array {
