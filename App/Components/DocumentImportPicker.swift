@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// the importer validates the bytes and extension after selection.
 struct DocumentImportPicker: UIViewControllerRepresentable {
     var multiple = true
+    var contentTypes: [UTType]? = nil
     var completion: (Result<[URL], Error>) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
@@ -13,7 +14,7 @@ struct DocumentImportPicker: UIViewControllerRepresentable {
         // File providers handle the file hierarchy (.data) more reliably than
         // the common parent of files and directories (.item). Explicit formats
         // also keep EPUB/Office packages visible on older provider databases.
-        let types = LocalBookImporter.contentTypes + [.data, .zip, .json]
+        let types = contentTypes ?? (LocalBookImporter.contentTypes + [.data, .zip, .json])
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.allowsMultipleSelection = multiple
         picker.delegate = context.coordinator
@@ -46,21 +47,25 @@ final class ImportedFileAccess: @unchecked Sendable {
 }
 
 enum CoordinatedFileReader {
-    static func read(_ url: URL, limit: Int) throws -> Data {
+    static func withReadingAccess<Value>(to url: URL, _ action: (URL) throws -> Value) throws -> Value {
         var failure: NSError?
-        var result: Result<Data, Error>?
+        var result: Result<Value, Error>?
         NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &failure) { coordinated in
-            result = Result {
-                let values = try coordinated.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
-                guard values.isDirectory != true else { throw LocalBookError.unsupported }
-                guard (values.fileSize ?? 0) <= limit else { throw LocalBookError.tooLarge }
-                let data = try Data(contentsOf: coordinated, options: .mappedIfSafe)
-                guard data.count <= limit else { throw LocalBookError.tooLarge }
-                return data
-            }
+            result = Result { try action(coordinated) }
         }
         if let failure { throw failure }
         guard let result else { throw LocalBookError.invalid }
         return try result.get()
+    }
+
+    static func read(_ url: URL, limit: Int) throws -> Data {
+        try withReadingAccess(to: url) { coordinated in
+            let values = try coordinated.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+            guard values.isDirectory != true else { throw LocalBookError.unsupported }
+            guard (values.fileSize ?? 0) <= limit else { throw LocalBookError.tooLarge }
+            let data = try Data(contentsOf: coordinated, options: .mappedIfSafe)
+            guard data.count <= limit else { throw LocalBookError.tooLarge }
+            return data
+        }
     }
 }

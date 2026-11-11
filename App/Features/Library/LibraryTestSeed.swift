@@ -23,6 +23,8 @@ enum LibraryTestSeed {
         guard ProcessInfo.processInfo.arguments.contains("--picker-fixtures") else { return }
         let folder = pickerDirectory
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let theme = Data(#"{"name":"潮汐主题","light":{"backgroundColor":"#FFF5EEE6"},"dark":{"backgroundColor":"#FF162536"}}"#.utf8)
+        try theme.write(to: folder.appendingPathComponent("应用主题 - 测试制作人 - 潮汐主题.json"), options: .atomic)
         let textFile = folder.appendingPathComponent("从文件导入.txt")
         if !FileManager.default.fileExists(atPath: textFile.path) {
             try Data("第一章 文件导入\n这段文字来自系统文件选择器，而非预先加入的书库。".utf8).write(to: textFile, options: .atomic)

@@ -88,7 +88,16 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.zip-archive]
+          - CFBundleTypeName: Reeden 主题包
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.quietreader.reeden-theme]
         UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.quietreader.reeden-theme
+            UTTypeDescription: Reeden 主题包
+            UTTypeConformsTo: [public.data, public.content]
+            UTTypeTagSpecification:
+              public.filename-extension: [red, reeden]
           - UTTypeIdentifier: com.quietreader.mobi
             UTTypeDescription: Kindle MOBI 图书
             UTTypeConformsTo: [public.data, public.content]
@@ -119,7 +128,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.quietreader.app
         MARKETING_VERSION: 0.9.0
-        CURRENT_PROJECT_VERSION: 38
+        CURRENT_PROJECT_VERSION: 39
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic

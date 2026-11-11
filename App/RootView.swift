@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @StateObject private var importer = BookImportCoordinator()
+    @StateObject private var themes = ReedenThemesModel()
     @State private var didRefreshBundledSources = false
     @State private var selectedTab = 0
     @State private var sourceFile: SourceFile?
@@ -29,6 +30,8 @@ struct RootView: View {
                         }
                     }
             }.tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(2)
+            NavigationStack { ReedenThemesView(model: themes) }
+                .tabItem { Label("主题", systemImage: "paintpalette") }.tag(3)
         }
         .environmentObject(importer)
         .tint(AppTheme.vermilion)
@@ -37,7 +40,9 @@ struct RootView: View {
         }
         .sheet(item: $sourceFile) { SourceImportView(file: $0.access) }
         .onOpenURL { url in
-            if url.pathExtension.lowercased() == "json" {
+            if ["red", "reeden"].contains(url.pathExtension.lowercased()) {
+                selectedTab = 3; themes.enqueue([url])
+            } else if url.pathExtension.lowercased() == "json" {
                 selectedTab = 2; sourceFile = SourceFile(access: ImportedFileAccess(url))
             } else { selectedTab = 1; importer.start([url], context: modelContext) }
         }

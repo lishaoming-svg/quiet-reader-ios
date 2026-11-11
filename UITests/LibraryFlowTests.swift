@@ -94,6 +94,34 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["library.emptyImport"].waitForExistence(timeout: 10))
     }
 
+    func testReedenThemeImportShowsCreatorAndExportOptions() {
+        executionTimeAllowance = 300
+        let app = launch(empty: true, files: true)
+        app.tabBars.buttons["主题"].tap()
+        let importButton = app.buttons["reeden.emptyImport"]
+        XCTAssertTrue(importButton.waitForExistence(timeout: 15))
+        importButton.tap()
+        let file = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "应用主题 - 测试制作人 - 潮汐主题")).firstMatch
+        let ready = expectation(for: NSPredicate { _, _ in file.exists && file.isHittable }, evaluatedWith: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 90), .completed)
+        file.tap()
+        let open = app.buttons["打开"]
+        if open.waitForExistence(timeout: 3) { open.tap() }
+        XCTAssertTrue(app.staticTexts["测试制作人"].waitForExistence(timeout: 30))
+        capture(app, "15-reeden-themes")
+        app.staticTexts["潮汐主题"].tap()
+        let upload = app.buttons["上传到网盘"]
+        XCTAssertTrue(upload.waitForExistence(timeout: 10))
+        capture(app, "16-reeden-preview")
+        let issues = audit(app, page: "主题预览")
+        upload.tap()
+        XCTAssertTrue(app.buttons["分享原文件"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["分享预览图"].exists)
+        capture(app, "17-reeden-export")
+        if !issues.isEmpty { XCTFail(issues.joined(separator: "\n")) }
+    }
+
     func testRichSourceContinuousScrollAndMovableLineGuide() {
         executionTimeAllowance = 300
         let app = launch(rich: true)
